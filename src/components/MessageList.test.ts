@@ -9,6 +9,7 @@ vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme
 
 import { flushSync, mount, tick, unmount } from "svelte";
 import MessageList from "./MessageList.svelte";
+import ReaderStates from "./reader/ReaderStates.svelte";
 import { app } from "../lib/store.svelte";
 import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
@@ -222,18 +223,22 @@ describe("the cursor has the ground, not a bar (#165, #108)", () => {
     beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
     afterEach(() => unstyle());
     const ground = (el: Element) => getComputedStyle(el).background;
+    const BARE = "rgba(0, 0, 0, 0)";
 
-    it("gives the ground to the cursor and to a chosen row, and none to a row at rest", () => {
+    it("gives the ground to the rows the action acts on: the chosen ones, or the open letter alone", () => {
       const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
+      // The open letter with nothing chosen together: it is the cursor, and wears the ground.
+      app.selection.selected = new Set();
       app.reader.opened = null;
       app.reader.openingRow = row(1, "a@cur.example");
-      app.selection.selected = new Set([2, 3]);
       flushSync();
-      const rows = [...t.querySelectorAll(".row")];
-      expect(rows.map(ground)).toEqual(["var(--selected)", "var(--selected)", "var(--selected)"]);
+      expect([...t.querySelectorAll(".row")].map(ground)).toEqual(["var(--selected)", BARE, BARE]);
+      // Several chosen: the ground goes with the choice, so the cursor outside it stays bare.
+      app.reader.openingRow = row(2, "b@cur.example");
+      app.selection.selected = new Set([1, 3]);
+      flushSync();
+      expect([...t.querySelectorAll(".row")].map(ground)).toEqual(["var(--selected)", BARE, "var(--selected)"]);
       app.reader.openingRow = null;
-      app.selection.selected = new Set([2, 3, 1]);
-      flushSync();
       app.selection.selected = new Set();
       flushSync();
       expect([...t.querySelectorAll(".row")].map(ground)).not.toContain("var(--selected)");
@@ -502,10 +507,9 @@ describe("a long thread and the ground of its letters (#179)", () => {
     expect(subs(t).every((r) => !r.classList.contains("selected"))).toBe(true);
   });
 
-  it("shows the cursor of a letter of a thread by the bar at the left, not the ground of a choice (#179)", () => {
-    const [rule] = rulesFor(".row.sub.cursor");
-    expect(rule.style.getPropertyValue("background")).toBe("none");
-    expect(rule.style.getPropertyValue("box-shadow")).toBe("inset 2px 0 0 var(--accent)");
+  it("draws no bar at the left of a letter of a thread: no rule for it at all", () => {
+    expect(rulesFor(".row.sub.cursor")).toEqual([]);
+    expect(rulesFor(".row.sub").every((r) => r.style.getPropertyValue("box-shadow") === "")).toBe(true);
   });
 });
 
@@ -771,7 +775,7 @@ describe("the choice over the letters of a thread (#179)", () => {
     expect(subs(t)[0].querySelector(".pick")).toBeNull();
   });
 
-  it("gives the cursor on a letter of a thread no ground of a chosen row (#179)", async () => {
+  it("marks the open letter of a thread as the cursor alone: no tick of a choice (#179)", async () => {
     const t = draw([summary()]);
     await unfold(t);
     // The open letter is a row of the thread: it is the cursor, and nothing is chosen.
@@ -792,6 +796,64 @@ describe("the choice over the letters of a thread (#179)", () => {
     expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11, 12]);
     // Every row says 10 bytes; the letters of the thread count as well.
     expect(app.selection.selectedSize()).toBe(30);
+  });
+});
+
+describe("the ground of a choice over a thread", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+  const ground = (el: Element) => getComputedStyle(el).background;
+  const grounded = (t: HTMLElement) => [...t.querySelectorAll(".row")].filter((r) => ground(r) === "var(--selected)");
+
+  it("grounds exactly the rows the count names when a letter of a thread is the open one", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    // The reader names the selection while the list grounds it: both stand as the window draws them.
+    const pane = document.createElement("div");
+    document.body.append(pane);
+    const reader = mount(ReaderStates, { target: pane, props: { which: "bare", waited: 0 } });
+    try {
+      // A third letter is open, two of the thread are added to it with Ctrl.
+      app.selection.selected = new Set([1, 11, 12]);
+      app.reader.opened = { row: letters[2] } as never;
+      flushSync();
+      // The label counts the selection; the rows with the ground are as many, the open letter of
+      // the thread among them — it is not left to a bar at the left instead.
+      expect(app.selection.selected.size).toBe(3);
+      expect(pane.textContent).toMatch(/Выбрано 3/);
+      expect(grounded(t).length).toBe(3);
+    } finally {
+      unmount(reader);
+      pane.remove();
+      app.reader.opened = null;
+    }
+  });
+
+  it("gives the open letter of a thread the ground when nothing is chosen together, as a row of a list", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    // Opening a letter leaves only it selected: a single selection is the open letter.
+    app.reader.opened = { row: letters[2] } as never;
+    app.selection.selected = new Set([12]);
+    flushSync();
+    const open = subs(t)[1];
+    expect(open.classList.contains("cursor")).toBe(true);
+    expect(open.classList.contains("selected")).toBe(false);
+    expect(ground(open)).toBe("var(--selected)");
+    app.reader.opened = null;
+  });
+
+  it("draws no bar, bracket or frame at the left of any row", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1, 11, 12]);
+    app.reader.opened = { row: letters[2] } as never;
+    flushSync();
+    expect(rulesFor(".row.sub.cursor")).toEqual([]);
+    expect(t.querySelector(".row .bar, .row .cursor-bar")).toBeNull();
+    for (const r of t.querySelectorAll<HTMLElement>(".row")) expect(getComputedStyle(r).boxShadow).toBe("");
+    app.reader.opened = null;
   });
 });
 

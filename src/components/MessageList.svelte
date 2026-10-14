@@ -162,7 +162,7 @@
   /** A round picture at the left of every row (#108); off, the rows are as they were. */
   const avatars = $derived(app.settingsCtl.settings.list_avatars);
   /** Chosen rows are the ones of an explicit choice of several (Ctrl or Shift click): a single
-   *  selection is only the letter that is open, which the cursor bar already marks (#108, 2.5 Б). */
+   *  selection is only the letter that is open, which the cursor alone marks (#108, 2.5 Б). */
   const chosen = (id: number) => app.selection.selected.size > 1 && app.selection.selected.has(id);
   const myAddresses = $derived(new Set(app.mailboxes.accounts.map((a) => a.email.toLowerCase())));
   /** The pictured row's person and whether a company logo may stand by them (the setting for logos too). */
@@ -193,7 +193,7 @@
     return name ? name.split(/\s+/)[0] : a.email.split("@")[0];
   }
 
-  /** The row with the cursor bar: it moves with the key, not with the answer of the server (#108). */
+  /** The row with the cursor: it moves with the key, not with the answer of the server (#108). */
   const cursor = $derived(cursorId(app.selection.selected, app.reader.openingRow?.id, app.reader.opened?.row.id));
 
   /** The selection is changing by a Ctrl or Shift click, not by a key or by opening a letter. */
@@ -306,7 +306,7 @@
     </div>
   {/if}
 
-  <div class="viewport" bind:this={viewport} bind:clientHeight={height} onscroll={onScroll} role="listbox" tabindex="-1">
+  <div class="viewport" class:multi={app.selection.selected.size > 1} bind:this={viewport} bind:clientHeight={height} onscroll={onScroll} role="listbox" tabindex="-1">
     {#if app.list.messages.length === 0}
       <div class="empty muted">
         {#if app.list.view.kind === "search"}
@@ -635,18 +635,17 @@
     background: var(--hover);
   }
 
-  /* Chosen rows and the row that is open or has the keyboard (the cursor) have the same ground;
-     what tells a choice from the cursor is the tick in place of the picture (#108, #165). */
-  .row.selected,
-  .row.cursor {
+  /* The ground goes to the rows the action acts on: the chosen ones, and, without a choice of
+     several, the open letter the cursor marks. What tells a choice from the cursor is the tick
+     in place of the picture (#108, #165). */
+  .row.selected {
     background: var(--selected);
   }
 
-  /* A letter of a thread wears the ground alone when it is chosen, so the cursor must not
-     borrow it: it stands out by the bar at the left, as the mock drew it (#179, 3.1 А). */
-  .row.sub.cursor {
-    background: none;
-    box-shadow: inset 2px 0 0 var(--accent);
+  /* With several chosen the ground goes with the choice, so a cursor row outside it stays bare.
+     No bar, bracket or frame at the left of a row. */
+  .viewport:not(.multi) .row.cursor {
+    background: var(--selected);
   }
 
   /* The row that has the keyboard but is not the cursor (a click on a notification leads to it) is marked by the same ground. */
