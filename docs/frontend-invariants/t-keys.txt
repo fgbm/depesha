@@ -103,6 +103,7 @@ compose.drop.attach
 compose.drop.attachNote
 compose.drop.inline
 compose.drop.inlineNote
+compose.fileLostClose
 compose.files
 compose.fix
 compose.format.badLink
@@ -431,6 +432,9 @@ nav.unread
 noSubject
 outbox.about
 outbox.attempt
+outbox.broken
+outbox.brokenAbout
+outbox.discard
 outbox.edit
 outbox.empty
 outbox.failed
@@ -569,7 +573,6 @@ server.offline
 server.syncSession
 server.unknown
 server.where
-settings.applied
 settings.askEveryTime
 settings.checkNow
 settings.checking
