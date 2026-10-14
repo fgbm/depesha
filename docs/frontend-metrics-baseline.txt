@@ -311,6 +311,8 @@ function	src/components/AddressInput.test.ts::show	7
 function	src/components/AddressInput.test.ts::key	6
 function	src/components/AddressInput.test.ts::type	8
 function	src/components/AttachmentMenu.svelte::onKey	15
+function	src/components/Compose.client.test.ts::open	13
+function	src/components/Compose.client.test.ts::focused	5
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::openCopyField	17
 function	src/components/Compose.svelte::openPart	17

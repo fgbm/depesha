@@ -135,6 +135,10 @@ compose.fwd.to
 compose.goBack
 compose.importance
 compose.importance.off
+compose.label.bcc
+compose.label.cc
+compose.label.subject
+compose.label.to
 compose.mailbox.change
 compose.mailbox.is
 compose.markdown.note
@@ -158,6 +162,7 @@ compose.picture.pickTitle
 compose.picture.title
 compose.picture.useCtrlV
 compose.quote
+compose.quote.show
 compose.restore
 compose.rule.because
 compose.rule.narrow
