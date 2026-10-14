@@ -24,6 +24,9 @@ export interface Undoable {
   text: string;
   /** Takes it back otherwise than by moving the letters back: an answer's move to "Waiting for reply". */
   run?: () => Promise<void>;
+  /** The folders the letters of a thread wore before this move renamed them (#180): written back
+   *  when the move is taken back, so the rows name their folders again. */
+  renamed?: Map<number, string>;
   /** Set once the move is taken back, by "z" or by the toast's button: a move is taken back once. */
   undone?: boolean;
   /** Set when the offer's time ran out: it is no longer on offer, nor given back by a `hold` that let go. */
@@ -100,8 +103,8 @@ export class ActionRunner {
       const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
       const said = typeof text === "function" ? text(moved) : text;
       // The letter is gone: it leaves the shown conversation with the cache (0.8.4, #180).
-      if (threaded) this.settleThread(ids, rows, moved);
-      else if (threadLetter) this.host.reader.dropFromConversation(ids);
+      const renamed = threaded ? this.settleThread(ids, rows, moved) : null;
+      if (!threaded && threadLetter) this.host.reader.dropFromConversation(ids);
       if (this.host.windowOf !== null && !threadLetter) {
         // The letter is done with: its window closes, the main window offers the undo.
         if (moved.length) await emitTo("main", "window-moved", { moved, text: said });
@@ -109,7 +112,7 @@ export class ActionRunner {
         return;
       }
       if (moved.length) {
-        this.lastUndo = { moved, text: said };
+        this.lastUndo = { moved, text: said, renamed: renamed ?? undefined };
         this.host.ui.toast(said, false, { label: t("undo"), run: () => void this.undo() });
       }
     } catch (e) {
@@ -138,12 +141,14 @@ export class ActionRunner {
    * Where a move left the letters of a thread (#180): the ones whose new folder still holds the
    * thread stay — the row keeps its place and takes the new folder; the ones the trash or the
    * spam takes leave, as the backend's `thread` leaves them out. A destination the cache does
-   * not know is not guessed: the row stays and the thread is read again.
+   * not know is not guessed: the row stays and the thread is read again. Returns the folders the
+   * letters wore before, for the undo to write back.
    */
-  private settleThread(ids: number[], rows: (MessageRow | undefined)[], moved: Moved[]) {
+  private settleThread(ids: number[], rows: (MessageRow | undefined)[], moved: Moved[]): Map<number, string> | null {
     const { list } = this.host;
     const gone: number[] = [];
     const renamed = new Map<number, string>();
+    const back = new Map<number, string>();
     let unknown = false;
     for (const id of ids) {
       const row = rows.find((r) => r?.id === id);
@@ -151,7 +156,10 @@ export class ActionRunner {
       const leaves = this.leavesThread(to, row?.account_id ?? "");
       if (leaves === null) unknown = true;
       else if (leaves) gone.push(id);
-      else if (to) renamed.set(id, to);
+      else if (to && row) {
+        renamed.set(id, to);
+        back.set(id, row.folder);
+      }
     }
     if (renamed.size) {
       list.setThreadFolder(renamed);
@@ -163,6 +171,7 @@ export class ActionRunner {
       for (const id of gone) list.leaving.delete(id);
     }
     if (unknown) void list.refreshThreads(true);
+    return back.size ? back : null;
   }
 
   /** The folder the move named for this row, from the moves the backend reported. */
@@ -293,6 +302,11 @@ export class ActionRunner {
     u.undone = true;
     try {
       await (u.run ? u.run() : api.undo(u.moved));
+      // The move back leaves the letters where they were: their folders are named again (#180).
+      if (u.renamed) {
+        this.host.list.setThreadFolder(u.renamed);
+        this.host.reader.renameInConversation(u.renamed);
+      }
       this.host.ui.toast(t("done.undone"));
     } catch (e) {
       this.host.ui.fail(e, t("err.undo"));

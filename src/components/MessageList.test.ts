@@ -627,6 +627,28 @@ describe("a move of a letter of a thread (#180)", () => {
     expect(subs(t)[0].querySelector(".subfolder")?.textContent).toBe("Archive");
   });
 
+  it("writes the folder of the letter back when the move is taken back with «z» (#180)", async () => {
+    app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    app.mailboxes.folders = [
+      { account_id: "a", name: "INBOX", role: "inbox" },
+      { account_id: "a", name: "Archive", role: "archive" },
+    ] as never;
+    const t = draw([summary()]);
+    await unfold(t);
+    api.messages.mockResolvedValue([summary()]);
+    api.archive.mockResolvedValue([{ account_id: "a", from: "Sent", to: "Archive", message_ids: ["<11@x>"], unseen: [], snoozed: [], waits: [] }]);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.actions.archive();
+    await tick();
+    flushSync();
+    expect(subs(t)[0].querySelector(".subfolder")?.textContent).toBe("Archive");
+    // The undo puts the letter back where it was: the folder it names is the old one again.
+    await app.actions.undo();
+    flushSync();
+    expect(subs(t)[0].querySelector(".subfolder")?.textContent).toBe("Sent");
+  });
+
   it("lets a letter the trash takes go, as api.thread leaves it out (#180)", async () => {
     app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
     app.mailboxes.folders = [
