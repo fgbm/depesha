@@ -17,6 +17,7 @@
   import Reply from "@lucide/svelte/icons/reply";
   import Forward from "@lucide/svelte/icons/forward";
   import Popover from "../Popover.svelte";
+  import ReaderHeader from "./ReaderHeader.svelte";
   import ReaderBody from "./ReaderBody.svelte";
   import AttachmentChip from "./AttachmentChip.svelte";
   import { api } from "../../lib/api";
@@ -68,6 +69,8 @@
   }
 
   const pic = $derived(avatarOf(m.account_id, m.from?.email, null));
+  /** The letter's mailbox, for the header of the unfolded letter (дата, размер, ящик). */
+  const account = $derived(app.mailboxes.account(m.account_id));
 
   /** The letter's files, minus the pictures drawn in its text: the reader's list (4.8). */
   const attachments = $derived((body?.view.attachments ?? []).filter((a) => !(a.inline && a.content_id)));
@@ -107,22 +110,42 @@
 </script>
 
 <article class="letter" class:unread={!m.flags.seen}>
-  <button class="head" aria-expanded={open} onclick={onToggle} onkeydown={headKey}>
-    <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
-      {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
-    </span>
-    <!-- Only the name stands here; the address is on hover (4.6). -->
-    <span class="who" title={m.from?.email || undefined}>{isMine(m) ? t("list.me") : addrName(m.from) || t("list.noSender")}</span>
-    {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
-    {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
-    {#if !open && m.snippet}<span class="peek muted">{m.snippet}</span>{/if}
-    <span class="when muted">{listDate(m.date)}</span>
-    {#if folderLabel(m)}<span class="folder muted">{folderLabel(m)}</span>{/if}
-    <span class="chev" class:open><ChevronDown size={14} /></span>
+  <button class="head" class:bare={open} aria-expanded={open} onclick={onToggle} onkeydown={headKey}>
+    {#if open}
+      <span class="chev open"><ChevronDown size={14} /></span>
+    {:else}
+      <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
+        {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
+      </span>
+      <!-- Folded: the name alone, the address on hover; the unfolded letter wears the pane's
+           full header (4.6 revised 2026-10-14). -->
+      <span class="who" title={m.from?.email || undefined}>{isMine(m) ? t("list.me") : addrName(m.from) || t("list.noSender")}</span>
+      {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
+      {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
+      {#if m.snippet}<span class="peek muted">{m.snippet}</span>{/if}
+      <span class="when muted">{listDate(m.date)}</span>
+      {#if folderLabel(m)}<span class="folder muted">{folderLabel(m)}</span>{/if}
+      <span class="chev"><ChevronDown size={14} /></span>
+    {/if}
   </button>
 
   {#if open}
     {#if body}
+      <!-- The same header as the letter open in the pane (4.6 revised 2026-10-14): the sender
+           with the address, «Кому» and «Копия», the marks, the date, the size and the mailbox. -->
+      <ReaderHeader
+        msg={body}
+        picture={pic}
+        {account}
+        files={[]}
+        viewing={false}
+        viewingAt={0}
+        onViewAttachment={() => {}}
+        onSaveAttachment={() => {}}
+        onSaveAttachmentAs={() => {}}
+        onSaveAll={() => {}}
+        saveDir=""
+      />
       <div class="letter-body"><ReaderBody msg={body} viewing={false} /></div>
     {:else}
       <p class="loading muted">{t("loading")}</p>
@@ -180,6 +203,12 @@
 
   .head:hover {
     background: var(--hover);
+  }
+
+  /* Unfolded: the strip above the pane's header only folds the letter back (4.6 revised). */
+  .head.bare {
+    justify-content: flex-end;
+    padding: 4px 12px;
   }
 
   .unread .who {

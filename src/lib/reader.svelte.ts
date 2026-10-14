@@ -176,6 +176,15 @@ export class Reader {
     this.conversation = this.conversation.filter((m) => !ids.includes(m.id));
   }
 
+  /**
+   * A move left these letters of the conversation in it, in a new folder (#180): they keep their
+   * place, and the whole list is written again so the reader is drawn with the new folders.
+   */
+  renameInConversation(folders: Map<number, string>) {
+    if (!folders.size || !this.conversation.some((m) => folders.has(m.id))) return;
+    this.conversation = this.conversation.map((m) => (folders.has(m.id) ? { ...m, folder: folders.get(m.id)! } : m));
+  }
+
   /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */
   scheduleConversation = debounce(() => void this.refreshConversation(), 250, 1000);
 

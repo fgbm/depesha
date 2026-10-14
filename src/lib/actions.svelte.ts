@@ -34,7 +34,7 @@ export interface Undoable {
 export interface ActionHost {
   readonly mailboxes: Pick<MailboxController, "folders">;
   readonly settingsCtl: Pick<SettingsController, "settings">;
-  readonly reader: Pick<Reader, "dropFromConversation" | "opened" | "saw">;
+  readonly reader: Pick<Reader, "conversation" | "dropFromConversation" | "opened" | "renameInConversation" | "saw">;
   readonly ui: Pick<UiController, "fail" | "toast" | "track">;
   readonly selection: Pick<SelectionController, "reload" | "selectedIds" | "takeOut">;
   /** The letter of a separate message window; null in the main window. */
@@ -70,19 +70,26 @@ export class ActionRunner {
     // The rows as they were: their conversations are looked up, and they come back on a failure.
     const before = list.messages;
     const opened = this.host.reader.opened;
-    const rows = ids.map((id) => before.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined));
+    const rowOf = (id: number) =>
+      before.find((m) => m.id === id) ?? list.threadRow(id) ?? this.host.reader.conversation.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined);
+    const rows = ids.map(rowOf);
     // A letter unfolded in the conversation, not open in the pane (0.8.4, #180): the pane keeps
     // the letter it shows — no "take out", no next row, and a window of a letter of its own stays
     // open. The row goes (a list is not always grouped), and the letter leaves the conversation.
     const threadLetter = single && !ids.includes(opened?.row.id ?? -1);
+    // A letter of a thread on screen: a move that leaves it in its thread keeps its place and its
+    // row takes the new folder, instead of going and coming back on the next reload (#180).
+    const threaded = this.host.windowOf === null && ids.length > 0 && ids.every((id) => this.letterOfThread(id));
     const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
     // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
     this.host.reader.saw(ids, false);
     for (const id of ids) list.leaving.add(id);
-    // Out of sight at once; the server is asked afterwards.
-    if (threadLetter) list.remove(ids);
-    else this.host.selection.takeOut(ids);
+    // Out of sight at once, except a letter of a thread, whose place waits for where it went.
+    if (!threaded) {
+      if (threadLetter) list.remove(ids);
+      else this.host.selection.takeOut(ids);
+    }
     let failed = false;
     try {
       const all = single ? ids : await this.withConversation(ids, rows);
@@ -93,7 +100,8 @@ export class ActionRunner {
       const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
       const said = typeof text === "function" ? text(moved) : text;
       // The letter is gone: it leaves the shown conversation with the cache (0.8.4, #180).
-      if (threadLetter) this.host.reader.dropFromConversation(ids);
+      if (threaded) this.settleThread(ids, rows, moved);
+      else if (threadLetter) this.host.reader.dropFromConversation(ids);
       if (this.host.windowOf !== null && !threadLetter) {
         // The letter is done with: its window closes, the main window offers the undo.
         if (moved.length) await emitTo("main", "window-moved", { moved, text: said });
@@ -113,6 +121,65 @@ export class ActionRunner {
     }
     if (failed) list.restore(before, new Set(ids));
     void this.host.selection.reload();
+  }
+
+  /** A letter of a thread on screen: a row of an unfolded thread in the list, or a letter of the
+   *  open conversation the list does not show as a row of its own (#179, #180). */
+  private letterOfThread(id: number): boolean {
+    const { list } = this.host;
+    if (list.threadRow(id)) return true;
+    const opened = this.host.reader.opened;
+    if (!opened || id === opened.row.id) return false;
+    if (!this.host.reader.conversation.some((m) => m.id === id)) return false;
+    return !list.messages.some((m) => m.id === id);
+  }
+
+  /**
+   * Where a move left the letters of a thread (#180): the ones whose new folder still holds the
+   * thread stay — the row keeps its place and takes the new folder; the ones the trash or the
+   * spam takes leave, as the backend's `thread` leaves them out. A destination the cache does
+   * not know is not guessed: the row stays and the thread is read again.
+   */
+  private settleThread(ids: number[], rows: (MessageRow | undefined)[], moved: Moved[]) {
+    const { list } = this.host;
+    const gone: number[] = [];
+    const renamed = new Map<number, string>();
+    let unknown = false;
+    for (const id of ids) {
+      const row = rows.find((r) => r?.id === id);
+      const to = this.destination(moved, row);
+      const leaves = this.leavesThread(to, row?.account_id ?? "");
+      if (leaves === null) unknown = true;
+      else if (leaves) gone.push(id);
+      else if (to) renamed.set(id, to);
+    }
+    if (renamed.size) {
+      list.setThreadFolder(renamed);
+      this.host.reader.renameInConversation(renamed);
+    }
+    if (gone.length) {
+      list.remove(gone);
+      this.host.reader.dropFromConversation(gone);
+      for (const id of gone) list.leaving.delete(id);
+    }
+    if (unknown) void list.refreshThreads(true);
+  }
+
+  /** The folder the move named for this row, from the moves the backend reported. */
+  private destination(moved: Moved[], row: MessageRow | undefined): string | null {
+    if (!row) return null;
+    const groups = moved.filter((m) => m.account_id === row.account_id && m.from === row.folder);
+    const exact = groups.find((m) => !!row.message_id && m.message_ids.includes(row.message_id));
+    return (exact ?? groups[0])?.to ?? null;
+  }
+
+  /** Whether the new folder leaves the letter out of its thread: the trash and the spam, which
+   *  the backend's `thread` skips. An unknown folder answers nothing, and the caller re-reads. */
+  private leavesThread(to: string | null, account_id: string): boolean | null {
+    if (to === null) return null;
+    const role = this.host.mailboxes.folders.find((f) => f.account_id === account_id && f.name === to)?.role;
+    if (!role) return null;
+    return role === "trash" || role === "junk";
   }
 
   /**

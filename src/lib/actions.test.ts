@@ -109,10 +109,25 @@ describe("an action on a letter of the thread (0.8.4, #180)", () => {
   it("leaves the letter the pane shows open, and takes the letter out of the conversation", async () => {
     // The list is grouped: 5 is not a row of it, only 7 is.
     const s = await threaded();
+    s.mailboxes.folders = [{ account_id: "a", name: "Trash", role: "trash" }] as never;
     const shown = s.reader.opened;
+    // The trash takes the letter out of the thread, as the backend's `thread` leaves it out (#180).
+    api.remove.mockResolvedValue([{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["<5@example.com>"], unseen: [], snoozed: [], waits: [] }]);
     await s.actions.remove([5], true);
     expect(s.reader.opened).toBe(shown);
     expect(s.reader.conversation.map((m) => m.id)).not.toContain(5);
+    expect(ids(s)).toEqual([7, 9]);
+  });
+
+  it("keeps the letter in the conversation when the archive leaves it in the thread (#180)", async () => {
+    const s = await threaded();
+    s.mailboxes.folders = [{ account_id: "a", name: "Archive", role: "archive" }] as never;
+    api.archive.mockResolvedValue([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["<5@example.com>"], unseen: [], snoozed: [], waits: [] }]);
+    await s.actions.archive([5], true);
+    // The letter keeps its place; only the folder it names changed.
+    expect(s.reader.conversation.map((m) => m.id)).toContain(5);
+    expect(s.reader.conversation.find((m) => m.id === 5)?.folder).toBe("Archive");
+    // A row the list shows on screen is not touched: 5 is not one of them here.
     expect(ids(s)).toEqual([7, 9]);
   });
 

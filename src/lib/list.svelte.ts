@@ -245,11 +245,13 @@ export class ListController {
     }
   }
 
-  /** A reload: the letters of an unfolded thread are read again when its row changed (#179). */
-  private async refreshThreads() {
+  /** A reload: the letters of an unfolded thread are read again when its row changed (#179);
+   *  `force` reads them again whatever the row says — a move left a letter whose folder the
+   *  cache could not name (#180). */
+  async refreshThreads(force = false) {
     if (!this.expandedThreads.size) return;
     const epoch = this.viewEpoch;
-    const changed = this.messages.filter((m) => this.expandedThreads.has(threadKey(m)) && this.threadSigs.get(threadKey(m)) !== threadSig(m));
+    const changed = this.messages.filter((m) => this.expandedThreads.has(threadKey(m)) && (force || this.threadSigs.get(threadKey(m)) !== threadSig(m)));
     await Promise.all(changed.map((m) => this.loadThread(m, epoch)));
   }
 
@@ -280,6 +282,25 @@ export class ListController {
       this.keep.delete(id);
       this.pins.delete(id);
     }
+  }
+
+  /**
+   * A move left these letters of an unfolded thread in it, in a new folder (#180): the rows take
+   * the folder, and the whole map is written again so the list is drawn with it.
+   */
+  setThreadFolder(folders: Map<number, string>) {
+    if (!folders.size) return;
+    let touched = false;
+    const next = new Map<string, MessageRow[]>();
+    for (const [key, letters] of this.threadLetters) {
+      next.set(key, letters.map((m) => {
+        const to = folders.get(m.id);
+        if (!to) return m;
+        touched = true;
+        return { ...m, folder: to };
+      }));
+    }
+    if (touched) this.threadLetters = next;
   }
 
   /** A new order places every row anew: rows changed earlier no longer hold their places. */

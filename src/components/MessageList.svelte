@@ -350,9 +350,8 @@
             onkeydown={(e) => rowKey(e, m, true)}
           >
             {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
-            <!-- A letter chosen together with others carries the same mark as a row: a tick
-                 in the strip at the left, and the ground (#179, 2.5 Б). -->
-            {#if chosen(m.id)}<span class="pick" aria-hidden="true"><Check size={10} strokeWidth={3} /></span>{/if}
+            <!-- A letter chosen together with others carries the ground alone, no tick (#179,
+                 2.5 Б): the tick is a row's own, and inside a thread it would count twice. -->
             <span class="subfrom">{who(m)}</span>
             <!-- The plugin badges of a letter of a thread are the ones of an ordinary row (#179):
                  the quiet note of the first line, then the tag of the second. -->
@@ -641,6 +640,13 @@
   .row.selected,
   .row.cursor {
     background: var(--selected);
+  }
+
+  /* A letter of a thread wears the ground alone when it is chosen, so the cursor must not
+     borrow it: it stands out by the bar at the left, as the mock drew it (#179, 3.1 А). */
+  .row.sub.cursor {
+    background: none;
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 
   /* The row that has the keyboard but is not the cursor (a click on a notification leads to it) is marked by the same ground. */

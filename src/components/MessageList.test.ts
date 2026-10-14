@@ -501,6 +501,12 @@ describe("a long thread and the ground of its letters (#179)", () => {
     expect(rule.style.getPropertyValue("padding")).not.toBe("");
     expect(subs(t).every((r) => !r.classList.contains("selected"))).toBe(true);
   });
+
+  it("shows the cursor of a letter of a thread by the bar at the left, not the ground of a choice (#179)", () => {
+    const [rule] = rulesFor(".row.sub.cursor");
+    expect(rule.style.getPropertyValue("background")).toBe("none");
+    expect(rule.style.getPropertyValue("box-shadow")).toBe("inset 2px 0 0 var(--accent)");
+  });
 });
 
 describe("the cursor and the actions of a thread letter in the list (#179)", () => {
@@ -600,6 +606,47 @@ describe("a row of a thread and its letters are told apart (#179)", () => {
   });
 });
 
+describe("a move of a letter of a thread (#180)", () => {
+  it("keeps the row of an archived letter of a thread, naming its new folder", async () => {
+    app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    app.mailboxes.folders = [
+      { account_id: "a", name: "INBOX", role: "inbox" },
+      { account_id: "a", name: "Archive", role: "archive" },
+    ] as never;
+    const t = draw([summary()]);
+    await unfold(t);
+    api.messages.mockResolvedValue([summary()]);
+    api.archive.mockResolvedValue([{ account_id: "a", from: "Sent", to: "Archive", message_ids: ["<11@x>"], unseen: [], snoozed: [], waits: [] }]);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.actions.archive();
+    await tick();
+    flushSync();
+    // The row stays where it was; the folder beside it is the new one.
+    expect(subs(t)).toHaveLength(2);
+    expect(subs(t)[0].querySelector(".subfolder")?.textContent).toBe("Archive");
+  });
+
+  it("lets a letter the trash takes go, as api.thread leaves it out (#180)", async () => {
+    app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    app.mailboxes.folders = [
+      { account_id: "a", name: "INBOX", role: "inbox" },
+      { account_id: "a", name: "Trash", role: "trash" },
+    ] as never;
+    const t = draw([summary()]);
+    await unfold(t);
+    api.messages.mockResolvedValue([summary()]);
+    api.remove.mockResolvedValue([{ account_id: "a", from: "Sent", to: "Trash", message_ids: ["<11@x>"], unseen: [], snoozed: [], waits: [] }]);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.actions.remove();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(1);
+    expect(subs(t)[0].textContent).toContain("ann@x.example");
+  });
+});
+
 describe("a reload and an unfolded thread (#179)", () => {
   it("reads the thread again when its row changed: a new letter becomes a row", async () => {
     const t = draw([summary()]);
@@ -678,7 +725,7 @@ describe("the choice over the letters of a thread (#179)", () => {
     expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11, 12]);
   });
 
-  it("Ctrl adds one letter of a thread, marked like an ordinary chosen row", async () => {
+  it("Ctrl adds one letter of a thread, shown by the ground alone, without a tick (#179)", async () => {
     const t = draw([summary()]);
     await unfold(t);
     app.selection.selected = new Set([1]);
@@ -687,7 +734,32 @@ describe("the choice over the letters of a thread (#179)", () => {
     flushSync();
     expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11]);
     expect(subs(t)[0]!.classList.contains("selected")).toBe(true);
-    expect(subs(t)[0]!.querySelector(".pick")).not.toBeNull();
+    expect(subs(t)[0]!.querySelector(".pick")).toBeNull();
+  });
+
+  it("highlights exactly the rows it counts as chosen (#179)", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1, 11]);
+    flushSync();
+    const marked = [...t.querySelectorAll(".row")].filter((r) => r.classList.contains("selected"));
+    expect(marked.length).toBe(app.selection.selected.size);
+    // The letter of the thread is one of them, and carries no tick of its own.
+    expect(subs(t)[0].classList.contains("selected")).toBe(true);
+    expect(subs(t)[0].querySelector(".pick")).toBeNull();
+  });
+
+  it("gives the cursor on a letter of a thread no ground of a chosen row (#179)", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    // The open letter is a row of the thread: it is the cursor, and nothing is chosen.
+    app.reader.opened = { row: letters[2] } as never;
+    app.selection.selected = new Set();
+    flushSync();
+    expect(subs(t)[1].classList.contains("cursor")).toBe(true);
+    expect(subs(t)[1].classList.contains("selected")).toBe(false);
+    expect(subs(t)[1].querySelector(".pick")).toBeNull();
+    app.reader.opened = null;
   });
 
   it("Select all and the chosen size count the letters of an unfolded thread too", async () => {

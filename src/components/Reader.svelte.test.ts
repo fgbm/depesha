@@ -28,8 +28,8 @@ let view: ReturnType<typeof mount> | null = null;
 let reply: Mock;
 let forward: Mock;
 
-/** The rows of the accordion around the open letter. */
-const heads = () => [...document.querySelectorAll<HTMLButtonElement>(".thread .letter .head")];
+/** The fold controls of the letters around the open one: a `button.head` per folded letter. */
+const heads = () => [...document.querySelectorAll<HTMLButtonElement>(".thread .letter button.head")];
 /** How many letters the accordion shows unfolded. */
 const unfolded = () => document.querySelectorAll(".thread .letter .body").length;
 const more = () => document.querySelectorAll(".thread .more").length;
@@ -232,17 +232,31 @@ describe("the buttons of a letter unfolded in the conversation (0.8.4, #180)", (
   });
 });
 
-describe("the header of a letter unfolded in the conversation (4.6)", () => {
-  it("shows only the name, the address on hover", async () => {
+describe("the header of a letter unfolded in the conversation (4.6 revised 2026-10-14)", () => {
+  it("keeps the name alone and the address on hover while the letter is folded", () => {
     const h = heads()[0];
-    // Folded and unfolded alike: no address line, only the name.
     expect(h.textContent).not.toContain("u5@x.example");
     expect(h.querySelector(".who")?.getAttribute("title")).toBe("u5@x.example");
-    h.click();
+  });
+
+  it("wears the pane's full header when unfolded, with its own «Кому» and «Копия»", async () => {
+    const withRecipients = (id: number) => {
+      const o = opened(id);
+      return { ...o, view: { ...o.view, summary: { ...o.view.summary, to: [{ name: null, email: `to${id}@x.example` }], cc: [{ name: null, email: `cc${id}@x.example` }] } } } as unknown as OpenedMessage;
+    };
+    api.open.mockImplementation(async (id: number) => withRecipients(id));
+    heads()[0].click();
     await flush();
     flushSync();
-    expect(h.textContent).toContain("Автор 5");
-    expect(h.textContent).not.toContain("u5@x.example");
+    const letter = document.querySelector<HTMLElement>(".thread .letter")!;
+    // The sender with the address, and the letter's own recipients, not the open one's.
+    expect(letter.textContent).toContain("ivan@x.example");
+    expect(letter.textContent).toContain("Кому");
+    expect(letter.textContent).toContain("to5@x.example");
+    expect(letter.textContent).toContain("Копия");
+    expect(letter.textContent).toContain("cc5@x.example");
+    // The header of the letter open in the pane is its own: it names no recipient of the unfolded letter.
+    expect(document.querySelector(".reader > .scroll > .head")?.textContent ?? "").not.toContain("to5@x.example");
   });
 });
 
@@ -268,6 +282,26 @@ describe("the files of a letter unfolded in the conversation (4.8)", () => {
     [...files[0].querySelectorAll<HTMLButtonElement>("button")][0].click();
     await flush();
     expect(api.attachmentSaveIn).toHaveBeenCalledWith(5, 0);
+  });
+});
+
+describe("a move of a letter unfolded in the conversation (#180)", () => {
+  it("keeps an archived letter in the conversation, with its new folder", async () => {
+    app.mailboxes.folders = [{ account_id: "a", name: "Archive", role: "archive" }] as never;
+    heads()[0].click();
+    await flush();
+    flushSync();
+    api.archive.mockResolvedValue([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["<5@example.com>"], unseen: [], snoozed: [], waits: [] }]);
+    document.querySelector<HTMLButtonElement>(".thread .letter .acts .anchor button")!.click();
+    await flush();
+    flushSync();
+    const done = [...document.querySelectorAll<HTMLButtonElement>(".pop button.mi")].find((b) => b.textContent?.includes("Готово"))!;
+    done.click();
+    await flush();
+    flushSync();
+    // The letter stays in the conversation; the folder it names is the new one.
+    expect(app.reader.conversation.map((m) => m.id)).toContain(5);
+    expect(app.reader.conversation.find((m) => m.id === 5)?.folder).toBe("Archive");
   });
 });
 
