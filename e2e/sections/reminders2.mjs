@@ -117,37 +117,37 @@ export async function run() {
 
     // Cc and Bcc are links beside «To» without printed keys; the fields open on Alt+C and Alt+B and fold when empty.
     const links = await d.exec("return [...document.querySelectorAll('.compose .fields .lnk')].map((b) => b.innerText.trim())");
-    if (links.join() !== "Копия,Скрытая") throw new Error(`ссылки: ${links}`);
+    if (links.join() !== "Копия,Скрытая копия") throw new Error(`ссылки: ${links}`);
     if ((await d.findAll(".compose .fields kbd")).length) throw new Error("у ссылок напечатаны клавиши");
-    if ((await rows()).join() !== "Кому,Тема") throw new Error(`строки: ${await rows()}`);
+    if ((await rows()).join() !== "К:,Тема:") throw new Error(`строки: ${await rows()}`);
     await altKey("c", "KeyC");
-    await d.until("Cc opened", async () => (await rows()).join() === "Кому,Копия,Тема");
-    if ((await focusedRow()) !== "Копия") throw new Error(`курсор в «${await focusedRow()}»`);
+    await d.until("Cc opened", async () => (await rows()).join() === "К:,Копия:,Тема:");
+    if ((await focusedRow()) !== "Копия:") throw new Error(`курсор в «${await focusedRow()}»`);
     await altKey("c", "KeyC", ".compose .fields .row:nth-child(2) input");
-    await d.until("empty Cc folded", async () => (await rows()).join() === "Кому,Тема");
+    await d.until("empty Cc folded", async () => (await rows()).join() === "К:,Тема:");
     // The caret does not leave the window: it goes to «To», and the keys of the window still work from there.
-    if ((await focusedRow()) !== "Кому") throw new Error(`после сворачивания курсор в «${await focusedRow()}»`);
+    if ((await focusedRow()) !== "К:") throw new Error(`после сворачивания курсор в «${await focusedRow()}»`);
     await d.exec("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: true, bubbles: true }))");
     await d.until("saved from the focus", async () => (await textOf(".compose .saved")).includes("Сохранено"), 15000);
     // Alt+C from elsewhere takes the caret to an open empty «Cc» instead of folding it.
     await altKey("c", "KeyC");
-    await d.until("Cc opened again", async () => (await focusedRow()) === "Копия");
+    await d.until("Cc opened again", async () => (await focusedRow()) === "Копия:");
     await d.exec("document.querySelector('.compose .subject').focus()");
     await altKey("c", "KeyC");
-    await d.until("caret in Cc", async () => (await focusedRow()) === "Копия");
-    if ((await rows()).join() !== "Кому,Копия,Тема") throw new Error("«Копия» свернулась от Alt+C из другого места");
+    await d.until("caret in Cc", async () => (await focusedRow()) === "Копия:");
+    if ((await rows()).join() !== "К:,Копия:,Тема:") throw new Error("«Копия» свернулась от Alt+C из другого места");
     await altKey("c", "KeyC", ".compose .fields .row:nth-child(2) input");
-    await d.until("folded from inside", async () => (await rows()).join() === "Кому,Тема");
+    await d.until("folded from inside", async () => (await rows()).join() === "К:,Тема:");
     await altKey("b", "KeyB");
-    await d.until("Bcc opened", async () => (await rows()).join() === "Кому,Скрытая,Тема");
-    if ((await focusedRow()) !== "Скрытая") throw new Error(`курсор в «${await focusedRow()}»`);
+    await d.until("Bcc opened", async () => (await rows()).join() === "К:,Скрытая:,Тема:");
+    if ((await focusedRow()) !== "Скрытая:") throw new Error(`курсор в «${await focusedRow()}»`);
     await altKey("b", "KeyB", ".compose .fields .row:nth-child(2) input");
-    await d.until("empty Bcc folded", async () => (await rows()).join() === "Кому,Тема");
+    await d.until("empty Bcc folded", async () => (await rows()).join() === "К:,Тема:");
     await d.click(await d.find(".compose .fields .lnk"));
-    await d.until("Cc by the link", async () => (await rows()).join() === "Кому,Копия,Тема");
+    await d.until("Cc by the link", async () => (await rows()).join() === "К:,Копия:,Тема:");
     await d.type(await d.find(".compose .fields .row:nth-child(2) input"), "dave@local.test,");
     await altKey("c", "KeyC", ".compose .fields .row:nth-child(2) input");
-    if ((await rows()).join() !== "Кому,Копия,Тема") throw new Error("поле с адресом свернулось");
+    if ((await rows()).join() !== "К:,Копия:,Тема:") throw new Error("поле с адресом свернулось");
     if ((await geometry(".compose .fields .row:nth-child(2)")).height > 46) throw new Error("«Копия» с одним адресом двойной высоты");
 
     // One mailbox only: the label tells it and offers no list (the list is checked where there are two, step 4.1).

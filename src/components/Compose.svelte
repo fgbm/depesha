@@ -1,7 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Minus from "@lucide/svelte/icons/minus";
@@ -16,7 +15,6 @@
   import AlignLeft from "@lucide/svelte/icons/align-left";
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
-  import CornerUpLeft from "@lucide/svelte/icons/corner-up-left";
   import { app, type ComposeWindow } from "../lib/store.svelte";
   import { bus } from "../lib/bus";
   import { SIGNATURE_CLASS } from "../lib/richtext";
@@ -345,21 +343,21 @@
     <!-- The text keeps its least height (160 px): a window too low for the strips scrolls here. -->
     <div class="scroll">
       <div class="fields">
-        <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} card={personCard}>
+        <AddressInput label={t("compose.label.to")} name={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} card={personCard}>
           {#snippet trailing()}
-            {#if !showCc}<button class="lnk" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
-            {#if !showBcc}<button class="lnk" onclick={() => void openPart("bcc")}>{t("compose.bcc")}</button>{/if}
+            {#if !showCc}<button class="lnk quiet" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
+            {#if !showBcc}<button class="lnk quiet" onclick={() => void openPart("bcc")}>{t("compose.bcc")}</button>{/if}
           {/snippet}
         </AddressInput>
         {#if showCc}
-          <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={ccInput} card={personCard} />
+          <AddressInput label={t("compose.label.cc")} name={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={ccInput} card={personCard} />
         {/if}
         {#if showBcc}
-          <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} card={personCard} />
+          <AddressInput label={t("compose.label.bcc")} name={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} card={personCard} />
         {/if}
         <div class="row">
-          <span class="label">{t("compose.fwd.subject")}</span>
-          <input class="subject" bind:value={c.draft.subject} />
+          <span class="label">{t("compose.label.subject")}</span>
+          <input class="subject" bind:value={c.draft.subject} aria-label={t("compose.fwd.subject")} />
         </div>
       </div>
 
@@ -466,15 +464,16 @@
 
       <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={fmt.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
 
-      <!-- One line of state (#103, 3.1 А): the quote, then the wait's box and the reminder of the plugin. -->
-      {#if hasQuote || hasState}
+      <!-- The plugins' line of state (#103, 3.1 А): the wait's box and the reminder. -->
+      {#if hasState}
         <div class="state" role="group" aria-label={t("compose.state")}>
-          {#if hasQuote}
-            <button class="chip-btn quote-chip" class:on={fmt.quoteOpen} onclick={() => (fmt.quoteOpen = !fmt.quoteOpen)} aria-expanded={fmt.quoteOpen} title={fmt.quoteHeader}>
-              <CornerUpLeft size={13} />{t("compose.quote")}{#if fmt.quoteOpen}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
-            </button>
-          {/if}
           {#each sending.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
+        </div>
+      {/if}
+      <!-- The quote of a reply stands behind the dots; the letter carries it folded or not (0.8.7, 1 А). -->
+      {#if hasQuote}
+        <div class="dots-line">
+          <button class="dots" class:on={fmt.quoteOpen} onclick={() => (fmt.quoteOpen = !fmt.quoteOpen)} aria-expanded={fmt.quoteOpen} aria-label={t("compose.quote.show")} title={fmt.quoteHeader}>•••</button>
         </div>
       {/if}
       {#if hasQuote && fmt.quoteOpen}
@@ -808,32 +807,39 @@
     color: var(--muted);
   }
 
-  .chip-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+  /* The quote behind three dots, a button of the letter's own look (0.8.7, 1 А). */
+  .dots-line {
+    flex: none;
+    padding: 2px 18px 6px;
+  }
+
+  .dots {
     border: none;
     border-radius: 6px;
-    background: none;
-    padding: 3px 4px;
-    font: inherit;
+    background: var(--hover);
     color: var(--muted);
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 1px;
     cursor: pointer;
   }
 
-  .chip-btn:hover,
-  .chip-btn:focus-visible,
-  .chip-btn.on {
-    background: var(--hover);
+  .dots:hover,
+  .dots:focus-visible,
+  .dots.on {
+    background: var(--selected);
     color: var(--ink);
   }
 
-  /* The quote opens under the line, at a fixed height: the text above it keeps its room. */
+  /* The opened quote, with a grey line at its left: part of the quote, not a list cursor. */
   .quote-text {
     flex: none;
     height: 96px;
-    padding: 4px 18px 6px 32px;
-    border-top: 1px dashed var(--line);
+    margin: 2px 18px 10px;
+    padding: 0 0 0 14px;
+    border-left: 3px solid var(--line);
     font-size: 12.5px;
     color: var(--muted);
   }
@@ -1060,6 +1066,16 @@
   .lnk:hover,
   .lnk:focus-visible {
     text-decoration: underline;
+  }
+
+  /* «Cc» and «Bcc» are quiet until pointed at (0.8.7, 2 А). */
+  .lnk.quiet {
+    color: var(--muted);
+  }
+
+  .lnk.quiet:hover,
+  .lnk.quiet:focus-visible {
+    color: var(--ink);
   }
 
   .error {

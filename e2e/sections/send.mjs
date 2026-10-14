@@ -107,11 +107,11 @@ export async function run() {
     // The quote is folded under the field, which shows only what is typed; the signature stands apart.
     const body = await d.exec("return document.querySelector('.compose textarea').value");
     if (body.includes("> Тестовое письмо")) throw new Error(`цитата в поле ввода: ${body}`);
-    // The quote is a chip in the line of state (#103, 3.1 А): «Цитата ›», whose hint says who wrote.
-    if (!(await textOf(".compose .state .quote-chip")).includes("Цитата")) throw new Error("нет свёрнутой цитаты");
-    if (!(await d.exec("return document.querySelector('.compose .quote-chip').title")).includes("пишет:")) throw new Error("в подсказке цитаты нет «пишет:»");
+    // The quote stands behind the dots under the text (0.8.7, 1 А); its hint says who wrote.
+    if ((await textOf(".compose .dots")).trim() !== "•••") throw new Error("нет свёрнутой цитаты");
+    if (!(await d.exec("return document.querySelector('.compose .dots').title")).includes("пишет:")) throw new Error("в подсказке цитаты нет «пишет:»");
     if ((await d.findAll(".compose .quote-text")).length) throw new Error("цитата раскрыта сама");
-    await d.click(await d.find(".compose .quote-chip"));
+    await d.click(await d.find(".compose .dots"));
     const quote = await d.exec("return document.querySelector('.compose .quote-text')?.value ?? ''");
     if (!quote.includes("> Тестовое письмо")) throw new Error(`цитата: ${quote}`);
     // Alt+Q folds it again from the keyboard.

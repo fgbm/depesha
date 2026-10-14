@@ -9,12 +9,15 @@
 
   let {
     label,
+    name,
     value = $bindable(),
     autofocus = false,
     card,
     trailing,
   }: {
     label: string;
+    /** What the field is called for a screen reader: the label is a short mark. */
+    name?: string;
     value: Addr[];
     autofocus?: boolean;
     /** The person's card, opened by a click on the chip of an address (#66, frame 13). */
@@ -153,6 +156,7 @@
       onkeydown={onKey}
       onblur={() => setTimeout(() => text.trim() && commit(), 150)}
       {autofocus}
+      aria-label={name}
       spellcheck="false"
     />
     {#if suggestions.length}
