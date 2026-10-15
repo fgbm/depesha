@@ -10,6 +10,7 @@
 //   SHOTS_SET=0.8.0 scripts/release-shots.sh the set of 0.8.0
 //   SHOTS_SET=0.8.2 scripts/release-shots.sh the set of 0.8.2
 //   SHOTS_SET=0.8.3 scripts/release-shots.sh the set of 0.8.3
+//   SHOTS_SET=audit scripts/release-shots.sh  every main screen, light and dark, with MANIFEST.md
 //
 // Writes ${SHOTS_OUT}/NN-*.png (default /tmp/depesha-release-shots). Demo data is tidy
 // (example.com), the labels and reply marks are seeded before the shooting session so the
@@ -19,18 +20,22 @@ import { createKit } from "./shot-kit.mjs";
 import { ensureStandLock } from "./stand-lock.mjs";
 import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsPage, settingsSearch } from "./scenes-080.mjs";
 import { listPanel, viewFilterCount } from "./scenes-083.mjs";
+import { auditShots, seedAudit } from "./scenes-audit.mjs";
 
 ensureStandLock();
 const set = process.env.SHOTS_SET ?? "0.7.0";
-const v8 = set === "0.8.0" || set === "0.8.2" || set === "0.8.3";
+const audit = set === "audit";
+const v8 = set === "0.8.0" || set === "0.8.2" || set === "0.8.3" || audit;
 const v82 = set === "0.8.2";
 const v83 = set === "0.8.3";
-const kit = createKit({ out: process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots", tag: "depesha-rel-", v8 });
+const out = process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots";
+const kit = createKit({ out, tag: "depesha-rel-", v8 });
 const { d, sleep, db, shot, textOf, setInput, press, invoke, openFolder, openBySubject, menuItem, closeSettings, discardCompose } = kit;
 
 try {
   await kit.boot({
     prepare: async (account, now) => {
+      if (audit) return seedAudit(kit, account, now);
       if (v8) return seed080(kit, account, now);
       // The labels themselves are read by the labels store at the next start; the keywords
       // (the chips in the rows) are put in later, in the shooting session, so the two list
@@ -45,7 +50,10 @@ try {
   });
   const account = (await invoke("accounts"))[0].id;
 
-  if (v83) {
+  if (audit) {
+    // Every main screen of the app, for a review of the interface (scenes-audit.mjs).
+    await auditShots(kit, out);
+  } else if (v83) {
     // The view of 0.8.3: the one panel of actions over the list and the reader with the
     // previews in the rows (#176, #177), and the count of unread newsletters (#182).
     await listPanel(kit, "01-list-panel");

@@ -47,9 +47,9 @@ export function createKit({ out, tag = "depesha-shots-", v8 = false }) {
   const helper = (...args) => execFileSync("python3", [join(root, "e2e/imap_helper.py"), ...args], { encoding: "utf-8" }).trim();
   const db = (sql) => execFileSync("sqlite3", [join(profile, "data/ru.depesha.mail/mail.sqlite"), sql], { encoding: "utf-8" }).trim();
 
-  /** Writes the window as it is now into <out>/<name>.png. Toasts are transient and would date the picture: hidden. */
-  async function shot(name) {
-    await d.exec("document.querySelector('.toasts')?.style.setProperty('visibility','hidden')").catch(() => {});
+  /** Writes the window as it is now into <out>/<name>.png. Toasts are transient and would date the picture: hidden, unless `toasts` (the toast is the subject). */
+  async function shot(name, { toasts = false } = {}) {
+    if (!toasts) await d.exec("document.querySelector('.toasts')?.style.setProperty('visibility','hidden')").catch(() => {});
     await sleep(400);
     writeFileSync(join(out, `${name}.png`), await d.screenshot());
     await d.exec("document.querySelector('.toasts')?.style.removeProperty('visibility')").catch(() => {});
