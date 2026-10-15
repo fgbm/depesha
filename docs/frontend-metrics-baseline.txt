@@ -312,7 +312,7 @@ function	src/components/AddressInput.test.ts::key	6
 function	src/components/AddressInput.test.ts::type	8
 function	src/components/AttachmentMenu.svelte::onKey	15
 function	src/components/Compose.client.test.ts::open	13
-function	src/components/Compose.client.test.ts::focused	5
+function	src/components/Compose.client.test.ts::altKey	4
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::openCopyField	17
 function	src/components/Compose.svelte::openPart	17
@@ -372,6 +372,7 @@ function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	14
 function	src/components/MessageList.svelte::context	7
+function	src/components/MessageList.svelte::menuByKey	4
 function	src/components/MessageList.svelte::pictureOf	6
 function	src/components/MessageList.svelte::who	12
 function	src/components/MessageList.svelte::firstName	4
@@ -735,6 +736,7 @@ function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
 function	src/lib/clearFolder.test.ts::fakeUi	11
 function	src/lib/clearFolder.test.ts::host	25
+function	src/lib/commands.ts::readableFolder	5
 function	src/lib/commands.ts::coreCommands	129
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
