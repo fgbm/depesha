@@ -58,23 +58,25 @@ kill "$(cat "$tmp/pid")" 2>/dev/null || true
 # Код команды сохраняется; по таймауту выход с ошибкой.
 rc=0; "$sl" bash -c 'exit 7' || rc=$?
 [[ $rc == 7 ]] || fail "код команды потерян: $rc"
-"$sl" sleep 3 &
+# Держатель живёт дольше любой задержки раннера и умирает только от kill: иначе медленный
+# раннер дал бы ожидающему замок раньше таймаута.
+"$sl" sleep 60 &
 holder=$!
 held
 rc=0; DEPESHA_STAND_WAIT=1 "$sl" true >/dev/null 2>&1 || rc=$?
 [[ $rc == 1 ]] || fail "таймаут ожидания: ожидали 1, получили $rc"
-wait "$holder"
+kill "$holder"; wait "$holder" 2>/dev/null || true
 
 # Съёмочные скрипты перезапускаются под замком и из своего каталога (относительный $0), не с 127.
 # Замок занят и ждать секунду: до docker дело не доходит.
 for s in shots.sh release-shots.sh; do
-  "$sl" sleep 3 &
+  "$sl" sleep 60 &
   holder=$!
   held
   rc=0
   out=$(cd scripts && DEPESHA_STAND_WAIT=1 ./"$s" 2>&1) || rc=$?
   [[ $rc == 1 ]] || fail "$s из scripts/: ожидали 1 (не дождался замка), получили $rc: $out"
   grep -q "стенд занят" <<<"$out" || fail "$s из scripts/ не встал в очередь: $out"
-  wait "$holder"
+  kill "$holder"; wait "$holder" 2>/dev/null || true
 done
 echo "stand-lock: ok"
