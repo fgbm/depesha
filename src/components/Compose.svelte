@@ -145,7 +145,7 @@
       if (c.draft.attachments.length) filesOpen = !filesOpen;
       else void files.attach();
     } else if (part === "quote") {
-      if (fmt.format !== "html" && fmt.quote) fmt.quoteOpen = !fmt.quoteOpen;
+      if (fmt.hasFold) fmt.quoteOpen = !fmt.quoteOpen;
     } else if (part === "format") {
       if (!sending.busy) menuOpen = !menuOpen;
     } else if (!sending.busy) {
@@ -374,8 +374,8 @@
       {/if}
 
       <!-- The frame does not scroll: the drop zones lie on it, and stay in view when a signed letter's text is scrolled. -->
-      <div class="body-frame" bind:this={bodyFrame} class:signed={fmt.format !== "html" && !!fmt.signature}>
-      <div class="body-area" bind:clientWidth={fmt.areaWidth} class:signed={fmt.format !== "html" && !!fmt.signature}>
+      <div class="body-frame" bind:this={bodyFrame} class:signed={fmt.hasFold}>
+      <div class="body-area" bind:clientWidth={fmt.areaWidth} class:signed={fmt.hasFold}>
         {#if fmt.format === "html"}
           <RichEditor
             bind:this={fmt.rich}
@@ -413,7 +413,13 @@
               placeholder={t("compose.bodyPlaceholder")}
             ></textarea>
           {/if}
-          {#if fmt.signature}
+          <!-- The dots under the text fold the signature and the quote together (0.8.7, 1 А; 2026-10-15). -->
+          {#if fmt.hasFold}
+            <div class="dots-line">
+              <button class="dots" class:on={fmt.quoteOpen} onclick={() => (fmt.quoteOpen = !fmt.quoteOpen)} aria-expanded={fmt.quoteOpen} aria-label={t("compose.quote.show")} title={hasQuote ? fmt.quoteHeader : undefined}>•••</button>
+            </div>
+          {/if}
+          {#if fmt.hasFold && fmt.quoteOpen && fmt.signature}
             {@const shown = signatureShown(fmt.format, fmt.signature)}
             <!-- The signature under the text, shown, not edited: formatted in an HTML or
                  Markdown letter (frame 13 of #45), its text under "-- " in a plain one. -->
@@ -426,6 +432,9 @@
               {/if}
               <div class="sig-bar">{@render signatureChip()}</div>
             </div>
+          {/if}
+          {#if hasQuote && fmt.quoteOpen}
+            <textarea class="quote-text" bind:value={fmt.quote} readonly={fmt.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
           {/if}
         {/if}
         {#if !fmt.signature && fmt.signatures.length}
@@ -469,15 +478,6 @@
         <div class="state" role="group" aria-label={t("compose.state")}>
           {#each sending.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
         </div>
-      {/if}
-      <!-- The quote of a reply stands behind the dots; the letter carries it folded or not (0.8.7, 1 А). -->
-      {#if hasQuote}
-        <div class="dots-line">
-          <button class="dots" class:on={fmt.quoteOpen} onclick={() => (fmt.quoteOpen = !fmt.quoteOpen)} aria-expanded={fmt.quoteOpen} aria-label={t("compose.quote.show")} title={fmt.quoteHeader}>•••</button>
-        </div>
-      {/if}
-      {#if hasQuote && fmt.quoteOpen}
-        <textarea class="quote-text" bind:value={fmt.quote} readonly={fmt.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
       {/if}
 
       {#if c.draft.attachments.length || fmt.textPictures}
@@ -807,7 +807,7 @@
     color: var(--muted);
   }
 
-  /* The quote behind three dots, a button of the letter's own look (0.8.7, 1 А). */
+  /* The signature and the quote behind three dots under the text, a button of the letter's own look (0.8.7, 1 А). */
   .dots-line {
     flex: none;
     padding: 2px 18px 6px;
@@ -928,7 +928,7 @@
     overflow-y: auto;
   }
 
-  .body-area.signed textarea {
+  .body-area.signed textarea:not(.quote-text) {
     flex: none;
     min-height: var(--min-body, 160px);
     overflow: hidden;

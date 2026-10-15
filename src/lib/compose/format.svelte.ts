@@ -71,6 +71,10 @@ export class ComposeFormat {
   bar = $state<FormatBar | null>(null);
   /** The field of a plain letter, or the Markdown editor, as the markup binds it. */
   body = $state<HTMLTextAreaElement | MarkdownField | null>(null);
+  /** A plain or Markdown letter with a signature or a quote: both stand behind the dots under the text. */
+  get hasFold(): boolean {
+    return this.format !== "html" && (!!this.signature || !!this.quote);
+  }
   /** The width of the body area: a plain letter with a signature grows with its text. */
   areaWidth = $state(0);
 
@@ -192,7 +196,7 @@ export class ComposeFormat {
       const field = this.body;
       // The Markdown editor grows with its text by itself.
       if (!field || !("style" in field)) return;
-      if (this.format === "html" || !this.signature) {
+      if (!this.hasFold) {
         field.style.removeProperty("height");
         return;
       }

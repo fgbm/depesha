@@ -1181,6 +1181,9 @@ export async function run() {
     // The field has only what is typed; the signature stands under it, apart.
     const text = await d.exec("return document.querySelector('.compose textarea').value");
     if (text.includes("Кэрол")) throw new Error(`подпись в поле ввода: ${JSON.stringify(text)}`);
+    // The signature stands behind the dots under the text (2026-10-15).
+    if ((await d.findAll(".compose .sig-plain")).length) throw new Error("подпись показана без «•••»");
+    await d.click(await d.find(".compose .body-area .dots"));
     const sig = await textOf(".compose .sig-plain .sig-text");
     if (!sig.includes("-- \nС уважением,\nКэрол")) throw new Error(JSON.stringify(sig));
     // Only the signature is there: closing must neither ask nor save a draft.
@@ -1192,6 +1195,7 @@ export async function run() {
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
     await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, 'Текст письма.');");
+    await d.click(await d.find(".compose .body-area .dots"));
     // The menu sits on the block and shows when it is pointed at; a click opens it.
     await d.exec("document.querySelector('.compose .sig-plain .chip').click()");
     await menuItem("Короткая");

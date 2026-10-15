@@ -70,11 +70,13 @@ beforeEach(() => {
   peopleBook.list = [];
 });
 
-function open(reply: boolean) {
+const SIGNED = "\n\n-- \nКэрол, отдел ИТ";
+
+function open(reply: boolean, signed = false) {
   const draft = emptyDraft({ name: "Me", email: "me@example.com" });
   draft.to = [{ name: "Иван", email: "ivan@example.com" }];
   draft.subject = "Re: Акт";
-  draft.text = reply ? `\n\n${QUOTE}` : "";
+  draft.text = `${signed ? SIGNED : ""}${reply ? `\n\n${QUOTE}` : ""}`;
   const id = app.compose.open({ account_id: "a", draft, draft_id: null, unsaved: true });
   const win = app.compose.windows.find((w) => w.id === id)!;
   const target = document.createElement("div");
@@ -85,6 +87,7 @@ function open(reply: boolean) {
 }
 
 const dots = (t: HTMLElement) => t.querySelector<HTMLButtonElement>("button.dots");
+const sig = (t: HTMLElement) => t.querySelector<HTMLElement>(".sig-plain");
 const quote = (t: HTMLElement) => t.querySelector<HTMLTextAreaElement>("textarea.quote-text");
 const labels = (t: HTMLElement) => [...t.querySelectorAll(".fields .label")].map((l) => l.textContent);
 const links = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>(".fields .lnk")];
@@ -155,6 +158,46 @@ describe("the letter with a folded quote", () => {
     target.querySelector<HTMLButtonElement>("footer .btn.primary")!.click();
     await vi.waitFor(() => expect(send).toHaveBeenCalled());
     expect(send.mock.calls[0][1].text).toContain("> Пришлите акт сверки.");
+    send.mockRestore();
+  });
+});
+
+describe("the dots under the text of the letter", () => {
+  it("stand inside the body area and fold the signature and the quote together", () => {
+    const { target } = open(true, true);
+    expect(dots(target)!.closest(".body-area")).not.toBeNull();
+    expect(sig(target)).toBeNull();
+    expect(quote(target)).toBeNull();
+    dots(target)!.click();
+    flushSync();
+    expect(sig(target)?.textContent).toContain("Кэрол, отдел ИТ");
+    expect(quote(target)?.value).toContain("> Пришлите акт сверки.");
+    altKey(target, "q");
+    expect(sig(target)).toBeNull();
+    expect(quote(target)).toBeNull();
+  });
+
+  it("fold the signature of a new letter, and are not there without a signature and a quote", () => {
+    const { target } = open(false, true);
+    expect(dots(target)!.closest(".body-area")).not.toBeNull();
+    expect(sig(target)).toBeNull();
+    altKey(target, "q");
+    expect(sig(target)).not.toBeNull();
+    expect(quote(target)).toBeNull();
+    unmount(view!);
+    view = null;
+    document.body.innerHTML = "";
+    expect(dots(open(false).target)).toBeNull();
+  });
+
+  it("send the folded signature with the letter", async () => {
+    const send = vi.spyOn(app.compose, "send").mockResolvedValue(undefined as never);
+    const { win, target } = open(false, true);
+    expect(sig(target)).toBeNull();
+    win.draft.text = `Ответ.${SIGNED}`;
+    target.querySelector<HTMLButtonElement>("footer .btn.primary")!.click();
+    await vi.waitFor(() => expect(send).toHaveBeenCalled());
+    expect(send.mock.calls[0][1].text).toContain("Кэрол, отдел ИТ");
     send.mockRestore();
   });
 });
