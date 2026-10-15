@@ -182,6 +182,15 @@
     };
   });
 
+  /** The empty place under the text of a letter with dots puts the caret at the end of the text. */
+  function caretToEnd(e: MouseEvent) {
+    const field = fmt.body;
+    const t = e.target as HTMLElement;
+    if (!field || !fmt.hasFold || (t !== e.currentTarget && !t.classList.contains("dots-line"))) return;
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }
+
   /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
   const chips = $derived(c.mode === "max" ? c.draft.attachments.length : visibleChips(width, c.draft.attachments.length));
 
@@ -342,7 +351,7 @@
   <div class="panel" hidden={c.mode === "min"}>
     <!-- The text keeps its least height (160 px): a window too low for the strips scrolls here. -->
     <div class="scroll">
-      <div class="fields">
+      <div class="fields field-grid">
         <AddressInput label={t("compose.label.to")} name={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} card={personCard}>
           {#snippet trailing()}
             {#if !showCc}<button class="lnk quiet" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
@@ -355,9 +364,9 @@
         {#if showBcc}
           <AddressInput label={t("compose.label.bcc")} name={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} card={personCard} />
         {/if}
-        <div class="row">
-          <span class="label">{t("compose.label.subject")}</span>
-          <input class="subject" bind:value={c.draft.subject} aria-label={t("compose.fwd.subject")} />
+        <div class="row field-row">
+          <span class="label field-label">{t("compose.label.subject")}</span>
+          <input class="subject field-value" bind:value={c.draft.subject} aria-label={t("compose.fwd.subject")} />
         </div>
       </div>
 
@@ -375,7 +384,9 @@
 
       <!-- The frame does not scroll: the drop zones lie on it, and stay in view when a signed letter's text is scrolled. -->
       <div class="body-frame" bind:this={bodyFrame} class:signed={fmt.hasFold}>
-      <div class="body-area" bind:clientWidth={fmt.areaWidth} class:signed={fmt.hasFold}>
+      <!-- The field itself takes the keys; the empty place below it only moves the caret there. -->
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="body-area" bind:clientWidth={fmt.areaWidth} class:signed={fmt.hasFold} onclick={caretToEnd}>
         {#if fmt.format === "html"}
           <RichEditor
             bind:this={fmt.rich}
@@ -409,6 +420,7 @@
               onfocus={() => fmt.onBodyFocus()}
               readonly={fmt.switching}
               spellcheck="true"
+              rows="1"
               aria-label={t("compose.body")}
               placeholder={t("compose.bodyPlaceholder")}
             ></textarea>
@@ -764,16 +776,9 @@
     padding: 4px 18px 0;
   }
 
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--line);
-    padding: 4px 0;
-  }
-
   .subject {
-    flex: 1;
+    grid-column: 2 / -1;
+    min-width: 0;
     border: none;
     outline: none;
     background: transparent;
@@ -810,7 +815,7 @@
   /* The signature and the quote behind three dots under the text, a button of the letter's own look (0.8.7, 1 А). */
   .dots-line {
     flex: none;
-    padding: 2px 18px 6px;
+    padding: 6px 18px 6px;
   }
 
   .dots {
@@ -930,7 +935,6 @@
 
   .body-area.signed textarea:not(.quote-text) {
     flex: none;
-    min-height: var(--min-body, 160px);
     overflow: hidden;
   }
 
@@ -942,7 +946,6 @@
 
   .body-area.signed :global(.md-editor) {
     flex: none;
-    min-height: var(--min-body, 160px);
   }
 
   /* Files dragged over an HTML letter: into the text, or attached. */

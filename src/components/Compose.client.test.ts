@@ -7,6 +7,7 @@ vi.mock("@tauri-apps/api/window", () => import("../lib/testing").then((m) => m.w
 vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appModule));
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 
+import { readFileSync } from "node:fs";
 import { flushSync, mount, tick, unmount } from "svelte";
 import Compose from "./Compose.svelte";
 import { app } from "../lib/store.svelte";
@@ -133,20 +134,80 @@ describe("the fields of the letter", () => {
     expect(links(target).map((b) => b.textContent?.trim())).toEqual(["Копия", "Скрытая копия"]);
     links(target)[0].click();
     await tick();
-    expect(labels(target)).toEqual(["К:", "Копия:", "Тема:"]);
+    expect(labels(target)).toEqual(["Кому:", "Копия:", "Тема:"]);
     await vi.waitFor(() => expect(focused()).toBe("Копия:"));
     altKey(target, "b");
     await tick();
-    expect(labels(target)).toEqual(["К:", "Копия:", "Скрытая:", "Тема:"]);
-    await vi.waitFor(() => expect(focused()).toBe("Скрытая:"));
+    expect(labels(target)).toEqual(["Кому:", "Копия:", "Скрытая копия:", "Тема:"]);
+    await vi.waitFor(() => expect(focused()).toBe("Скрытая копия:"));
     expect(links(target)).toHaveLength(0);
   });
 
-  it("names the fields in short", () => {
+  it("names the fields in full", () => {
     const { target } = open(false);
-    expect(labels(target)).toEqual(["К:", "Тема:"]);
+    expect(labels(target)).toEqual(["Кому:", "Тема:"]);
   });
 
+  it("puts every label in one column and every value in the next, so the values start on one vertical", async () => {
+    const { target } = open(false);
+    links(target)[0].click();
+    await tick();
+    links(target)[0].click();
+    await tick();
+    const rows = [...target.querySelectorAll<HTMLElement>(".fields > .field-row")];
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.firstElementChild?.classList.contains("field-label")).toBe(true);
+      expect(row.children[1].classList.contains("field-value")).toBe(true);
+    }
+    expect(target.querySelectorAll(".fields .field-label")).toHaveLength(4);
+    expect(target.querySelector(".fields")!.classList.contains("field-grid")).toBe(true);
+  });
+
+  it("keeps Cc and Bcc on the line of the first row of the To field", () => {
+    const { target } = open(false);
+    const first = links(target)[0];
+    expect(first.closest(".field-row")).toBe(target.querySelector(".fields > .field-row"));
+    expect(first.parentElement!.classList.contains("field-trailing")).toBe(true);
+  });
+
+});
+
+describe("the text area of a letter with dots", () => {
+  it("is as tall as its text: the dots follow it at once, and it has no least height of its own", () => {
+    const { target } = open(false, true);
+    const area = target.querySelector<HTMLElement>(".body-area")!;
+    const field = area.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(field.rows).toBe(1);
+    expect(field.style.minHeight).toBe("");
+    // jsdom draws no layout, so the rules of the area are read as written: no least height of the field or the editor under the dots.
+    const css = readFileSync("src/components/Compose.svelte", "utf8");
+    for (const rule of css.matchAll(/(\.body-area\.signed[^{,]*(?:textarea|md-editor)[^{,]*)\{([^}]*)\}/g)) expect(rule[2], rule[1]).not.toContain("min-height");
+    expect(field.nextElementSibling).toBe(dots(target)!.parentElement);
+    expect(field.nextElementSibling!.classList.contains("dots-line")).toBe(true);
+  });
+
+  it("puts the caret at the end of the text by a click on the empty place below it", () => {
+    const { win, target } = open(false, true);
+    win.draft.text = `Первая строка.${SIGNED}`;
+    flushSync();
+    const field = target.querySelector<HTMLTextAreaElement>(".body-area textarea")!;
+    expect(field.value).toBe("Первая строка.");
+    field.blur();
+    field.setSelectionRange(0, 0);
+    target.querySelector<HTMLElement>(".body-area")!.click();
+    expect(document.activeElement).toBe(field);
+    expect(field.selectionStart).toBe(field.value.length);
+    expect(field.selectionEnd).toBe(field.value.length);
+  });
+
+  it("does not take the click on the dots for the empty place", () => {
+    const { target } = open(false, true);
+    (document.activeElement as HTMLElement | null)?.blur();
+    dots(target)!.click();
+    flushSync();
+    expect(document.activeElement).not.toBe(target.querySelector(".body-area textarea"));
+  });
 });
 
 describe("the letter with a folded quote", () => {

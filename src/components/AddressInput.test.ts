@@ -92,3 +92,37 @@ describe("the suggestions of a recipient field", () => {
     expect(key(input, "ArrowRight").defaultPrevented).toBe(false);
   });
 });
+
+describe("the chip of an address", () => {
+  const LONG = { name: "Анастасия Вячеславовна Селиванова", email: "an.selivanova@tmssc.ru" };
+
+  it("is one line: the name, then the address, and the whole text in the title", () => {
+    show([LONG]);
+    const chip = target.querySelector<HTMLElement>(".chip")!;
+    expect(chip.title).toBe("Анастасия Вячеславовна Селиванова <an.selivanova@tmssc.ru>");
+    expect(chip.querySelector(".nm")?.textContent).toBe(LONG.name);
+    expect(chip.querySelector(".ad")?.textContent).toBe("an.selivanova@tmssc.ru");
+    expect(chip.querySelector("br")).toBeNull();
+    expect(chip.textContent).not.toContain("<");
+    const who = chip.querySelector<HTMLElement>(".who")!;
+    expect(chip.firstElementChild).toBe(who);
+    expect(who.children[0].classList.contains("nm")).toBe(true);
+    expect(who.children[1].classList.contains("ad")).toBe(true);
+  });
+
+  it("shows only the address when there is no name", () => {
+    show([{ name: "", email: "plain@example.org" }]);
+    const chip = target.querySelector<HTMLElement>(".chip")!;
+    expect(chip.querySelector(".nm")).toBeNull();
+    expect(chip.querySelector(".ad")?.textContent).toBe("plain@example.org");
+    expect(chip.title).toBe("plain@example.org");
+  });
+
+  it("stands in the value column of the row, after the label", () => {
+    show([LONG]);
+    const row = target.querySelector<HTMLElement>(".field-row")!;
+    expect(row.children[0].classList.contains("field-label")).toBe(true);
+    expect(row.children[1].classList.contains("field-value")).toBe(true);
+    expect(row.children[1].querySelector(".chip")).not.toBeNull();
+  });
+});

@@ -132,18 +132,23 @@
   }
 </script>
 
-<div class="row">
-  <span class="label">{label}</span>
-  <div class="box" class:invalid>
+<!-- The name, then the address in grey; a chip too long for the row is cut with «…» and carries the whole text in its title. -->
+{#snippet who(a: Addr)}
+  {#if a.name?.trim()}<span class="nm">{a.name}</span> {/if}<span class="ad">{a.email}</span>
+{/snippet}
+
+<div class="row field-row">
+  <span class="label field-label">{label}</span>
+  <div class="box field-value" class:invalid>
     {#each value as a, i (a.email)}
-      <span class="chip" title={a.email}>
+      <span class="chip" title={addrFull(a)}>
         {#if card}
-          <button class="name" onclick={() => (cardAt = cardAt === a.email ? null : a.email)}>{addrFull(a)}</button>
+          <button class="who name" onclick={() => (cardAt = cardAt === a.email ? null : a.email)}>{@render who(a)}</button>
           <Popover bind:open={() => cardAt === a.email, (v) => (cardAt = v ? a.email : null)}>
             {@render card(a.email)}
           </Popover>
         {:else}
-          {addrFull(a)}
+          <span class="who">{@render who(a)}</span>
         {/if}
         <button onclick={() => value.splice(i, 1)} aria-label={t("remove")}>×</button>
       </span>
@@ -170,28 +175,13 @@
       </div>
     {/if}
   </div>
-  {@render trailing?.()}
+  {#if trailing}<div class="field-trailing">{@render trailing()}</div>{/if}
 </div>
 
 <style>
-  .row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    border-bottom: 1px solid var(--line);
-    padding: 4px 0;
-  }
-
-  .label {
-    width: 64px;
-    color: var(--muted);
-    padding-top: 6px;
-    flex: none;
-  }
-
   .box {
     position: relative;
-    flex: 1;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -203,28 +193,48 @@
     color: var(--accent);
   }
 
+  /* One line as high as the field: the name, the address in grey, the rest cut with «…». */
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    height: 26px;
     background: var(--hover);
-    border-radius: 12px;
-    padding: 2px 4px 2px 10px;
+    border-radius: 13px;
+    padding: 0 4px 0 10px;
     font-size: 13px;
     user-select: text;
   }
 
   .chip button {
+    flex: none;
     border: none;
     background: none;
     color: var(--muted);
     padding: 0 4px;
   }
 
+  .who {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+
   .chip .name {
+    flex: 0 1 auto;
     color: inherit;
     font: inherit;
     padding: 0;
+  }
+
+  .ad {
+    color: var(--muted);
   }
 
   .chip .name:hover {
