@@ -99,7 +99,7 @@ fn respond(server: &Server, tag: &str, cmd: &str) -> String {
             return String::new();
         }
         if server.refuse_quota {
-            return format!("{tag} NO [UNAVAILABLE] Quota backend is down\r\n");
+            return format!("{tag} NO [SERVERBUG] Quota backend is down\r\n");
         }
         return ok("* QUOTAROOT INBOX \"User quota\"\r\n\
                    * QUOTA \"User quota\" (STORAGE 3250585 10485760 MESSAGE 1200 0)\r\n"
