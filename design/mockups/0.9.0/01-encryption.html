@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шифрование и подпись писем (0.9.0)</title>
+<style>
+/* Макет к 0.9.0. Токены тем и кнопки — строки src/app.css без правок (светлая «Бумага» и «Ночь»);
+   окно письма — как Compose.svelte и AddressInput.svelte, читалка — как Reader.svelte и ReaderHeader.svelte,
+   меню — как Popover.svelte. Код приложения не тронут. Файл самодостаточный: без сети. Данные вымышленные. */
+:root {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  /* A warning and an alarm readable on the sidebar (a mailbox filling up). */
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  /* «Marked important» (#72): the amber of --warn is 3.1–4.0:1 on the grounds of the light
+     themes, so the light ones take a deeper shade (4.7–6.4:1) and the dark ones --side-warn
+     (5.6–9:1). Red is taken by the flag, the cursor and «Send». */
+  --imp: #8a5200;
+  --radius: 8px;
+  /* The expanded letter is up to --win-max wide; the settings window (#68) has its own,
+     wider limit in --prefs-max (0.7.1: 1280 px, the two columns of «People» did not fit).
+     Both keep --win-gap from every edge; a page's fields keep to --column-max. Mirrored in
+     src/lib/settingsWindow.ts, checked by settingsWindow.test.ts. */
+  --win-max: 1040px;
+  --prefs-max: 1280px;
+  --win-gap: 32px;
+  --menu-width: 220px;
+  --column-max: 680px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color-scheme: light;
+}
+
+:root[data-theme="night"] {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #adb3bb;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #3a4553;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  --imp: #e3a63c;
+  color-scheme: dark;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 6px;
+  padding: 5px 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.btn.icon { padding: 5px 7px; }
+
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 0 96px; background: var(--paper-2); color: var(--ink); font-family: var(--font); font-size: 14px; }
+button { cursor: pointer; font: inherit; color: inherit; }
+.i { width: 15px; height: 15px; flex: none; vertical-align: -3px; }
+.i.s { width: 13px; height: 13px; vertical-align: -2px; }
+.doc { width: 1400px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
+h2.screen .n { background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 0 9px; font-family: var(--mono); font-size: 16px; }
+h3.v { font-size: 15px; margin: 18px 0 4px; min-height: 76px; align-content: flex-start; }
+h3.v em { display: block; font-style: normal; font-weight: 400; color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.45; }
+h3.rowh { font-size: 14px; margin: 22px 0 8px; color: var(--muted); font-weight: 600; }
+.lead, .keys { max-width: 1080px; line-height: 1.55; margin: 4px 0; }
+.keys { color: var(--muted); }
+table.q { border-collapse: collapse; font-size: 13px; line-height: 1.45; background: var(--paper); margin: 10px 0; }
+table.q td, table.q th { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 8px; align-items: center; background: var(--side); color: var(--side-ink); border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 12.5px; }
+.ctl button { font-size: 12px; background: var(--side-2); border: 1px solid var(--side-muted); border-radius: 5px; padding: 1px 9px; color: var(--side-ink); }
+.ctl button.on { background: var(--selected); color: var(--ink); }
+.cols { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.slot { flex: none; width: 453px; }
+.slot.w { width: 668px; }
+.frame { position: relative; background: var(--paper-2); padding: 14px; border-radius: 8px; border: 1px solid var(--line); }
+.note { color: var(--muted); font-size: 12.5px; line-height: 1.45; margin: 6px 2px 0; }
+.rec { color: var(--ok); font-weight: 600; }
+[hidden] { display: none !important; }
+
+/* Окно письма — как Compose.svelte и AddressInput.svelte (макет 0.8.7) */
+.compose { display: flex; flex-direction: column; width: 100%; background: var(--paper); border-radius: 10px; box-shadow: 0 8px 40px rgb(0 0 0 / 28%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; font-size: 13px; position: relative; }
+.compose header { display: flex; align-items: center; gap: 2px; padding: 4px 6px 4px 4px; background: var(--side); color: var(--side-ink); }
+.compose .title { flex: 1; padding: 6px 10px; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compose .saved { font-size: 12px; white-space: nowrap; color: color-mix(in srgb, var(--side-ink) 80%, transparent); padding: 0 6px; }
+.compose .mailbox { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 7px; }
+.compose .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--link); display: inline-block; }
+.compose .hb { width: 28px; text-align: center; color: color-mix(in srgb, var(--side-ink) 80%, transparent); }
+.fields { padding: 4px 18px 0; }
+.row { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0; }
+.label { width: 64px; color: var(--muted); padding-top: 6px; flex: none; }
+.box { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 30px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--hover); border-radius: 12px; padding: 2px 4px 2px 10px; font-size: 13px; }
+.chip .x { border: none; background: none; color: var(--muted); padding: 0 4px; }
+.chip.nocert { background: color-mix(in srgb, var(--warn) 14%, var(--paper)); }
+.chip.nocert .i { color: var(--warn); }
+.chip.hascert .i { color: var(--muted); }
+.subject { padding: 6px 2px; font-weight: 600; }
+.body { min-height: 96px; padding: 10px 18px; line-height: 1.5; }
+.compose footer { display: flex; align-items: center; gap: 6px; padding: 10px 14px 14px; border-top: 1px solid var(--line); position: relative; }
+.compose footer .btn { padding: 5px 8px; }
+.compose footer .btn.ghost.icon { padding: 5px 6px; }
+.compose footer .btn.primary { padding: 5px 14px; }
+.spacer { flex: 1; }
+/* Состояние письма: чип, который снимает его (как «Важное» и «Отправить позже» в Compose.svelte) */
+.scheduled { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); font-size: 13px; white-space: nowrap; }
+.scheduled.sec { color: var(--ink); }
+.scheduled { font-size: 12.5px; gap: 4px; }
+.scheduled .btn.icon { padding: 1px 3px; }
+.tg.on { background: var(--selected); }
+.sline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 18px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.sline.warn { background: color-mix(in srgb, var(--warn) 10%, var(--paper)); }
+.sline .grow { flex: 1; min-width: 160px; line-height: 1.45; }
+.link { border: none; background: none; padding: 0; color: var(--link); font: inherit; }
+.link:hover { text-decoration: underline; }
+
+/* Меню, как Popover.svelte */
+.pop { position: absolute; z-index: 5; min-width: 230px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; display: flex; flex-direction: column; font-size: 14px; }
+.pop .mi { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: none; color: var(--ink); text-align: left; padding: 6px 10px; border-radius: 5px; white-space: nowrap; }
+.pop .mi:hover, .pop .mi.cur { background: var(--hover); }
+.pop .mi .tick { width: 16px; display: inline-flex; justify-content: center; }
+.pop .mi .hint { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.pop hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; width: auto; }
+.pop .mt { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+
+/* Окно-вопрос и затемнение, как .modal-backdrop и .modal из app.css */
+.scrim { position: absolute; inset: 0; background: rgb(10 14 20 / 45%); display: flex; align-items: center; justify-content: center; z-index: 8; padding: 16px; border-radius: 10px; }
+.modal { background: var(--paper); border-radius: 12px; box-shadow: 0 20px 60px rgb(0 0 0 / 30%); display: flex; flex-direction: column; overflow: hidden; width: 100%; max-width: 520px; font-size: 13px; }
+.modal h4 { margin: 0; padding: 14px 18px 4px; font-size: 15px; }
+.modal .mb { padding: 4px 18px 12px; line-height: 1.5; }
+.modal .mf { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 10px 18px 14px; border-top: 1px solid var(--line); }
+.choices { display: flex; flex-direction: column; gap: 6px; padding: 4px 18px 12px; }
+.choice { display: flex; align-items: flex-start; gap: 10px; text-align: left; border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 9px 12px; line-height: 1.4; }
+.choice:hover { background: var(--hover); }
+.choice b { display: block; font-weight: 600; }
+.choice span.d { color: var(--muted); font-size: 12px; }
+.choice:disabled { opacity: 0.5; cursor: default; }
+.choice:disabled:hover { background: var(--paper); }
+.radios { display: flex; flex-direction: column; gap: 2px; padding: 0 12px 6px; }
+.radios label { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 6px; line-height: 1.4; }
+.radios label.cur { background: var(--hover); }
+.radios label small { display: block; color: var(--muted); font-size: 12px; }
+
+/* Читалка — как Reader.svelte и ReaderHeader.svelte */
+.reader { background: var(--paper); border-radius: 8px; box-shadow: 0 0 0 1px var(--line); font-size: 13.5px; position: relative; overflow: hidden; }
+.reader .rsub { padding: 12px 22px 2px; font-size: 16px; font-weight: 600; }
+.head { padding: 4px 22px 10px; }
+.from { display: flex; gap: 12px; align-items: flex-start; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--side); color: #fff; font-size: 13px; letter-spacing: 0.02em; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.who { flex: 1; min-width: 0; line-height: 1.45; }
+.sender { border: none; background: none; padding: 0; font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.marks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.marks span, .marks button { display: inline-flex; align-items: center; gap: 4px; }
+.marks .ok .i { color: var(--ok); }
+.marks .warn { color: var(--warn); }
+.marks .bad { color: var(--accent); }
+.rbody { padding: 6px 22px 18px; line-height: 1.55; }
+.rbody p { margin: 0 0 8px; }
+.banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 22px 10px; padding: 8px 12px; background: color-mix(in srgb, var(--warn) 12%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--paper)); border-radius: 6px; font-size: 13px; }
+.banner span.t { flex: 1; min-width: 180px; line-height: 1.45; }
+.banner.ok { background: color-mix(in srgb, var(--ok) 10%, var(--paper)); border-color: color-mix(in srgb, var(--ok) 32%, var(--paper)); }
+.banner.ok .i { color: var(--ok); }
+.banner.warn .i { color: var(--warn); }
+.banner.bad { background: color-mix(in srgb, var(--accent) 10%, var(--paper)); border-color: color-mix(in srgb, var(--accent) 35%, var(--paper)); }
+.banner.bad .i { color: var(--accent); }
+.badges { display: inline-flex; gap: 3px; margin-left: 4px; }
+.badges .i { color: var(--ok); }
+.badges button { border: none; background: none; padding: 1px; border-radius: 4px; }
+.badges button:hover, .badges button.on { background: var(--hover); }
+.tip { position: absolute; z-index: 5; background: var(--side); color: var(--side-ink); font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; box-shadow: 0 6px 18px rgb(0 0 0 / 25%); }
+.hold { margin: 8px 22px 16px; padding: 18px 16px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); line-height: 1.5; background: var(--paper-2); }
+.hold b { color: var(--ink); }
+.hold .acts { margin-top: 10px; display: flex; gap: 8px; justify-content: center; }
+.gone { color: var(--muted); font-style: italic; }
+.details { position: absolute; z-index: 5; width: 330px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+.details h5 { margin: 0 0 4px; font-size: 13px; }
+.details dl { margin: 0; display: grid; grid-template-columns: 96px 1fr; gap: 2px 8px; }
+.details dt { color: var(--muted); }
+.details dd { margin: 0; }
+.details .acts { margin-top: 8px; display: flex; gap: 6px; }
+
+/* Настройки и карточка Контакта */
+.sheet { background: var(--paper); border-radius: 8px; box-shadow: 0 0 0 1px var(--line); padding: 14px 18px 16px; font-size: 13.5px; line-height: 1.5; position: relative; }
+.sheet h4 { margin: 0 0 2px; font-size: 16px; }
+.sheet h5 { margin: 14px 0 4px; font-size: 13px; }
+.sheet .hintt { color: var(--muted); font-size: 12.5px; margin: 2px 0 6px; }
+.input { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--paper); display: flex; align-items: center; gap: 8px; line-height: 1.35; }
+.input .sp { flex: 1; min-width: 0; }
+.input small { display: block; color: var(--muted); font-size: 12px; }
+.listbox { margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; }
+.listbox .opt { display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; border-radius: 5px; line-height: 1.4; }
+.listbox .opt:hover, .listbox .opt.cur { background: var(--hover); }
+.listbox .opt small { display: block; color: var(--muted); font-size: 12px; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+table.lst { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+table.lst th, table.lst td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.lst th { color: var(--muted); font-weight: 400; font-size: 12px; }
+.card { background: var(--paper); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%), 0 0 0 1px var(--line); padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.card .who2 { display: flex; gap: 10px; align-items: center; }
+.card h5 { margin: 12px 0 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.card .cert { display: flex; gap: 8px; align-items: flex-start; }
+.card .cert .i { color: var(--ok); margin-top: 3px; }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol><symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></symbol><symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol><symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol><symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol><symbol id="i-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="i-shield-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol><symbol id="i-clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol><symbol id="i-dots" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol><symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol><symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol><symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol><symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol><symbol id="i-usb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="1"/><circle cx="4" cy="20" r="1"/><path d="M4.7 19.3 19 5"/><path d="m21 3-3 1 2 2z"/></symbol></svg>
+<div class="doc">
+<h1>Шифрование и подпись писем (0.9)</h1>
+<p class="lead">Макет к 0.9.0: три развилки интерфейса — окно письма, читалка и откуда берутся ключи и сертификаты. Сейчас в Депеше этого нет, нарисовано только новое. Окна живые: переключатели и меню нажимаются. Данные вымышленные. В словах «сертификат» и «ключ» оба означают то, чем подписывают и шифруют; формат (S/MIME, OpenPGP) выбирается отдельно и в макете не показан.</p>
+<div class="ctl"><span>Тема:</span><button data-th="paper" class="on">Бумага</button><button data-th="night">Ночь</button></div>
+<h2 class="screen">Вопросы</h2>
+<table class="q"><tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>★</th></tr><tr data-q="1" data-q-title="Как включаются подпись и шифрование в окне письма" data-variants="А,Б,В" data-recommended="В"><td>1</td><td>Как включаются подпись и шифрование в окне письма</td><td>А — две кнопки в нижней строке<br>Б — одна кнопка «Защита» с меню<br>В — пункты в «•••» и чипы, как «Важное»</td><td>В</td></tr><tr data-q="2" data-q-title="Что видно, когда у адресата нет сертификата" data-variants="А,Б,В" data-recommended="А"><td>2</td><td>Что видно, когда у адресата нет сертификата</td><td>А — метка у адресата, строка, «Отправить» недоступна<br>Б — вопрос при отправке<br>В — два письма: зашифрованное и обычное</td><td>А</td></tr><tr data-q="3" data-q-title="Как читалка показывает подписанное и зашифрованное письмо" data-variants="А,Б,В" data-recommended="А"><td>3</td><td>Как читалка показывает подписанное и зашифрованное письмо</td><td>А — строка под получателями<br>Б — полоса над текстом<br>В — значки у имени отправителя</td><td>А</td></tr><tr data-q="4" data-q-title="Как читалка показывает ошибку проверки и расшифровки" data-variants="А,Б,В" data-recommended="А"><td>4</td><td>Как читалка показывает ошибку проверки и расшифровки</td><td>А — цветная полоса над текстом<br>Б — текст скрыт, пока не нажмёшь<br>В — только цветная строка под получателями</td><td>А</td></tr><tr data-q="5" data-q-title="Где пользователь берёт свой ключ или сертификат" data-variants="А,Б,В" data-recommended="А"><td>5</td><td>Где пользователь берёт свой ключ или сертификат</td><td>А — раздел на странице ящика<br>Б — окно «Добавить сертификат» с тремя способами<br>В — выбор при первом «Подписать», страницы нет</td><td>А</td></tr><tr data-q="6" data-q-title="Где Депеша берёт сертификат адресата" data-variants="А,Б,В" data-recommended="А"><td>6</td><td>Где Депеша берёт сертификат адресата</td><td>А — из подписанных писем, видно в карточке Контакта<br>Б — А и поиск в каталоге организации<br>В — только вручную, список в настройках</td><td>А</td></tr></table>
+<p class="lead">Мелкие детали, которых макет не решает (берутся по рекомендации): выключено по умолчанию; кнопки и пункты видны только у ящика с сертификатом; клавиши <kbd>Alt</kbd>+<kbd>S</kbd> и <kbd>Alt</kbd>+<kbd>E</kbd> свободны; расшифрованный текст на диск не пишется.</p>
+<h2 class="screen" data-q="1" data-q-title="Как включаются подпись и шифрование в окне письма" data-variants="А,Б,В" data-recommended="В"><span class="n">1</span> Окно письма: подпись и шифрование</h2><p class="lead"><b>Вопрос 1.</b> Как пользователь включает подпись и шифрование. Здесь оба включены; окно живое, переключатели нажимаются.</p><p class="keys">С клавиатуры во всех вариантах: <kbd>Alt</kbd>+<kbd>S</kbd> — подпись, <kbd>Alt</kbd>+<kbd>E</kbd> — шифрование, как <kbd>Alt</kbd>+<kbd>P</kbd> у «Важного». Без сертификата у ящика ничего этого в окне нет.</p>
+<div class="cols">
+<div class="slot w"><h3 class="v" data-q="1" data-variant="А">А. Две кнопки в нижней строке<em>Рядом с «Файлы»: «Подписать» и «Зашифровать». Включённая — на фоне выбора. Всегда на виду, строка длиннее.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip">Пётр Орлов &lt;p.orlov@example.org&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  
+  <footer><button class="btn primary">Отправить</button><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><button class="btn tg on" data-tg="sign" aria-pressed="true" title="Подписать (Alt+S)"><svg class="i " aria-hidden="true"><use href="#i-pen"/></svg> Подписать</button><button class="btn tg on" data-tg="enc" aria-pressed="true" title="Зашифровать (Alt+E)"><svg class="i " aria-hidden="true"><use href="#i-lock"/></svg> Зашифровать</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  
+</div></div></div>
+<div class="slot w"><h3 class="v" data-q="1" data-variant="Б">Б. Одна кнопка «Защита» с меню<em>Значки на кнопке показывают, что включено; меню — два пункта-галочки и выбор сертификата. Одно место в строке, нужно два нажатия.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip">Пётр Орлов &lt;p.orlov@example.org&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  
+  <footer><button class="btn primary">Отправить</button><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><button class="btn" data-pop="pB" aria-haspopup="menu" aria-expanded="true"><svg class="i s" aria-hidden="true"><use href="#i-pen"/></svg><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Защита <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  <div class="pop" id="pB" style="left:214px;bottom:56px"><div class="mt">Защита письма</div><button class="mi cur" data-tg="sign" aria-pressed="true"><span class="tick"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span>Подписать<span class="hint">Alt+S</span></button><button class="mi" data-tg="enc" aria-pressed="true"><span class="tick"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span>Зашифровать<span class="hint">Alt+E</span></button><hr><div class="mt">Сертификат: Анна Соколова, до 14.03.2027</div><button class="mi">Выбрать другой сертификат…</button></div>
+</div></div></div>
+<div class="slot w"><h3 class="v" data-q="1" data-variant="В">В. Пункты в «•••» и чипы · <span class="rec">рекомендую</span><em>Как «Важное» и «Отправить позже»: пункты в меню «•••», включённое показывается чипом с крестиком. Строка не растёт, пока не включено.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip">Пётр Орлов &lt;p.orlov@example.org&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  
+  <footer><button class="btn primary">Отправить</button><span class="scheduled sec" data-show="sign"><svg class="i s" aria-hidden="true"><use href="#i-pen"/></svg> Подписано<button class="btn ghost icon" data-tg="sign" aria-label="Не подписывать"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button></span><span class="scheduled sec" data-show="enc"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Зашифровано<button class="btn ghost icon" data-tg="enc" aria-label="Не шифровать"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button></span><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" data-pop="pC" aria-expanded="true"><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  <div class="pop" id="pC" style="right:44px;bottom:56px"><button class="mi"><span class="tick"></span>Важное<span class="hint">Alt+P</span></button><button class="mi" data-tg="sign" aria-pressed="true"><span class="tick"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span>Подписать<span class="hint">Alt+S</span></button><button class="mi" data-tg="enc" aria-pressed="true"><span class="tick"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span>Зашифровать<span class="hint">Alt+E</span></button><hr><button class="mi">Сохранить черновик</button><button class="mi">Удалить черновик</button></div>
+</div></div></div>
+</div>
+<h2 class="screen" data-q="2" data-q-title="Что видно, когда у адресата нет сертификата" data-variants="А,Б,В" data-recommended="А"><span class="n">2</span> Окно письма: у адресата нет сертификата</h2><p class="lead"><b>Вопрос 2.</b> Шифрование включено, а у одного из двух адресатов сертификата нет. Без сертификата зашифровать письмо для него нельзя.</p><p class="keys">С клавиатуры: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> в варианте Б открывает вопрос, <kbd>Enter</kbd> и <kbd>Esc</kbd> отвечают на него.</p>
+<div class="cols">
+<div class="slot w"><h3 class="v" data-q="2" data-variant="А">А. Метка у адресата, строка, «Отправить» недоступна · <span class="rec">рекомендую</span><em>Узнаёшь сразу, пока набираешь адреса. Из строки: найти сертификат или не шифровать. Тихого отката к открытому тексту нет.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip hascert">Анна Соколова &lt;a.sokolova@example.com&gt; <svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg><button class="x" tabindex="-1" aria-label="Убрать">×</button></span><span class="chip nocert">Пётр Орлов &lt;p.orlov@example.org&gt; <svg class="i s" aria-hidden="true"><use href="#i-alert"/></svg><button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  <div class="sline warn"><svg class="i " aria-hidden="true"><use href="#i-alert"/></svg><span class="grow">Нет сертификата: Пётр Орлов. Зашифровать письмо для него нельзя.</span><button class="link">Найти сертификат</button><button class="link">Не шифровать</button></div>
+  <footer><button class="btn primary" disabled title="Нет сертификата: Пётр Орлов">Отправить</button><span class="scheduled sec"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Зашифровано<button class="btn ghost icon" aria-label="Не шифровать"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button></span><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  
+</div></div></div>
+<div class="slot w"><h3 class="v" data-q="2" data-variant="Б">Б. Вопрос при отправке<em>Плашки без меток. После «Отправить» окно: отправить без шифрования, найти сертификат или отмена. Узнаёшь поздно.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip">Анна Соколова &lt;a.sokolova@example.com&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span><span class="chip">Пётр Орлов &lt;p.orlov@example.org&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  
+  <footer><button class="btn primary">Отправить</button><span class="scheduled sec"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Зашифровано<button class="btn ghost icon" aria-label="Не шифровать"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button></span><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  <div class="scrim"><div class="modal" role="dialog"><h4>Нельзя зашифровать для Пётр Орлов</h4><div class="mb">У p.orlov@example.org нет сертификата. Отправьте письмо без шифрования или найдите сертификат.</div><div class="mf"><button class="btn">Отмена</button><button class="btn">Найти сертификат…</button><button class="btn primary">Отправить без шифрования</button></div></div></div>
+</div></div></div>
+<div class="slot w"><h3 class="v" data-q="2" data-variant="В">В. Два письма<em>Тем, у кого сертификат есть, уходит зашифрованное, остальным — такое же письмо открытым. Текст уходит открыто по умолчанию.</em></h3><div class="frame"><div class="compose">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip hascert">Анна Соколова &lt;a.sokolova@example.com&gt; <svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg><button class="x" tabindex="-1" aria-label="Убрать">×</button></span><span class="chip nocert">Пётр Орлов &lt;p.orlov@example.org&gt; <svg class="i s" aria-hidden="true"><use href="#i-alert"/></svg><button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  <div class="sline warn"><svg class="i " aria-hidden="true"><use href="#i-alert"/></svg><span class="grow">Пётр Орлов получит письмо без шифрования, Анна Соколова — зашифрованное. Уйдут два письма.</span><button class="link">Только зашифрованное</button></div>
+  <footer><button class="btn primary">Отправить</button><span class="scheduled sec"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Зашифровано<button class="btn ghost icon" aria-label="Не шифровать"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button></span><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  
+</div></div></div>
+</div>
+<h2 class="screen" data-q="3" data-q-title="Как читалка показывает подписанное и зашифрованное письмо" data-variants="А,Б,В" data-recommended="А"><span class="n">3</span> Читалка: подписанное и зашифрованное письмо</h2><p class="lead"><b>Вопрос 3.</b> Письмо подписано и зашифровано, всё верно. Как это видно в читалке. Ошибки и предупреждения — в вопросе 4.</p><p class="keys">С клавиатуры: <kbd>Tab</kbd> доходит до «Подробнее», значков и кнопки «Сертификат»; <kbd>Enter</kbd> открывает подробности, <kbd>Esc</kbd> закрывает.</p>
+<div class="cols">
+<div class="slot "><h3 class="v" data-q="3" data-variant="А">А. Строка под получателями · <span class="rec">рекомендую</span><em>Рядом с отметками «Вы ответили…». Одна тихая строка, зелёные значки только у проверенного. «Подробнее» открывает подпись и сертификат.</em></h3><div class="frame"><div class="reader" style="min-height:370px">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div><div class="marks"><span class="ok"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Зашифровано для вас</span><span class="ok"><svg class="i s" aria-hidden="true"><use href="#i-shield-check"/></svg> Подписано: Анна Соколова, сертификат до 14.03.2027</span><button class="link">Подробнее</button></div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div><div class="details" style="left:40px;top:176px"><h5>Подпись верна</h5><dl><dt>Подписал</dt><dd>Анна Соколова &lt;a.sokolova@example.com&gt;</dd><dt>Сертификат</dt><dd>выдан «УЦ Пример», до 14.03.2027</dd><dt>Алгоритмы</dt><dd>RSA 2048, SHA-256</dd><dt>Проверено</dt><dd>15 окт., 10:02</dd></dl><div class="acts"><button class="btn">Сертификат…</button></div></div>
+</div></div></div>
+<div class="slot "><h3 class="v" data-q="3" data-variant="Б">Б. Полоса над текстом<em>Как баннеры плагинов, зелёная. Заметнее, но каждое подписанное письмо получает полосу.</em></h3><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="banner ok"><svg class="i " aria-hidden="true"><use href="#i-shield-check"/></svg><span class="t">Письмо подписано: Анна Соколова. После подписи оно не менялось. Зашифровано для вас.</span><button class="btn ghost">Сертификат</button></div><div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+<div class="slot "><h3 class="v" data-q="3" data-variant="В">В. Значки у имени отправителя<em>Щит и замок рядом с именем; подробности по нажатию и в подсказке. Меньше всего места, меньше всего слов.</em></h3><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button><span class="badges"><button class="on" aria-label="Подписано"><svg class="i " aria-hidden="true"><use href="#i-shield-check"/></svg></button><button aria-label="Зашифровано"><svg class="i " aria-hidden="true"><use href="#i-lock"/></svg></button></span> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div><div class="tip" style="left:150px;top:92px">Подписано и зашифровано</div>
+</div></div></div>
+</div>
+<h2 class="screen" data-q="4" data-q-title="Как читалка показывает ошибку проверки и расшифровки" data-variants="А,Б,В" data-recommended="А"><span class="n">4</span> Читалка: ошибка проверки и расшифровки</h2><p class="lead"><b>Вопрос 4.</b> Три случая: подпись верна, но сертификату не доверяют (жёлтый); подпись не прошла (красный); письмо нечем расшифровать (красный).</p><p class="keys">С клавиатуры: кнопки в полосе и «Показать текст всё равно» достижимы через <kbd>Tab</kbd>; <kbd>Enter</kbd> нажимает.</p>
+<div class="cols" style="margin-bottom:6px">
+<div class="slot"><h3 class="v" data-q="4" data-variant="А">А. Цветная полоса над текстом · <span class="rec">рекомендую</span><em>Причина и кнопки над текстом. Текст виден, когда его можно показать.</em></h3></div>
+<div class="slot"><h3 class="v" data-q="4" data-variant="Б">Б. Текст скрыт, пока не нажмёшь<em>Жёлтое — тихой строкой. Красное прячет текст за заглушкой с кнопкой «Показать».</em></h3></div>
+<div class="slot"><h3 class="v" data-q="4" data-variant="В">В. Только цветная строка<em>Строка под получателями меняет цвет и слова. Текст виден как всегда.</em></h3></div>
+</div>
+<h3 class="rowh">Подпись верна, сертификату не доверяют</h3><div class="cols">
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="banner warn"><svg class="i " aria-hidden="true"><use href="#i-shield-alert"/></svg><span class="t">Подпись верна, но сертификат выдан УЦ, которому вы не доверяете.</span><button class="btn ghost">Сертификат</button><button class="btn ghost">Доверять УЦ…</button></div><div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div><div class="marks"><span class="warn"><svg class="i s" aria-hidden="true"><use href="#i-shield-alert"/></svg> Подпись верна, сертификат не доверен</span><button class="link">Подробнее</button></div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div><div class="marks"><span class="warn"><svg class="i s" aria-hidden="true"><use href="#i-shield-alert"/></svg> Подпись верна, сертификат не доверен</span><button class="link">Подробнее</button></div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+</div>
+<h3 class="rowh">Подпись не прошла проверку</h3><div class="cols">
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="banner bad"><svg class="i " aria-hidden="true"><use href="#i-shield-alert"/></svg><span class="t">Подпись не прошла проверку: письмо могли изменить после отправки. Не доверяйте тексту.</span><button class="btn ghost">Сертификат</button></div><div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="hold"><b>Подпись не прошла проверку.</b><br>Письмо могли изменить после отправки. Текст скрыт.<div class="acts"><button class="btn">Показать текст всё равно</button><button class="btn ghost">Сертификат</button></div></div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div><div class="marks"><span class="bad"><svg class="i s" aria-hidden="true"><use href="#i-shield-alert"/></svg> Подпись не прошла проверку</span><button class="link">Подробнее</button></div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody"><p>Добрый день!</p><p>Договор поставки согласован с юристами. Прошу подписать до пятницы и вернуть скан.</p><p>Анна</p></div>
+</div></div></div>
+</div>
+<h3 class="rowh">Письмо нечем расшифровать</h3><div class="cols">
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="banner bad"><svg class="i " aria-hidden="true"><use href="#i-lock"/></svg><span class="t">Письмо зашифровано, но расшифровать его нечем: на этом компьютере нет ключа для p.orlov@example.org.</span><button class="btn ghost">Выбрать сертификат…</button></div><div class="rbody gone">Текст недоступен.</div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="hold"><b>Не удалось расшифровать.</b><br>На этом компьютере нет ключа для p.orlov@example.org.<div class="acts"><button class="btn">Выбрать сертификат…</button></div></div>
+</div></div></div>
+<div class="slot "><div class="frame"><div class="reader">
+  <div class="rsub">Договор поставки</div>
+  <div class="head"><div class="from"><span class="avatar" style="background:#6b4fa0">АС</span>
+    <div class="who"><div><button class="sender">Анна Соколова</button> <span class="muted">&lt;a.sokolova@example.com&gt;</span></div>
+    <div class="muted small">Кому: Пётр Орлов, вы</div><div class="marks"><span class="bad"><svg class="i s" aria-hidden="true"><use href="#i-lock"/></svg> Не расшифровано: нет ключа</span><button class="link">Подробнее</button></div></div>
+    <div class="muted small" style="text-align:right">12 окт., 09:14<div>4,2 КБ</div></div></div></div>
+  <div class="rbody gone">Зашифрованное содержимое.</div>
+</div></div></div>
+</div>
+<h2 class="screen" data-q="5" data-q-title="Где пользователь берёт свой ключ или сертификат" data-variants="А,Б,В" data-recommended="А"><span class="n">5</span> Откуда берётся свой ключ или сертификат</h2><p class="lead"><b>Вопрос 5.</b> Первый раз пользователь подключает свой сертификат к ящику. Депеша ничего не выпускает и не создаёт: сертификат даёт организация или УЦ.</p><p class="keys">С клавиатуры: <kbd>Tab</kbd> и <kbd>↑</kbd> <kbd>↓</kbd> по списку, <kbd>Enter</kbd> выбирает, <kbd>Esc</kbd> закрывает.</p>
+<div class="cols">
+<div class="slot "><h3 class="v" data-q="5" data-variant="А">А. Раздел на странице ящика · <span class="rec">рекомендую</span><em>Список найденных в системе сертификатов с адресом ящика и кнопка «Импортировать из файла…». Окно письма само не спрашивает.</em></h3><div class="frame"><div class="sheet"><h4>Ящик «Рабочая»: подпись и шифрование</h4>
+<div class="hintt">Сертификат подписывает ваши письма и расшифровывает письма вам. Депеша берёт его из хранилища системы.</div>
+<h5>Сертификат</h5>
+<div class="input"><span class="sp">Анна Соколова · a.sokolova@example.com<small>до 14.03.2027 · хранилище Windows</small></span><svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></div>
+<div class="listbox"><div class="opt cur"><span class="sp">Анна Соколова · a.sokolova@example.com<small>до 14.03.2027 · хранилище Windows</small></span></div>
+<div class="opt"><span class="sp">Анна Соколова · a.sokolova@example.com<small>просрочен 02.06.2025 · хранилище Windows</small></span></div>
+<div class="opt"><span class="sp">Не использовать<small>подпись и шифрование для этого ящика выключены</small></span></div></div>
+<div class="acts"><button class="btn">Импортировать из файла…</button></div></div></div></div>
+<div class="slot "><h3 class="v" data-q="5" data-variant="Б">Б. Окно «Добавить сертификат»<em>Три способа в одном окне: из системы, из файла, токен. Больше слов, всё в одном месте; токен без драйвера ОС — позже.</em></h3><div class="frame"><div class="reader" style="background:transparent;box-shadow:none"><div class="modal" style="max-width:none"><h4>Добавить сертификат</h4>
+<div class="mb muted">Для ящика a.sokolova@example.com.</div>
+<div class="choices">
+<button class="choice"><svg class="i " aria-hidden="true"><use href="#i-monitor"/></svg><span><b>Выбрать из установленных на этом компьютере</b><span class="d">Хранилище системы, смарт-карты и токены, которые видит система.</span></span></button>
+<button class="choice"><svg class="i " aria-hidden="true"><use href="#i-file"/></svg><span><b>Импортировать из файла</b><span class="d">.pfx или .p12; потребуется пароль к файлу.</span></span></button>
+<button class="choice" disabled><svg class="i " aria-hidden="true"><use href="#i-usb"/></svg><span><b>Токен без драйвера в системе</b><span class="d">Рутокен, JaCarta по PKCS#11. Позже.</span></span></button>
+</div><div class="mf"><button class="btn">Отмена</button></div></div></div></div></div>
+<div class="slot "><h3 class="v" data-q="5" data-variant="В">В. Выбор при первом «Подписать»<em>Отдельной страницы нет: первое включение подписи спрашивает сертификат из найденных и запоминает выбор.</em></h3><div class="frame"><div class="compose" style="min-height:430px">
+  <header><span class="title">Договор поставки</span><span class="saved">Сохранено в 09:31</span><span class="mailbox"><i class="dot"></i>Рабочая</span><span class="hb">–</span><span class="hb">□</span><span class="hb">×</span></header>
+  <div class="fields">
+    <div class="row"><span class="label">К:</span><div class="box"><span class="chip">Пётр Орлов &lt;p.orlov@example.org&gt;<button class="x" tabindex="-1" aria-label="Убрать">×</button></span></div></div>
+    <div class="row"><span class="label">Тема:</span><span class="subject">Договор поставки</span></div>
+  </div>
+  <div class="body">Добрый день! Договор во вложении, прошу подписать.</div>
+  
+  <footer><button class="btn primary">Отправить</button><button class="btn" aria-label="Файлы"><svg class="i " aria-hidden="true"><use href="#i-clip"/></svg> Файлы</button><button class="btn tg" aria-pressed="false"><svg class="i " aria-hidden="true"><use href="#i-pen"/></svg> Подписать</button><span class="spacer"></span><button class="btn ghost">Текст <svg class="i s" aria-hidden="true"><use href="#i-down"/></svg></button><button class="btn ghost icon" aria-label="Ещё" ><svg class="i " aria-hidden="true"><use href="#i-dots"/></svg></button><button class="btn ghost icon" aria-label="Удалить черновик"><svg class="i " aria-hidden="true"><use href="#i-trash"/></svg></button></footer>
+  <div class="scrim"><div class="modal"><h4>Выберите сертификат для подписи</h4>
+<div class="mb muted">Для ящика a.sokolova@example.com. Выбор запомнится.</div>
+<div class="radios"><label class="cur"><input type="radio" checked name="c5"><span>Анна Соколова<small>до 14.03.2027 · хранилище Windows</small></span></label>
+<label><input type="radio" name="c5"><span>Анна Соколова<small>просрочен 02.06.2025 · хранилище Windows</small></span></label></div>
+<div class="mf"><button class="btn ghost" style="margin-right:auto">Из файла…</button><button class="btn">Отмена</button><button class="btn primary">Подписать</button></div></div></div>
+</div></div></div>
+</div>
+<h2 class="screen" data-q="6" data-q-title="Где Депеша берёт сертификат адресата" data-variants="А,Б,В" data-recommended="А"><span class="n">6</span> Откуда берётся сертификат адресата</h2><p class="lead"><b>Вопрос 6.</b> Чтобы зашифровать письмо Петру Орлову, нужен его сертификат. Где пользователь его видит и откуда он приходит.</p><p class="keys">С клавиатуры: карточка Контакта открывается так же, как сейчас; <kbd>Tab</kbd> по кнопкам, <kbd>Esc</kbd> закрывает.</p>
+<div class="cols">
+<div class="slot "><h3 class="v" data-q="6" data-variant="А">А. Из подписанных писем, видно в карточке Контакта · <span class="rec">рекомендую</span><em>Подписанное письмо несёт сертификат: Депеша кладёт его в карточку по адресу. Файл — запасной путь.</em></h3><div class="frame"><div class="card" style="max-width:none"><div class="who2"><span class="avatar" style="background:#2f7d6d">ПО</span><div><b>Пётр Орлов</b><div class="muted">p.orlov@example.org</div></div></div>
+<h5>Сертификат для шифрования</h5>
+<div class="cert"><svg class="i " aria-hidden="true"><use href="#i-lock"/></svg><div>Получен из подписанного письма от 12 окт.<br><span class="muted">до 03.09.2027 · отпечаток 3F:9A:C1:07…</span></div></div>
+<div class="acts"><button class="btn">Сертификат…</button><button class="btn">Заменить из файла…</button><button class="btn ghost">Удалить</button></div>
+<div class="note">Сертификаты отправителей Депеша сохраняет из подписанных писем сама.</div></div></div></div>
+<div class="slot "><h3 class="v" data-q="6" data-variant="Б">Б. А и поиск в каталоге организации<em>В карточке и в окне письма — «Найти в каталоге» (LDAP, AD). Корпоративный путь, нужна настройка каталога на ящике.</em></h3><div class="frame"><div class="card" style="max-width:none"><div class="who2"><span class="avatar" style="background:#2f7d6d">ПО</span><div><b>Пётр Орлов</b><div class="muted">p.orlov@example.org</div></div></div>
+<h5>Сертификат для шифрования</h5>
+<div class="muted">Нет. Нужно подписанное им письмо или сертификат из каталога.</div>
+<div class="acts"><button class="btn">Найти в каталоге организации…</button><button class="btn">Из файла…</button></div>
+<div class="listbox" style="margin-top:10px"><div class="mt muted small" style="padding:4px 10px">Каталог ldap.example.org</div>
+<div class="opt cur"><span class="sp">Пётр Орлов · p.orlov@example.org<small>сертификат до 03.09.2027</small></span><button class="btn" style="margin-left:auto">Взять</button></div></div></div></div></div>
+<div class="slot "><h3 class="v" data-q="6" data-variant="В">В. Только вручную<em>Сертификаты добавляются файлом в список в настройках. Ничего не берётся из писем само: видно всё, что Депеша знает.</em></h3><div class="frame"><div class="sheet"><h4>Сертификаты адресатов</h4>
+<div class="hintt">Депеша шифрует письмо тем, чей сертификат вы добавили сюда. Из писем она сертификаты не берёт.</div>
+<table class="lst"><tr><th>Контакт</th><th>Действует до</th><th></th></tr>
+<tr><td>Анна Соколова<br><span class="muted">a.sokolova@example.com</span></td><td>14.03.2027</td><td><button class="btn ghost">Удалить</button></td></tr>
+<tr><td>Мария Лебедева<br><span class="muted">m.lebedeva@example.net</span></td><td>21.11.2026</td><td><button class="btn ghost">Удалить</button></td></tr></table>
+<div class="acts"><button class="btn">Импортировать из файла…</button></div></div></div></div>
+</div>
+</div>
+<script>
+(function () {
+  var th = document.querySelectorAll('.ctl [data-th]');
+  th.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-th');
+      if (t === 'night') document.documentElement.setAttribute('data-theme', 'night');
+      else document.documentElement.removeAttribute('data-theme');
+      th.forEach(function (x) { x.classList.toggle('on', x === b); });
+    });
+  });
+  // Переключатели в окне письма: все элементы с тем же data-tg в одном окне меняются вместе.
+  document.addEventListener('click', function (e) {
+    var tg = e.target.closest && e.target.closest('[data-tg]');
+    if (tg) {
+      var scope = tg.closest('.frame') || document;
+      var name = tg.getAttribute('data-tg');
+      var on = !tg.classList.contains('on');
+      scope.querySelectorAll('[data-tg="' + name + '"]').forEach(function (x) {
+        x.classList.toggle('on', on);
+        x.setAttribute('aria-pressed', String(on));
+        var tick = x.querySelector('.tick');
+        if (tick) tick.style.visibility = on ? 'visible' : 'hidden';
+      });
+      scope.querySelectorAll('[data-show="' + name + '"]').forEach(function (x) { x.hidden = !on; });
+      return;
+    }
+    var pop = e.target.closest && e.target.closest('[data-pop]');
+    if (pop) {
+      var f = pop.closest('.frame') || document;
+      var t = f.querySelector('#' + pop.getAttribute('data-pop'));
+      if (t) t.hidden = !t.hidden;
+    }
+  });
+})();
+</script>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+@media (max-width: 1099px) { html.mk-open body { margin-right: 0; } }
+html.mk-noting, html.mk-noting * { cursor: crosshair !important; }
+html.mk-noting .mk-panel, html.mk-noting .mk-panel *, html.mk-noting .mk-tab { cursor: default !important; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
+  doc.addEventListener("click", function (e) {
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы · " + done + "/" + total;
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
