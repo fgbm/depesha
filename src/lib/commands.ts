@@ -5,6 +5,7 @@
 import type { Command } from "../plugin-api";
 import { registry } from "../plugin-host/registry.svelte";
 import { api } from "./api";
+import { bus } from "./bus";
 import { extensions, fromRow } from "./extensions.svelte";
 import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
@@ -21,7 +22,7 @@ const go = (v: View) => () => app.selection.setView(v);
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** What needs the main window's list, folders or settings: a letter's own window has none of them. */
-const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
+const MAIN_ONLY = /^core\.(search|row-menu$|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
 
 /** The open folder as the search takes it: by its readable name, not the server's (modified UTF-7). */
 function readableFolder(): string | null {
@@ -69,6 +70,7 @@ export function coreCommands(): Command[] {
   if (target.length || msg) {
     const ids = target.length ? target : [msg!.row.id];
     list.push({ id: "core.labels", title: () => t("act.labels"), run: () => labels.openPick(ids) });
+    list.push({ id: "core.row-menu", title: () => t("cmd.rowMenu"), run: () => bus.emit("list.row-menu") });
   }
   for (const c of extensions.commands()) {
     if (c.message && !msg) continue;

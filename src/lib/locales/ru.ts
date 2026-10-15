@@ -1247,6 +1247,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "cmd.people": "Открыть «Контакты»",
   "cmd.peopleAlso": "люди человек",
   "cmd.senderCard": "Карточка отправителя",
+  "cmd.rowMenu": "Меню выбранных писем",
   "people.rename": "Изменить имя",
   "people.noteEmpty": "Заметка…",
   "people.card": "Контакт",

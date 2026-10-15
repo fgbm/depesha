@@ -9,6 +9,8 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import { tick } from "svelte";
+  import { bus } from "../lib/bus";
+  import { keyAnchor } from "../lib/anchor";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { followFocus } from "../lib/listFocus";
   import { app } from "../lib/store.svelte";
@@ -158,6 +160,13 @@
     if (!ids.length) ids = [m.id];
     menu = { at: { x: e.clientX, y: e.clientY }, ids };
   }
+
+  /** The menu from the keyboard (#126): for the chosen rows, or the cursor's, hung under the cursor row. */
+  function menuByKey() {
+    const ids = app.selection.selected.size ? [...app.selection.selected] : cursor === null ? [] : [cursor];
+    if (ids.length) menu = { at: keyAnchor(viewport ?? document), ids };
+  }
+  $effect(() => bus.on("list.row-menu", menuByKey));
 
   /** A round picture at the left of every row (#108); off, the rows are as they were. */
   const avatars = $derived(app.settingsCtl.settings.list_avatars);

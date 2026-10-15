@@ -46,6 +46,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("core.empty-folder", "keys.cmd.emptyFolder", ["Mod+Shift+Delete"], "list"),
   row("core.unread", "keys.cmd.toggleRead", ["u"], "list"),
   row("core.flag", "cmd.flag", ["s"], "list"),
+  // The menu of the chosen rows, as the right click opens it (#126): the Menu key, and Shift+F10 where there is none.
+  row("core.row-menu", "cmd.rowMenu", ["ContextMenu", "Shift+F10"], "list"),
   // Labels (#42, frame 10): l is free; the Russian д sits on the same key.
   row("core.labels", "act.labels", ["l"], "list"),
   // The card of the open letter's sender (#104, 2.4 А): p is free; the Russian з sits on the same key.

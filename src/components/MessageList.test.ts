@@ -11,6 +11,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import MessageList from "./MessageList.svelte";
 import ReaderStates from "./reader/ReaderStates.svelte";
 import { app } from "../lib/store.svelte";
+import { bus } from "../lib/bus";
 import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, deferred, settings } from "../lib/testing";
@@ -872,5 +873,35 @@ describe("a letter of a thread in a window of its own, and its accessibility (#1
     expect(t.querySelector(".count")!.getAttribute("aria-label")).toContain("3");
     await unfold(t);
     expect(t.querySelector<HTMLElement>(".row")!.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+describe("the menu of a row from the keyboard (#126)", () => {
+  it("opens for the row with the cursor on the command, and gives the focus back on Escape", async () => {
+    const t = draw([row(1, "ann@x.example"), row(2, "bob@x.example")]);
+    await tick();
+    app.selection.selected = new Set([2]);
+    flushSync();
+    const rowEl = t.querySelector<HTMLElement>(".row")!;
+    rowEl.focus();
+    expect(document.querySelector("button.mi")).toBeNull();
+    bus.emit("list.row-menu");
+    await tick();
+    flushSync();
+    expect(document.querySelector("button.mi")).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    flushSync();
+    expect(document.querySelector("button.mi")).toBeNull();
+    expect(document.activeElement).toBe(rowEl);
+  });
+
+  it("does nothing when no row is chosen", async () => {
+    draw([row(1, "ann@x.example")]);
+    await tick();
+    bus.emit("list.row-menu");
+    await tick();
+    expect(document.querySelector("button.mi")).toBeNull();
   });
 });

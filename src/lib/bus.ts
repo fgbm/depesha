@@ -30,6 +30,8 @@ export interface UiEvents {
   "people.search": void;
   /** A merge of people is over, done or not: the book gives its list the focus back. */
   "people.merge-ended": void;
+  /** Open the menu of the list's chosen rows, under the cursor row (its key, #126). */
+  "list.row-menu": void;
   /** Show the card of the open letter's sender (its key, #104). */
   "reader.sender-card": void;
   /** `openSettings` was called: an open settings window turns to this page. */

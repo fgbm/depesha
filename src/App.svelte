@@ -137,6 +137,7 @@
     "core.unread": () => app.selection.toggleSeen(),
     "core.flag": () => app.selection.toggleFlagged(),
     "core.labels": () => labels.openPick(labelTarget()),
+    "core.row-menu": () => bus.emit("list.row-menu"),
   };
 
   /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */

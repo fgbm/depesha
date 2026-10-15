@@ -47,6 +47,12 @@ describe("the core's commands and their keys", () => {
     });
   });
 
+  it("opens the menu of a row on the Menu key and on Shift+F10 (#126)", () => {
+    expect(CORE_KEYS.find((c) => c.id === "core.row-menu")?.keys).toEqual(["ContextMenu", "Shift+F10"]);
+    const f10 = { key: "F10", code: "F10", shiftKey: true, ctrlKey: false, metaKey: false, altKey: false };
+    expect(pressNames(f10)).toContain("Shift+F10");
+  });
+
   it("shows Delete first for «Delete»: the palette and the menus say the same", () => {
     expect(CORE_KEYS.find((c) => c.id === "core.delete")?.keys).toEqual(["Delete", "#"]);
   });

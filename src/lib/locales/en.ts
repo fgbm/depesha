@@ -1253,6 +1253,7 @@ export const en = {
   "cmd.people": "Open Contacts",
   "cmd.peopleAlso": "people person",
   "cmd.senderCard": "Card of the sender",
+  "cmd.rowMenu": "Menu of the chosen letters",
   "people.rename": "Change the name",
   "people.noteEmpty": "Note…",
   "people.card": "Contact",
