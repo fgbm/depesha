@@ -71,6 +71,7 @@ En|folder-changed|the folder changed on the server before the action ran; nothin
 En|label-stripping|The label is still being removed, try again in a minute
 En|label-check|this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run
 En|copy-refused|quota says no
+En|folder-name|a folder name cannot contain ".": it is the separator of folders here
 Ru|io-refused|сервер не принимает соединения (порт закрыт или сервер выключен)
 Ru|io-reset|соединение с сервером оборвалось
 Ru|io-aborted|соединение с сервером оборвалось
@@ -144,3 +145,4 @@ Ru|folder-changed|папка изменилась на сервере, пока 
 Ru|label-stripping|Метка ещё удаляется, попробуйте через минуту
 Ru|label-check|на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется
 Ru|copy-refused|quota says no
+Ru|folder-name|в имени папки нельзя писать «.»: здесь это разделитель папок

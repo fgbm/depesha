@@ -138,5 +138,6 @@ fn samples() -> Vec<(String, Error)> {
     add("label-stripping", Error::LabelStripping);
     add("label-check", Error::LabelCheckUnsupported);
     add("copy-refused", Error::CopyRefused("quota says no".into()));
+    add("folder-name", Error::FolderName(".".into()));
     v
 }
