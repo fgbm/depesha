@@ -1277,6 +1277,7 @@ export async function run() {
     await menuItem("Markdown");
     // The signature stands as a block with its formatting and pictures (#67), not as the
     // text under "-- " a plain letter carries.
+    await d.click(await d.until("dots", () => d.find(".compose .body-area .dots").catch(() => null), 5000));
     await d.until("markdown signature", async () =>
       d.exec("const b = document.querySelector('.compose .sig-html'); return !!b && b.innerText.includes('Кэрол');"));
     if ((await d.findAll(".compose .sig-plain .sig-text")).length) throw new Error("в Markdown-письме подпись показана текстом");
@@ -1293,6 +1294,7 @@ export async function run() {
     await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, 'x\\n'.repeat(80));");
     await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
     await menuItem("Markdown");
+    await d.click(await d.until("dots", () => d.find(".compose .body-area .dots").catch(() => null), 5000));
     await d.until("markdown signature", async () => (await d.findAll(".compose .sig-html")).length === 1);
     await zonesStayInView(d, drops);
     await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
