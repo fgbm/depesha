@@ -767,6 +767,22 @@ fn child_path(store: &Store, account_id: &str, names: ProtocolNames, parent: &st
     Ok(format!("{parent}{delimiter}{name}"))
 }
 
+/// The name a new folder may take: one without the delimiter of the place it goes into (the
+/// parent's, at the top the account's), since the server would split it into a chain of folders.
+/// Where the cache knows no delimiter, a slash is assumed, as `child_path` does.
+fn checked_name<'a>(store: &Store, account_id: &str, parent: Option<&str>, name: &'a str) -> Result<&'a str> {
+    let folders = store.folders(Some(account_id))?;
+    let delimiter = match parent {
+        Some(p) => folders.iter().find(|f| f.folder.name == p).and_then(|f| f.folder.delimiter.clone()),
+        None => folders.iter().find_map(|f| f.folder.delimiter.clone()),
+    };
+    let delimiter = delimiter.filter(|d| !d.is_empty()).unwrap_or_else(|| "/".into());
+    if name.contains(&delimiter) {
+        return Err(Error::FolderName(delimiter));
+    }
+    Ok(name)
+}
+
 /// Makes a folder `name`, inside `parent` (a folder name as the cache keeps it) or at the top.
 pub async fn create_folder(
     conn: &mut Conn,
@@ -775,6 +791,7 @@ pub async fn create_folder(
     parent: Option<&str>,
     name: &str,
 ) -> Result<()> {
+    let name = checked_name(store, account_id, parent, name)?;
     let full = match parent {
         Some(parent) => child_path(store, account_id, ProtocolNames::of(conn), parent, name)?,
         None => name.to_owned(),
@@ -990,6 +1007,31 @@ mod tests {
             child_path(&empty, "b", ProtocolNames::Exchange, "Неизвестная", "X").unwrap(),
             "Неизвестная/X"
         );
+    }
+
+    /// A delimiter inside the name would make the server build a chain of folders (#161).
+    #[test]
+    fn a_folder_name_with_the_delimiter_inside_is_refused() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |name: &str, delimiter: &str| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some(delimiter.into()),
+            role: None,
+            selectable: true,
+            hidden: false,
+        };
+        store.replace_folders("a", &[mk("Работа", ".")]).unwrap();
+        assert!(matches!(
+            checked_name(&store, "a", Some("Работа"), "Отчёты.2026"),
+            Err(Error::FolderName(d)) if d == "."
+        ));
+        // At the top the account's delimiter counts, whichever folder tells it.
+        assert!(matches!(checked_name(&store, "a", None, "A.B"), Err(Error::FolderName(_))));
+        // The other kind of slash is a plain letter here, and an unknown parent gets a slash.
+        assert_eq!(checked_name(&store, "a", Some("Работа"), "Отчёты/2026").unwrap(), "Отчёты/2026");
+        assert!(checked_name(&store, "a", Some("Нет"), "A/B").is_err());
+        assert_eq!(checked_name(&store, "a", None, "Отчёты").unwrap(), "Отчёты");
     }
 
     #[test]

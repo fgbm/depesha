@@ -53,6 +53,9 @@ pub enum Error {
     Bye(String),
     #[error("unexpected answer from the server: {0}")]
     Protocol(String),
+    /// A new folder's name holds the delimiter of the place it goes into (#161).
+    #[error("a folder name cannot contain \"{0}\": it is the separator of folders here")]
+    FolderName(String),
     #[error("message not found")]
     NotFound,
     #[error("the message could not be parsed")]
@@ -165,6 +168,7 @@ impl Clone for Error {
             Self::Closed => Self::Closed,
             Self::Bye(m) => Self::Bye(m.clone()),
             Self::Protocol(m) => Self::Protocol(m.clone()),
+            Self::FolderName(d) => Self::FolderName(d.clone()),
             Self::NotFound => Self::NotFound,
             Self::Parse => Self::Parse,
             Self::Unreadable => Self::Unreadable,
