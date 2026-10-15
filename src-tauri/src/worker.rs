@@ -1698,6 +1698,10 @@ async fn perform(
             if !seen.is_empty()
                 && let Err(e) = mail::set_flag(conn, store, id, from, *validity, seen, FlagChange::Seen(true)).await
             {
+                // A dead link is the move's failure too: it is run again on a fresh one.
+                if e.is_transient() {
+                    return Err(e);
+                }
                 tracing::debug!(account = %id, folder = %from, "seen before move: {e}");
             }
             if resume {
@@ -2095,6 +2099,7 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
         None => String::new(),
     };
     let note = match (p.by_age, p.shortened) {
+        _ if p.at_renewal => "; the server closed the link at our renewal, not a cut of an idle link",
         (true, _) => "; the connection is cut by its age, not by idleness: renewal kept",
         (_, Some(_)) => "; cut after the same idle time twice: renewal shortened",
         _ => "",
@@ -2114,6 +2119,13 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
         tracing::warn!(account = %account, "{line}");
     } else {
         tracing::debug!(account = %account, "{line}");
+    }
+    if p.to_poll {
+        tracing::warn!(
+            account = %account,
+            "idle keeps dropping and no renewal holds it: the inbox is checked every {}s instead",
+            POLL_WITHOUT_IDLE.as_secs()
+        );
     }
 }
 

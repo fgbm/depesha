@@ -1,6 +1,6 @@
-//! A proxy that resets the streaming request of Exchange after a second (#114): the stream
-//! was opened with 200, so the connection has worked and the reconnect does not wait longer
-//! with every drop. A fake Exchange on a local socket; no stand needed.
+//! A proxy that resets the streaming request of Exchange after a second (#114): a stream
+//! that is cut again and again has no renewal to shorten, so the pause grows and the inbox
+//! is polled instead. A fake Exchange on a local socket; no stand needed.
 
 #![cfg(test)]
 #![allow(
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use depesha_core::account::{Credentials, EwsConfig};
 use depesha_core::ews;
-use depesha_core::idle_pace::{DropCause, IdlePace};
+use depesha_core::idle_pace::{DropCause, IdlePace, Tuning};
 use depesha_core::mail::{self, Conn};
 use depesha_core::store::Store;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -94,7 +94,7 @@ async fn fake_exchange() -> u16 {
 }
 
 #[tokio::test]
-async fn a_stream_reset_after_it_opened_does_not_lengthen_the_pause() {
+async fn a_stream_reset_again_and_again_backs_off_and_ends_in_polling() {
     let port = fake_exchange().await;
     let config = EwsConfig {
         url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
@@ -103,9 +103,12 @@ async fn a_stream_reset_after_it_opened_does_not_lengthen_the_pause() {
     let creds = Credentials::new("me", "secret");
     let store = Store::open_in_memory().unwrap();
     store.ews_set_folders("a", &[("INBOX".into(), "I".into())]).unwrap();
-    let mut pace = IdlePace::new();
-    let mut pauses = Vec::new();
-    while pauses.len() < 4 {
+    let mut pace = IdlePace::with(Tuning {
+        poll_after: 4,
+        ..Tuning::default()
+    });
+    let (mut pauses, mut notices) = (Vec::new(), 0);
+    while !pace.polling() {
         let session = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
         let connected = Instant::now();
         let mut conn = Conn::Ews(session);
@@ -115,11 +118,30 @@ async fn a_stream_reset_after_it_opened_does_not_lengthen_the_pause() {
                 Ok((c, _)) => conn = c,
                 Err(d) => {
                     assert!(matches!(d.cause, DropCause::Reset | DropCause::Eof), "{:?}", d.cause);
-                    pauses.push(d.dropped.expect("not a busy server").pause);
+                    let verdict = d.dropped.expect("not a busy server");
+                    pauses.push(verdict.pause.as_secs());
+                    notices += usize::from(verdict.to_poll);
                     break;
                 }
             }
         }
     }
-    assert!(pauses.iter().all(|p| *p == Duration::from_secs(5)), "{pauses:?}");
+    assert_eq!(pauses, [5, 5, 10, 20]);
+    assert_eq!(notices, 1);
+    // Polling asks no stream of the server: the wait is the poll interval, whatever it hears.
+    let session = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
+    let began = Instant::now();
+    let (_, outcome) = mail::wait_for_changes(
+        Conn::Ews(session),
+        &store,
+        "a",
+        Duration::from_millis(300),
+        &mut pace,
+        Instant::now(),
+    )
+    .await
+    .map_err(|d| d.error)
+    .expect("a poll does not drop");
+    assert!(matches!(outcome, depesha_core::imap::IdleOutcome::Changed));
+    assert!(began.elapsed() >= Duration::from_millis(300));
 }

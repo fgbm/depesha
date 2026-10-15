@@ -88,7 +88,7 @@ fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking:
         .ok()?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
     let filter = EnvFilter::try_from_env("DEPESHA_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("info,depesha_lib=debug,depesha_core=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,depesha_lib=debug,depesha_core=debug,html5ever=error"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(writer)

@@ -605,8 +605,11 @@ fn flag_command(change: FlagChange) -> &'static str {
 /// different one now, the UIDs name other messages and nothing is changed.
 async fn select_at(conn: &mut Conn, folder: &str, validity: Option<u32>) -> Result<()> {
     let mailbox = conn.session.select(folder).await?;
-    match validity {
-        Some(v) if mailbox.uid_validity.unwrap_or(0) != v => Err(Error::FolderChanged),
+    match (validity, mailbox.uid_validity) {
+        // Every SELECT answer names UIDVALIDITY; a link that died before it answers with an
+        // empty mailbox, and that is no change of the folder.
+        (Some(_), None) => Err(Error::Closed),
+        (Some(v), Some(now)) if now != v => Err(Error::FolderChanged),
         _ => Ok(()),
     }
 }
@@ -1829,9 +1832,12 @@ pub async fn wait_for_changes(
     } else {
         idling.store(true, Ordering::Relaxed);
         let (wait, _stop) = handle.wait_with_timeout(renew);
-        let response = wait.await;
+        // The timeout of `wait` starts over with every `* OK` the server sends (a keep-alive
+        // such as "Still here"), so it alone never ends a wait on such a server. The outer
+        // one counts from the start of the IDLE.
+        let response = tokio::time::timeout(renew, wait).await;
         idling.store(false, Ordering::Relaxed);
-        response?
+        response.unwrap_or(Ok(IdleResponse::Timeout))?
     };
     // A BYE is the server's own word on why it closes: keep it for the log.
     if let IdleResponse::NewData(data) = &response

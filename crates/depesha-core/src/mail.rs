@@ -888,7 +888,21 @@ pub async fn wait_for_changes(
     // changed meanwhile wait for the sync that runs every few minutes anyway. EWS has no such
     // mark, but its sync is incremental (the server keeps the state), so a sync at once is cheap.
     let mut ended = None;
-    if resync {
+    let polling = pace.polling();
+    if polling {
+        // A link that does not hold an IDLE is asked about the inbox every `poll`: a NOOP
+        // finds out whether it is alive, and the sync that follows finds the news.
+        tokio::time::sleep(poll).await;
+        ended = Some(match &mut conn {
+            Conn::Imap(c) => c
+                .session
+                .noop()
+                .await
+                .map(|_| IdleOutcome::Changed)
+                .map_err(Error::from),
+            Conn::Ews(_) => Ok(IdleOutcome::Changed),
+        });
+    } else if resync {
         ended = match &mut conn {
             Conn::Imap(c) => match imap::select_for_idle(c, "INBOX").await.and_then(|m| {
                 let saved = store.modseq_mark(account_id, "INBOX")?;
@@ -919,7 +933,9 @@ pub async fn wait_for_changes(
     };
     match result {
         Ok(done) => {
-            if !resync {
+            if polling {
+                pace.polled();
+            } else if !resync {
                 pace.renewed();
             }
             Ok(done)

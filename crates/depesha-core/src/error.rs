@@ -361,6 +361,8 @@ impl Error {
             Self::Busy { .. } => true,
             Self::Said(s) => s.class() == Class::Transient,
             Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost) => true,
+            // RFC 5530: a failure on the server's side that a new try may get past.
+            Self::Imap(async_imap::error::Error::No(m)) => m.to_ascii_uppercase().contains("UNAVAILABLE"),
             _ => false,
         }
     }
@@ -797,6 +799,17 @@ mod tests {
         );
         assert_eq!(Error::Timeout("answer").kind(), ErrorKind::Network);
         assert_eq!(Error::Closed.kind(), ErrorKind::Network);
+    }
+
+    #[test]
+    fn an_unavailable_answer_is_a_temporary_error() {
+        let backend = Error::Imap(E::No(
+            "code: None, info: Some(\"[UNAVAILABLE] UID SEARCH Backend error. sc=x\")".into(),
+        ));
+        assert!(backend.is_transient());
+        assert_eq!(backend.kind(), ErrorKind::Network);
+        let refusal = Error::Imap(E::No("code: Some(NOPERM), info: Some(\"no rights\")".into()));
+        assert!(!refusal.is_transient());
     }
 
     #[test]

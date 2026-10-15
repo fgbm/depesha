@@ -99,6 +99,11 @@ pub struct Tuning {
     pub pause_max: Duration,
     /// Renewals that went through before a learned renewal is tried longer again.
     pub probe_after: u32,
+    /// Drops in a row, none of them after a renewal that went through, before the inbox is
+    /// polled instead of held with IDLE.
+    pub poll_after: u32,
+    /// Polls before IDLE is tried again.
+    pub poll_rounds: u32,
 }
 
 impl Default for Tuning {
@@ -111,6 +116,8 @@ impl Default for Tuning {
             pause: Duration::from_secs(5),
             pause_max: Duration::from_secs(120),
             probe_after: 20,
+            poll_after: 6,
+            poll_rounds: 15,
         }
     }
 }
@@ -133,6 +140,14 @@ pub struct IdlePace {
     mark: Option<(Duration, Duration)>,
     /// The age at which the connection is cut whatever is written, once told.
     lifetime: Option<Duration>,
+    /// Drops in a row that came before any renewal went through: the link does not hold
+    /// an IDLE, and neither a shorter renewal nor a longer pause mended it.
+    quick: u32,
+    /// The inbox is polled, not held with IDLE.
+    polling: bool,
+    poll_count: u32,
+    /// The switch to polling was told in the log, and nothing has held since.
+    poll_told: bool,
 }
 
 /// What to do after a drop.
@@ -149,6 +164,11 @@ pub struct Dropped {
     pub shortened: Option<Duration>,
     /// This drop showed that the cut comes by the age of the connection: set once per series.
     pub by_age: bool,
+    /// The drop came when our own renewal fell due: the server closed the link instead of
+    /// taking the new IDLE. It is not a cut of an idle link and is not counted in the series.
+    pub at_renewal: bool,
+    /// This drop turned the inbox over to polling; set once until an IDLE holds again.
+    pub to_poll: bool,
 }
 
 /// Two marks are the same moment if they differ by less than a fifth (and 2 s).
@@ -173,6 +193,10 @@ impl IdlePace {
             probing: false,
             mark: None,
             lifetime: None,
+            quick: 0,
+            polling: false,
+            poll_count: 0,
+            poll_told: false,
         }
     }
 
@@ -192,9 +216,27 @@ impl IdlePace {
         self.survived > 0
     }
 
+    /// The inbox is polled now: wait a poll interval instead of idling.
+    pub fn polling(&self) -> bool {
+        self.polling
+    }
+
+    /// After enough polls IDLE is tried again; one more quick drop then sends the inbox
+    /// back to polling.
+    pub fn polled(&mut self) {
+        self.poll_count += 1;
+        if self.poll_count >= self.tune.poll_rounds {
+            self.poll_count = 0;
+            self.polling = false;
+            self.quick = self.tune.poll_after.saturating_sub(1);
+        }
+    }
+
     /// A renewal went through with the connection alive.
     pub fn renewed(&mut self) {
         self.probing = false;
+        self.quick = 0;
+        self.poll_told = false;
         self.survived += 1;
         if self.survived >= self.tune.probe_after && self.renew < self.tune.max {
             self.survived = 0;
@@ -206,10 +248,24 @@ impl IdlePace {
     pub fn dropped(&mut self, info: &DropInfo) -> Dropped {
         self.survived = 0;
         self.resync = true;
+        if info.renew.is_some_and(|renew| info.since_wait >= renew) {
+            self.probing = false;
+            return Dropped {
+                pause: self.tune.pause,
+                drops: self.drops,
+                log: false,
+                probe: false,
+                shortened: None,
+                by_age: false,
+                at_renewal: true,
+                to_poll: false,
+            };
+        }
         // Healthy by the age it had before this wait began: a wait that was cut at its own
         // 600th second proves nothing about the connection before it.
         if info.since_connect.saturating_sub(info.since_wait) >= self.tune.healthy {
             self.drops = 0;
+            self.quick = 0;
             self.mark = None;
             self.lifetime = None;
         }
@@ -242,11 +298,27 @@ impl IdlePace {
             }
             self.mark = Some(now);
         }
-        // Only connections that broke before doing any work push the next try away.
+        // A cut by the age of the connection is the server's way and does not wear the link out.
+        let aged = by_age || self.lifetime.is_some_and(|age| near(info.since_connect, age));
+        if !probe && !aged && info.cause.teaches() && info.since_wait < self.tune.healthy {
+            // A cut that a shorter renewal can still mend is the pace's to learn from; only
+            // the ones it cannot mend wear the link out.
+            let unmendable =
+                info.renew.is_none() || info.since_wait < self.tune.too_soon || self.renew <= self.tune.floor;
+            self.quick = if unmendable { self.quick + 1 } else { 0 };
+        }
+        let to_poll = !self.polling && self.quick >= self.tune.poll_after;
+        if to_poll {
+            self.polling = true;
+            self.poll_count = 0;
+        }
+        let first_poll = to_poll && !std::mem::replace(&mut self.poll_told, true);
+        // Connections that broke before doing any work push the next try away, and so do
+        // drops that come one after another with no renewal between them.
         let pause = self
             .tune
             .pause
-            .saturating_mul(1 << self.failed.saturating_sub(1).min(5))
+            .saturating_mul(1 << self.failed.saturating_sub(1).max(self.quick.saturating_sub(2)).min(5))
             .min(self.tune.pause_max);
         Dropped {
             pause,
@@ -255,6 +327,8 @@ impl IdlePace {
             probe,
             shortened,
             by_age,
+            at_renewal: false,
+            to_poll: first_poll,
         }
     }
 }
@@ -498,6 +572,78 @@ mod tests {
             p.renewed();
         }
         assert_eq!(p.renew(), short * 2);
+    }
+
+    /// A transport with no renewal to shorten (Exchange's stream) cut `wait` seconds in.
+    fn stream_cut(wait: u64) -> DropInfo {
+        DropInfo {
+            cause: DropCause::Eof,
+            since_wait: s(wait),
+            since_connect: s(wait),
+            renew: None,
+            worked: true,
+        }
+    }
+
+    #[test]
+    fn a_link_cut_at_once_every_time_backs_off_and_is_then_polled_with_one_notice() {
+        let mut p = IdlePace::new();
+        let mut pauses = Vec::new();
+        let mut notices = 0;
+        for _ in 0..40 {
+            let d = p.dropped(&stream_cut(15));
+            pauses.push(d.pause.as_secs());
+            notices += usize::from(d.to_poll);
+            if p.polling() {
+                break;
+            }
+        }
+        assert_eq!(pauses, [5, 5, 10, 20, 40, 80], "the pause grows");
+        assert!(p.polling());
+        assert_eq!(notices, 1, "told once");
+    }
+
+    #[test]
+    fn a_link_that_holds_a_renewal_is_not_polled() {
+        let mut p = IdlePace::new();
+        for _ in 0..40 {
+            p.dropped(&stream_cut(15));
+            p.renewed();
+        }
+        assert!(!p.polling());
+    }
+
+    #[test]
+    fn polling_gives_idle_another_try_and_does_not_tell_again() {
+        let mut p = IdlePace::new();
+        while !p.polling() {
+            p.dropped(&stream_cut(15));
+        }
+        for _ in 0..p.tune.poll_rounds {
+            assert!(p.polling());
+            p.polled();
+        }
+        assert!(!p.polling(), "IDLE is tried again");
+        let d = p.dropped(&stream_cut(15));
+        assert!(p.polling() && !d.to_poll, "back to polling, quietly");
+    }
+
+    #[test]
+    fn a_renewal_that_fell_due_is_no_drop_in_a_row() {
+        let mut p = IdlePace::new();
+        for _ in 0..12 {
+            let d = p.dropped(&DropInfo {
+                cause: DropCause::Eof,
+                since_wait: s(1501),
+                since_connect: s(1501),
+                renew: Some(p.renew()),
+                worked: true,
+            });
+            assert!(d.at_renewal && !d.log && !d.to_poll);
+            assert_eq!((d.drops, d.pause), (0, s(5)));
+        }
+        assert!(!p.polling());
+        assert_eq!(p.renew(), IDLE_RENEW, "nothing was learned");
     }
 
     #[test]
