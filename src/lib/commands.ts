@@ -23,6 +23,13 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 /** What needs the main window's list, folders or settings: a letter's own window has none of them. */
 const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
 
+/** The open folder as the search takes it: by its readable name, not the server's (modified UTF-7). */
+function readableFolder(): string | null {
+  const v = app.list.view;
+  if (v.kind !== "folder") return null;
+  return app.mailboxes.folders.find((f) => f.account_id === v.account_id && f.name === v.folder)?.display_name ?? v.folder;
+}
+
 export function coreCommands(): Command[] {
   const msg = app.reader.opened;
   const target = app.selection.selectedIds();
@@ -93,10 +100,7 @@ export function coreCommands(): Command[] {
   );
   // Ready queries, as the search box suggests them: each opens as a search, its text in
   // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
-  const v = app.list.view;
-  // The folder goes into the query by its readable name, not the server's (modified UTF-7).
-  const readable = v.kind === "folder" ? (app.mailboxes.folders.find((f) => f.account_id === v.account_id && f.name === v.folder)?.display_name ?? v.folder) : null;
-  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), readable)) {
+  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), readableFolder())) {
     list.push({
       id: `core.ready.${q.id}`,
       title: () => t("cmd.find", { what: lowerFirst(q.title) }),
