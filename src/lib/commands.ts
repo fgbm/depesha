@@ -94,7 +94,9 @@ export function coreCommands(): Command[] {
   // Ready queries, as the search box suggests them: each opens as a search, its text in
   // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
   const v = app.list.view;
-  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), v.kind === "folder" ? v.folder : null)) {
+  // The folder goes into the query by its readable name, not the server's (modified UTF-7).
+  const readable = v.kind === "folder" ? (app.mailboxes.folders.find((f) => f.account_id === v.account_id && f.name === v.folder)?.display_name ?? v.folder) : null;
+  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), readable)) {
     list.push({
       id: `core.ready.${q.id}`,
       title: () => t("cmd.find", { what: lowerFirst(q.title) }),

@@ -7,7 +7,8 @@ afterEach(() => {
   i18n.lang = "en";
 });
 
-const folder = (name: string) => ({ name, display_name: name.split("/").at(-1)!, delimiter: "/" });
+// display_name is the whole path decoded, as the IMAP backend gives it.
+const folder = (name: string, display_name = name) => ({ name, display_name, delimiter: "/" });
 const ctx = (lang: "en" | "ru"): SuggestContext => ({
   lang,
   now: new Date(2026, 9, 5),
@@ -51,6 +52,15 @@ describe("search suggestions", () => {
     ]);
     i18n.lang = "en";
     expect(completions("in:Архив", ctx("en")).map((c) => c.token)).toEqual(["in:Архив"]);
+  });
+
+  it("offer the readable folder name, not modified UTF-7 (#197)", () => {
+    i18n.lang = "ru";
+    const raw = "&BB4EQgQ,BEAEMAQyBDsENQQ9BD0ESwQ1-";
+    const c = { ...ctx("ru"), folders: [folder(raw, "Отправленные"), folder(`${raw}/&BB8-`, "Отправленные/П")] };
+    expect(completions("в:отправ", c).map((x) => x.token)).toEqual(["в:Отправленные", "в:Отправленные/*", "в:Отправленные/П"]);
+    expect(completions("в:BB4EQ", c).map((x) => x.token)).toContain("в:Отправленные");
+    expect(applyCompletion("в:отправ", completions("в:отправ", c)[1])).toBe("в:Отправленные/* ");
   });
 
   it("offer thresholds and mailboxes", () => {

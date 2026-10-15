@@ -119,8 +119,8 @@ function folderCompletions(key: string, value: string, ctx: SuggestContext): Com
     if (!name.toLowerCase().includes(v) && !f.display_name.toLowerCase().includes(v)) continue;
     const prefix = f.delimiter ? name + f.delimiter : null;
     const inside = prefix ? [...names.keys()].filter((n) => n.startsWith(prefix)).length : 0;
-    out.push({ kind: "folder", token: folderOperator(name, false, lang), detail: t("suggest.folderOnly"), done: true });
-    if (inside) out.push({ kind: "folder", token: folderOperator(name, true, lang), detail: tn("suggest.folderTree", inside), done: true });
+    out.push({ kind: "folder", token: folderOperator(f.display_name, false, lang), detail: t("suggest.folderOnly"), done: true });
+    if (inside) out.push({ kind: "folder", token: folderOperator(f.display_name, true, lang), detail: tn("suggest.folderTree", inside), done: true });
     if (out.length >= MAX) break;
   }
   return out.slice(0, MAX);
