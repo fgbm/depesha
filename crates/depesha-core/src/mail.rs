@@ -773,7 +773,10 @@ fn child_path(store: &Store, account_id: &str, names: ProtocolNames, parent: &st
 fn checked_name<'a>(store: &Store, account_id: &str, parent: Option<&str>, name: &'a str) -> Result<&'a str> {
     let folders = store.folders(Some(account_id))?;
     let delimiter = match parent {
-        Some(p) => folders.iter().find(|f| f.folder.name == p).and_then(|f| f.folder.delimiter.clone()),
+        Some(p) => folders
+            .iter()
+            .find(|f| f.folder.name == p)
+            .and_then(|f| f.folder.delimiter.clone()),
         None => folders.iter().find_map(|f| f.folder.delimiter.clone()),
     };
     let delimiter = delimiter.filter(|d| !d.is_empty()).unwrap_or_else(|| "/".into());
@@ -1027,9 +1030,15 @@ mod tests {
             Err(Error::FolderName(d)) if d == "."
         ));
         // At the top the account's delimiter counts, whichever folder tells it.
-        assert!(matches!(checked_name(&store, "a", None, "A.B"), Err(Error::FolderName(_))));
+        assert!(matches!(
+            checked_name(&store, "a", None, "A.B"),
+            Err(Error::FolderName(_))
+        ));
         // The other kind of slash is a plain letter here, and an unknown parent gets a slash.
-        assert_eq!(checked_name(&store, "a", Some("Работа"), "Отчёты/2026").unwrap(), "Отчёты/2026");
+        assert_eq!(
+            checked_name(&store, "a", Some("Работа"), "Отчёты/2026").unwrap(),
+            "Отчёты/2026"
+        );
         assert!(checked_name(&store, "a", Some("Нет"), "A/B").is_err());
         assert_eq!(checked_name(&store, "a", None, "Отчёты").unwrap(), "Отчёты");
     }
