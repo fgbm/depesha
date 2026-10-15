@@ -1539,6 +1539,19 @@ async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> R
     }
 }
 
+/// Whether an error of one folder ends the pass over the folders (the connection is to be
+/// made anew): a dead link, a busy server. A folder that answers `NO [UNAVAILABLE]` every
+/// time is that folder's own trouble: it is logged and the pass goes on.
+fn pass_stops_on(e: &Error) -> bool {
+    e.is_transient() && !e.is_unavailable_no()
+}
+
+/// Whether a failed `\Seen` store before a move ends the move: only a dead link does, and
+/// the move is run again on a fresh one. An answer of `NO` leaves the move to go without the flag.
+fn move_stops_on_seen(e: &Error) -> bool {
+    e.link_lost()
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one match with an arm for each kind of work: the arms are independent and read best side by side"
@@ -1559,7 +1572,7 @@ async fn perform(
         Op::PassFolder(folder) => {
             return match sync_one(state, account, conn, folder, *notify_new).await {
                 Ok(_) => Ok(Output::None),
-                Err(e) if e.is_transient() => Err(e),
+                Err(e) if pass_stops_on(&e) => Err(e),
                 // One broken folder (Exchange shows some odd ones) must not stop the rest.
                 Err(e) => {
                     tracing::warn!(account = %id, folder = %folder, "folder sync failed: {e}");
@@ -1699,7 +1712,7 @@ async fn perform(
                 && let Err(e) = mail::set_flag(conn, store, id, from, *validity, seen, FlagChange::Seen(true)).await
             {
                 // A dead link is the move's failure too: it is run again on a fresh one.
-                if e.is_transient() {
+                if move_stops_on_seen(&e) {
                     return Err(e);
                 }
                 tracing::debug!(account = %id, folder = %from, "seen before move: {e}");
@@ -2166,6 +2179,38 @@ mod tests {
     }
 
     use super::*;
+
+    fn no(text: &str) -> Error {
+        Error::Imap(async_imap::error::Error::No(text.into()))
+    }
+
+    /// One folder that answers `NO [UNAVAILABLE]` each time does not stop the pass at the
+    /// folders after it (#114 review); a dead link still does.
+    #[test]
+    fn a_folder_that_is_unavailable_does_not_stop_the_pass() {
+        let unavailable = no("code: None, info: Some(\"[UNAVAILABLE] backend error\")");
+        assert!(unavailable.is_transient(), "a single action is still run again");
+        assert!(!pass_stops_on(&unavailable));
+        assert!(pass_stops_on(&Error::Closed));
+        assert!(pass_stops_on(&Error::Timeout("answer")));
+        assert!(pass_stops_on(&Error::Imap(async_imap::error::Error::ConnectionLost)));
+    }
+
+    /// A refusal to store the flag before a move does not stop the move; a dead link does.
+    #[test]
+    fn only_a_dead_link_stops_a_move_at_its_seen_flag() {
+        assert!(!move_stops_on_seen(&no(
+            "code: None, info: Some(\"[UNAVAILABLE] backend error\")"
+        )));
+        assert!(!move_stops_on_seen(&no(
+            "code: Some(NOPERM), info: Some(\"no rights\")"
+        )));
+        assert!(move_stops_on_seen(&Error::Closed));
+        assert!(move_stops_on_seen(&Error::Timeout("answer")));
+        assert!(move_stops_on_seen(&Error::Imap(
+            async_imap::error::Error::ConnectionLost
+        )));
+    }
 
     #[test]
     fn a_failed_move_asked_again_is_a_resumed_one() {

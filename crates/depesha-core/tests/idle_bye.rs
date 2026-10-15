@@ -353,3 +353,42 @@ async fn a_dead_link_is_no_change_of_the_folder() {
         assert!(e.is_transient(), "{e:?}");
     }
 }
+
+/// A poll on a link that has died is a poll all the same: after `poll_rounds` of them IDLE is
+/// tried again, and the connection made then looks at the inbox first (#114 review).
+#[tokio::test]
+async fn polls_that_find_the_link_dead_still_count_and_end_in_a_try_of_idle() {
+    let port = fake_servers(Idling::Cut, true).await;
+    let store = Store::open_in_memory().unwrap();
+    let mut pace = IdlePace::with(Tuning {
+        poll_after: 2,
+        poll_rounds: 3,
+        ..Tuning::default()
+    });
+    while !pace.polling() {
+        pace.dropped(&depesha_core::idle_pace::DropInfo {
+            cause: DropCause::Eof,
+            since_wait: Duration::ZERO,
+            since_connect: Duration::ZERO,
+            renew: None,
+            worked: true,
+        });
+    }
+    for round in 0..3 {
+        assert!(pace.polling(), "poll {round}");
+        let conn = connect_to(port).await;
+        mail::wait_for_changes(
+            Conn::Imap(conn),
+            &store,
+            "a",
+            Duration::from_millis(50),
+            &mut pace,
+            Instant::now(),
+        )
+        .await
+        .err()
+        .expect("the link is dead");
+    }
+    assert!(!pace.polling(), "IDLE is tried again");
+    assert!(pace.take_resync(), "the next connection looks at the inbox first");
+}

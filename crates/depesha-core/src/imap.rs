@@ -1890,6 +1890,11 @@ pub async fn wait_for_changes(
 /// is told by the IDLE.
 pub async fn select_for_idle(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
     let mailbox = conn.session.select(folder).await?;
+    // Every SELECT answer names UIDVALIDITY; a link that died before it answers with an
+    // empty mailbox and no error.
+    if mailbox.uid_validity.is_none() {
+        return Err(Error::Closed);
+    }
     conn.idle_folder = Some(folder.to_owned());
     drain_unsolicited(&conn.session);
     Ok(mailbox)

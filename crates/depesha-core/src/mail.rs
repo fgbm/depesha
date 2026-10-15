@@ -890,16 +890,12 @@ pub async fn wait_for_changes(
     let mut ended = None;
     let polling = pace.polling();
     if polling {
-        // A link that does not hold an IDLE is asked about the inbox every `poll`: a NOOP
-        // finds out whether it is alive, and the sync that follows finds the news.
+        // A link that does not hold an IDLE is asked about the inbox every `poll`: a SELECT
+        // finds out whether it is alive (a NOOP would not tell a link that died while it
+        // idled), and the sync that follows finds the news.
         tokio::time::sleep(poll).await;
         ended = Some(match &mut conn {
-            Conn::Imap(c) => c
-                .session
-                .noop()
-                .await
-                .map(|_| IdleOutcome::Changed)
-                .map_err(Error::from),
+            Conn::Imap(c) => imap::select_for_idle(c, "INBOX").await.map(|_| IdleOutcome::Changed),
             Conn::Ews(_) => Ok(IdleOutcome::Changed),
         });
     } else if resync {
@@ -949,6 +945,11 @@ pub async fn wait_for_changes(
                 worked: pace.worked_since_drop() || worked.is_some_and(|w| w.load(Ordering::Relaxed)),
             };
             let dropped = (!error.is_busy()).then(|| pace.dropped(&info));
+            // A poll that found the link dead is a poll all the same: IDLE is tried again
+            // after the set number of them, whatever they met.
+            if polling {
+                pace.polled();
+            }
             Err(Box::new(IdleDrop {
                 error,
                 cause: info.cause,

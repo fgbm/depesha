@@ -146,6 +146,9 @@ pub struct IdlePace {
     /// The inbox is polled, not held with IDLE.
     polling: bool,
     poll_count: u32,
+    /// IDLE was just tried again after the polls: the connection that carried them is old,
+    /// and its age says nothing about whether this IDLE holds.
+    after_poll: bool,
     /// The switch to polling was told in the log, and nothing has held since.
     poll_told: bool,
 }
@@ -196,6 +199,7 @@ impl IdlePace {
             quick: 0,
             polling: false,
             poll_count: 0,
+            after_poll: false,
             poll_told: false,
         }
     }
@@ -228,6 +232,7 @@ impl IdlePace {
         if self.poll_count >= self.tune.poll_rounds {
             self.poll_count = 0;
             self.polling = false;
+            self.after_poll = true;
             self.quick = self.tune.poll_after.saturating_sub(1);
         }
     }
@@ -236,6 +241,7 @@ impl IdlePace {
     pub fn renewed(&mut self) {
         self.probing = false;
         self.quick = 0;
+        self.after_poll = false;
         self.poll_told = false;
         self.survived += 1;
         if self.survived >= self.tune.probe_after && self.renew < self.tune.max {
@@ -262,8 +268,10 @@ impl IdlePace {
             };
         }
         // Healthy by the age it had before this wait began: a wait that was cut at its own
-        // 600th second proves nothing about the connection before it.
-        if info.since_connect.saturating_sub(info.since_wait) >= self.tune.healthy {
+        // 600th second proves nothing about the connection before it. Nor does the age of a
+        // connection that spent the polls: the first IDLE after them is judged on its own.
+        let after_poll = std::mem::take(&mut self.after_poll);
+        if !after_poll && info.since_connect.saturating_sub(info.since_wait) >= self.tune.healthy {
             self.drops = 0;
             self.quick = 0;
             self.mark = None;
@@ -625,6 +633,25 @@ mod tests {
         }
         assert!(!p.polling(), "IDLE is tried again");
         let d = p.dropped(&stream_cut(15));
+        assert!(p.polling() && !d.to_poll, "back to polling, quietly");
+    }
+
+    /// The connection that waited out the polls is old (the worker does not renew its
+    /// `connected` mark): the age it shows proves nothing about the IDLE tried after them.
+    #[test]
+    fn a_quick_drop_after_polling_sends_the_inbox_back_to_polling_whatever_the_age_of_the_connection() {
+        let mut p = IdlePace::new();
+        while !p.polling() {
+            p.dropped(&stream_cut(15));
+        }
+        for _ in 0..p.tune.poll_rounds {
+            p.polled();
+        }
+        assert!(!p.polling());
+        let d = p.dropped(&DropInfo {
+            since_connect: s(30 * 60),
+            ..stream_cut(15)
+        });
         assert!(p.polling() && !d.to_poll, "back to polling, quietly");
     }
 

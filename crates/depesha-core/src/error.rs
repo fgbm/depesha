@@ -362,9 +362,29 @@ impl Error {
             Self::Said(s) => s.class() == Class::Transient,
             Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost) => true,
             // RFC 5530: a failure on the server's side that a new try may get past.
-            Self::Imap(async_imap::error::Error::No(m)) => m.to_ascii_uppercase().contains("UNAVAILABLE"),
+            Self::Imap(_) => self.is_unavailable_no(),
             _ => false,
         }
+    }
+
+    /// RFC 5530: a failure on the server's side that a new try may get past. A single action
+    /// is run once more on it; a pass over the folders takes it for the folder's own trouble
+    /// and goes on, since one folder may answer so every time.
+    pub fn is_unavailable_no(&self) -> bool {
+        matches!(self, Self::Imap(async_imap::error::Error::No(m)) if m.to_ascii_uppercase().contains("UNAVAILABLE"))
+    }
+
+    /// The connection itself is gone (closed, reset, timed out, said BYE), as against a
+    /// server that answered and refused.
+    pub fn link_lost(&self) -> bool {
+        matches!(
+            self,
+            Self::Io(_)
+                | Self::Timeout(_)
+                | Self::Closed
+                | Self::Bye(_)
+                | Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost)
+        )
     }
 
     /// No address answered in time (not a refusal, not a protocol error once the connection
@@ -810,6 +830,14 @@ mod tests {
         assert_eq!(backend.kind(), ErrorKind::Network);
         let refusal = Error::Imap(E::No("code: Some(NOPERM), info: Some(\"no rights\")".into()));
         assert!(!refusal.is_transient());
+        assert!(backend.is_unavailable_no() && !refusal.is_unavailable_no());
+    }
+
+    #[test]
+    fn only_a_lost_connection_is_a_lost_link() {
+        assert!(Error::Closed.link_lost() && Error::Timeout("answer").link_lost());
+        assert!(Error::Imap(E::ConnectionLost).link_lost());
+        assert!(!Error::Imap(E::No("[UNAVAILABLE] later".into())).link_lost());
     }
 
     #[test]
