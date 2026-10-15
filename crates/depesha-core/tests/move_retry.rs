@@ -17,9 +17,10 @@ async fn fake_server(moves: Arc<AtomicUsize>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        for n in 0.. {
+        let mut first = true;
+        loop {
             let (sock, _) = listener.accept().await.unwrap();
-            tokio::spawn(serve(sock, n == 0, moves.clone()));
+            tokio::spawn(serve(sock, std::mem::take(&mut first), moves.clone()));
         }
     });
     port
