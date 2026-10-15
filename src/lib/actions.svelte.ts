@@ -31,6 +31,16 @@ export interface Undoable {
   undone?: boolean;
   /** Set when the offer's time ran out: it is no longer on offer, nor given back by a `hold` that let go. */
   expired?: boolean;
+  /** The same actions done before this one and merged with it into one toast, oldest first: taken back after it. */
+  earlier?: Undoable[];
+}
+
+/** Equal toasts in a row stand as one: the key of the action, the steps done, the letters counted, the toast. */
+interface Group {
+  key: string;
+  steps: Undoable[];
+  total: number;
+  toast: number;
 }
 
 /** What actions need from the app store. */
@@ -38,7 +48,7 @@ export interface ActionHost {
   readonly mailboxes: Pick<MailboxController, "folders">;
   readonly settingsCtl: Pick<SettingsController, "settings">;
   readonly reader: Pick<Reader, "conversation" | "dropFromConversation" | "opened" | "renameInConversation" | "saw">;
-  readonly ui: Pick<UiController, "fail" | "toast" | "track">;
+  readonly ui: Pick<UiController, "fail" | "restate" | "toast" | "toasts" | "track">;
   readonly selection: Pick<SelectionController, "reload" | "selectedIds" | "takeOut">;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
@@ -50,6 +60,8 @@ export class ActionRunner {
   lastUndo = $state<Undoable | null>(null);
   /** The action still talking to the server; "z" pressed meanwhile waits for it. It never rejects. */
   private pending: Promise<void> | null = null;
+  /** The toast the last equal actions share, while it is on the screen and still the latest. */
+  private group: Group | null = null;
 
   constructor(private host: ActionHost) {}
 
@@ -58,16 +70,18 @@ export class ActionRunner {
    * `single`: the action is about these letters alone — a letter unfolded in the conversation
    * (0.8.4, #180) is dealt with on its own, its thread is not carried along with it.
    */
-  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false) {
+  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false, count?: (n: number) => string) {
     if (!ids.length) return;
-    const p = this.host.ui.track(this.act(text, ids, run, failText, single));
+    const p = this.host.ui.track(this.act(text, ids, run, failText, single, count));
     this.pending = p;
     await p;
     if (this.pending === p) this.pending = null;
   }
 
-  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false) {
+  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false, count?: (n: number) => string) {
     const { list } = this.host;
+    // The toast of the action just before this one, if "z" still means it: an equal action joins it.
+    const joined = this.joinable();
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
     // The rows as they were: their conversations are looked up, and they come back on a failure.
@@ -112,8 +126,7 @@ export class ActionRunner {
         return;
       }
       if (moved.length) {
-        this.lastUndo = { moved, text: said, renamed: renamed ?? undefined };
-        this.host.ui.toast(said, false, { label: t("undo"), run: () => void this.undo() });
+        this.record({ moved, text: said, renamed: renamed ?? undefined }, failText + (count ? "" : "\0" + said), ids.length, joined, count);
       }
     } catch (e) {
       failed = true;
@@ -124,6 +137,33 @@ export class ActionRunner {
     }
     if (failed) list.restore(before, new Set(ids));
     void this.host.selection.reload();
+  }
+
+  /** The group whose last step is still what "z" takes back. */
+  private joinable(): Group | null {
+    return this.group && this.lastUndo && this.lastUndo === this.group.steps.at(-1) ? this.group : null;
+  }
+
+  /**
+   * Makes `step` what "z" takes back and tells it in a toast. An equal action right after the last
+   * one joins its toast instead of adding another: the words count the letters, the time runs anew,
+   * and "z" takes the steps back from the last to the first.
+   */
+  private record(step: Undoable, key: string, n: number, joined: Group | null, count?: (n: number) => string) {
+    const { ui } = this.host;
+    const g = joined && joined.key === key && !step.run && ui.toasts.some((x) => x.id === joined.toast) ? joined : null;
+    if (!g) {
+      this.lastUndo = step;
+      const toast = ui.toast(step.text, false, { label: t("undo"), run: () => void this.undo() });
+      this.group = { key, steps: [step], total: n, toast };
+      return;
+    }
+    g.steps.push(step);
+    g.total += n;
+    const text = count ? count(g.total) : `${step.text} · ${g.total}`;
+    this.lastUndo = { ...step, text, earlier: g.steps.slice(0, -1) };
+    g.steps[g.steps.length - 1] = this.lastUndo;
+    ui.restate(g.toast, text);
   }
 
   /** A letter of a thread on screen: a row of an unfolded thread in the list, or a letter of the
@@ -248,7 +288,7 @@ export class ActionRunner {
 
   /** Without `ids`: the selected rows; `single` deals with the given letters alone (#180). */
   remove(ids = this.host.selection.selectedIds(), single = false) {
-    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single);
+    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single, (n) => tn("done.deleted", n));
   }
 
   moveTo(folder: string, ids = this.host.selection.selectedIds()) {
@@ -258,7 +298,7 @@ export class ActionRunner {
 
   /** "Done": out of the inbox, into the archive; `single` deals with the given letters alone (#180). */
   archive(ids = this.host.selection.selectedIds(), single = false) {
-    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"), single);
+    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"), single, (n) => tn("done.archived", n));
   }
 
   spam(ids = this.host.selection.selectedIds()) {
@@ -301,11 +341,14 @@ export class ActionRunner {
     this.lastUndo = null;
     u.undone = true;
     try {
-      await (u.run ? u.run() : api.undo(u.moved));
-      // The move back leaves the letters where they were: their folders are named again (#180).
-      if (u.renamed) {
-        this.host.list.setThreadFolder(u.renamed);
-        this.host.reader.renameInConversation(u.renamed);
+      // Equal actions merged into one toast: the last is taken back first.
+      for (const step of [...(u.earlier ?? []), u].reverse()) {
+        await (step.run ? step.run() : api.undo(step.moved));
+        // The move back leaves the letters where they were: their folders are named again (#180).
+        if (step.renamed) {
+          this.host.list.setThreadFolder(step.renamed);
+          this.host.reader.renameInConversation(step.renamed);
+        }
       }
       this.host.ui.toast(t("done.undone"));
     } catch (e) {

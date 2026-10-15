@@ -80,12 +80,27 @@ export class UiController {
   settingsTyping = $state(false);
 
   private toastSeq = 0;
+  /** The life of each toast on the screen: its timer and its length, to count it again. */
+  private lives = new Map<number, { timer: ReturnType<typeof setTimeout>; ms: number }>();
 
   toast(text: string, error = false, action?: Toast["action"], ms?: number): number {
     const id = ++this.toastSeq;
     this.toasts.push({ id, text, error, action });
-    setTimeout(() => this.dismiss(id), ms ?? (error ? 12000 : action ? 8000 : 4000));
+    this.live(id, ms ?? (error ? 12000 : action ? 8000 : 4000));
     return id;
+  }
+
+  private live(id: number, ms: number) {
+    clearTimeout(this.lives.get(id)?.timer);
+    this.lives.set(id, { ms, timer: setTimeout(() => this.dismiss(id), ms) });
+  }
+
+  /** Says a toast again with new words and counts its time anew (equal toasts merged into one); false when it is gone. */
+  restate(id: number, text: string): boolean {
+    const life = this.lives.get(id);
+    if (!this.retext(id, text) || !life) return false;
+    this.live(id, life.ms);
+    return true;
   }
 
   /** Changes the text of a toast still on the screen (a countdown); false when it is gone. */
@@ -117,6 +132,8 @@ export class UiController {
   }
 
   dismiss(id: number) {
+    clearTimeout(this.lives.get(id)?.timer);
+    this.lives.delete(id);
     this.toasts = this.toasts.filter((t) => t.id !== id);
   }
 

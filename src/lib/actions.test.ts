@@ -7,7 +7,7 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
-import { t } from "./i18n.svelte";
+import { t, tn } from "./i18n.svelte";
 import { labels } from "./labels.svelte";
 import { api, deferred, flush, opened, resetFakes, row, win } from "./testing";
 import type { Moved, MessageRow } from "./types";
@@ -312,6 +312,59 @@ describe("an undo held over an older one", () => {
       again();
       expect(s.actions.lastUndo).toBeNull();
       expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("equal toasts in a row stand as one", () => {
+  const moves = (ids: string[]): Moved[] => ids.map((id) => ({ account_id: "a", from: "INBOX", to: "Archive", message_ids: [id], unseen: [], snoozed: [], waits: [] }));
+
+  it("four archives give one toast that counts four", async () => {
+    const s = await inbox();
+    api.archive.mockImplementation(async (all: number[]) => moves(all.map(String)));
+    for (const id of [1, 2, 3, 4]) await s.actions.archive([id]);
+    const toasts = s.ui.toasts.filter((x) => x.action?.label === t("undo"));
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].text).toBe(tn("done.archived", 4));
+  });
+
+  it("are all taken back by the button, the last first", async () => {
+    const s = await inbox();
+    api.thread.mockImplementation(async (id: number) => [row(id)]);
+    api.archive.mockImplementation(async (all: number[]) => moves(all.map(String)));
+    const done = [1, 2, 3, 4];
+    for (const id of done) await s.actions.archive([id]);
+    s.ui.toasts.find((x) => x.action)!.action!.run();
+    await flush();
+    expect(api.undo.mock.calls.map((c) => c[0][0].message_ids[0])).toEqual(["4", "3", "2", "1"]);
+    expect(s.actions.lastUndo).toBeNull();
+  });
+
+  it("do not join an archive and a deletion", async () => {
+    const s = await inbox();
+    api.thread.mockImplementation(async (id: number) => [row(id)]);
+    api.archive.mockImplementation(async (all: number[]) => moves(all.map(String)));
+    api.remove.mockImplementation(async (all: number[]) => moves(all.map(String)));
+    await s.actions.archive([1]);
+    await s.actions.remove([2]);
+    expect(s.ui.toasts.filter((x) => x.action).map((x) => x.text)).toEqual([tn("done.archived", 1), tn("done.deleted", 1)]);
+  });
+
+  it("run the time of the toast anew", async () => {
+    const s = await inbox();
+    api.thread.mockImplementation(async (id: number) => [row(id)]);
+    api.archive.mockImplementation(async (all: number[]) => moves(all.map(String)));
+    vi.useFakeTimers();
+    try {
+      await s.actions.archive([1]);
+      vi.advanceTimersByTime(6000);
+      await s.actions.archive([2]);
+      vi.advanceTimersByTime(6000);
+      expect(s.ui.toasts).toHaveLength(1);
+      vi.advanceTimersByTime(2001);
+      expect(s.ui.toasts).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
