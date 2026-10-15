@@ -10,6 +10,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import AddressInput from "./AddressInput.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api } from "../lib/testing";
+import { useStyles } from "../lib/cssTesting";
 import type { Addr } from "../lib/types";
 
 let view: ReturnType<typeof mount> | null = null;
@@ -110,6 +111,12 @@ describe("the chip of an address", () => {
     expect(who.children[1].classList.contains("ad")).toBe(true);
   });
 
+  it("keeps the name and the address apart, also when the chip is copied as text", () => {
+    show([LONG]);
+    const who = target.querySelector<HTMLElement>(".who")!;
+    expect(who.textContent).toBe(`${LONG.name} ${LONG.email}`);
+  });
+
   it("shows only the address when there is no name", () => {
     show([{ name: "", email: "plain@example.org" }]);
     const chip = target.querySelector<HTMLElement>(".chip")!;
@@ -124,5 +131,19 @@ describe("the chip of an address", () => {
     expect(row.children[0].classList.contains("field-label")).toBe(true);
     expect(row.children[1].classList.contains("field-value")).toBe(true);
     expect(row.children[1].querySelector(".chip")).not.toBeNull();
+  });
+});
+
+describe("the row of a recipient field", () => {
+  let unstyle: () => void;
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./AddressInput.svelte")));
+  afterEach(() => unstyle());
+
+  it("lets the input stand beside the chips: it asks for little room and takes the rest", () => {
+    show([{ name: "Подрядчик", email: "estimate@example.com" }]);
+    const input = getComputedStyle(target.querySelector<HTMLInputElement>("input")!);
+    // 160px of its own did not fit beside one chip in a reply window and sent the input to a second line.
+    expect(parseFloat(input.minWidth)).toBeLessThanOrEqual(80);
+    expect(input.flexGrow).toBe("1");
   });
 });

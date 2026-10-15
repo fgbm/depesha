@@ -35,10 +35,15 @@ export async function auditShots(kit, out) {
     manifest.push(`- ${name}.png — ${what}`);
   };
   /** One scene: a failure skips it with the reason and the run goes on, from a clean state. */
-  const scene = async (title, fn) => {
+  const scene = async (title, fn, { strict = false } = {}) => {
     try {
       await fn();
     } catch (e) {
+      if (strict) {
+        // A scene that checks a promise of the app: its failure is the run's failure, not a skip.
+        await recover();
+        throw e;
+      }
       const why = String(e?.message ?? e).split("\n")[0];
       console.log(`  ! пропущено «${title}»: ${why}`);
       skipped.push(`- ${title}: ${why}`);
@@ -202,14 +207,18 @@ export async function auditShots(kit, out) {
   await scene("07 склеенное уведомление", async () => {
     await inbox();
     try {
-      // Four chosen rows in one archive give the toast the equal archives in a row are joined into:
-      // on the stand the archives pressed one after another stood as separate toasts (see MANIFEST.md).
+      // The way a person triages: «e» on the open letter, the next one opens, «e» again, one after
+      // another. The four archives must stand as one toast that counts four.
       await d.click(await rowBySubject("Отчёт за сентябрь"));
-      for (const subject of ["Счёт на оплату", "Пакет документов по поставке", "Планёрка в четверг"]) await ctrlClick(subject);
       await sleep(500);
-      await press("e");
-      await d.until("merged toast", async () => (await textOf(".toasts")).includes("В архиве: 4"), 5000);
-      await take("07-toast-archived-4", "уведомление «В архиве: 4» с кнопкой «Отменить» после архивации четырёх выбранных писем одним действием (четыре архивации подряд на стенде не склеились в одно, а остались отдельными уведомлениями «В архиве»); светлая тема", { toasts: true });
+      for (let i = 0; i < 4; i++) {
+        await press("e");
+        await sleep(350);
+      }
+      await d.until("merged toast «В архиве: 4»", async () => (await textOf(".toasts")).includes("В архиве: 4"), 5000);
+      const archived = (await textOf(".toasts")).split("В архиве").length - 1;
+      if (archived !== 1) throw new Error(`уведомлений «В архиве» ${archived}, а не одно`);
+      await take("07-toast-archived-4", "уведомление «В архиве: 4» с кнопкой «Отменить» после четырёх архиваций клавишей e, по одной подряд (каждая открывает следующее письмо); светлая тема", { toasts: true });
     } finally {
       // Take the letters back, whatever happened: the next pictures need them in the inbox.
       for (let i = 0; i < 4; i++) {
@@ -222,7 +231,7 @@ export async function auditShots(kit, out) {
       }
       await d.until("letters back", async () => (await rowBySubject("Планёрка в четверг", 8000).catch(() => null)) !== null, 15000);
     }
-  });
+  }, { strict: true });
 
   // 08. The command palette.
   await scene("08 палитра команд", async () => {
@@ -393,8 +402,8 @@ function manifestText(lines, skipped) {
     "",
     "## Примечания",
     "",
-    "- 05: «•••» есть только в письме в обычном тексте и в Markdown; в HTML цитата и подпись стоят в самом тексте (05-reply-html). Строка «Письмо уйдёт только как …» над нижней панелью — подсказка окна о формате, которую приложение показало само.",
-    "- 07: четыре архивации подряд на стенде не склеились в одно уведомление (каждая дала своё «В архиве»), хотя тесты это обещают. Кадр снят с архивацией четырёх выбранных писем одним действием; стоит проверить склейку руками.",
+    "- 05: «•••» есть только в письме в обычном тексте и в Markdown; в HTML цитата и подпись стоят в самом тексте (05-reply-html). Строки «Письмо уйдёт только как …» нет: правило получателей не сужает письмо в обычном тексте.",
+    "- 07: четыре архивации клавишей `e`, по одной подряд, склеены в одно уведомление «В архиве: 4»; без склейки сцена падает, и прогон кадров тоже.",
     "- 14: два кадра — неверный пароль в мастере добавления ящика и ящик, к которому нет сети (сервер стенда остановлен), с плашкой ошибки и «Повторить» в боковой панели.",
     "- 15 и 16: окно 900×700 даёт узкую раскладку с боковой полосой вместо панели папок; английский интерфейс снят над той же русской демо-почтой.",
     "",

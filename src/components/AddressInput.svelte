@@ -134,7 +134,8 @@
 
 <!-- The name, then the address in grey; a chip too long for the row is cut with «…» and carries the whole text in its title. -->
 {#snippet who(a: Addr)}
-  {#if a.name?.trim()}<span class="nm">{a.name}</span> {/if}<span class="ad">{a.email}</span>
+  <!-- eslint-disable-next-line svelte/no-useless-mustaches -- Svelte drops a bare space between a block and a tag; the mustache keeps it. -->
+  {#if a.name?.trim()}<span class="nm">{a.name}</span>{" "}{/if}<span class="ad">{a.email}</span>
 {/snippet}
 
 <div class="row field-row">
@@ -243,7 +244,7 @@
 
   input {
     flex: 1;
-    min-width: 160px;
+    min-width: 80px;
     border: none;
     outline: none;
     background: transparent;

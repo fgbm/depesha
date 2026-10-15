@@ -7,7 +7,7 @@
   // mailbox writes in, so a change made by hand is never fought by the rule.
   import { t } from "../lib/i18n.svelte";
   import { app } from "../lib/store.svelte";
-  import { autoFormat, formatMark, recipientParts } from "../lib/people";
+  import { autoFormat, formatMark, recipientParts, ruleNarrows } from "../lib/people";
   import { peopleBook } from "../lib/peopleBook.svelte";
   import type { Addr, BodyFormat } from "../lib/types";
   import Info from "@lucide/svelte/icons/info";
@@ -62,7 +62,7 @@
   const mailboxName = $derived(t(`format.${mailbox}`));
 
   /** A rule narrower than the letter is written in, and no rule switch was taken yet. */
-  const narrows = $derived(rule.parts !== format && byRule !== format);
+  const narrows = $derived(ruleNarrows(rule.parts, format) && byRule !== format);
   /** The window was taken to the rule's format and the letter is still in it. */
   const returned = $derived(byRule !== null && format === byRule);
 

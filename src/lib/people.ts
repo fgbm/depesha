@@ -150,6 +150,11 @@ export function strictestFormat(formats: BodyFormat[]): BodyFormat {
   return formats.reduce<BodyFormat>((a, b) => (RANK[b] < RANK[a] ? b : a), "markdown");
 }
 
+/** Whether the strictest rule of the recipients keeps less than the letter is written in. */
+export function ruleNarrows(parts: BodyFormat, current: BodyFormat): boolean {
+  return RANK[parts] < RANK[current];
+}
+
 /** The format letters to this person are written in: their rule, else the mailbox's. */
 export function sendFormatFor(person: Person | undefined, mailbox: BodyFormat): BodyFormat {
   return person?.send_format || mailbox;

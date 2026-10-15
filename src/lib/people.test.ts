@@ -10,6 +10,7 @@ import {
   hasAddress,
   letterViewFor,
   matchPerson,
+  ruleNarrows,
   recipientParts,
   sendFormatFor,
   strictestFormat,
@@ -65,6 +66,17 @@ describe("the format of what is written to several recipients", () => {
     expect(autoFormat("markdown", "plain", true)).toBeNull();
     // A new letter without a quote is still switched silently.
     expect(autoFormat("html", "plain", false)).toBe("plain");
+  });
+
+  it("narrows a letter only when the rule keeps less than the letter is written in", () => {
+    expect(ruleNarrows("plain", "html")).toBe(true);
+    expect(ruleNarrows("plain", "markdown")).toBe(true);
+    expect(ruleNarrows("html", "markdown")).toBe(true);
+    // Plain text already is what any rule can carry: «goes only as HTML» would be untrue.
+    expect(ruleNarrows("html", "plain")).toBe(false);
+    expect(ruleNarrows("markdown", "plain")).toBe(false);
+    expect(ruleNarrows("markdown", "html")).toBe(false);
+    expect(ruleNarrows("html", "html")).toBe(false);
   });
 
   it("reads a format mark for an address", () => {

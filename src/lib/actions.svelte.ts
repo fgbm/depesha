@@ -41,6 +41,8 @@ interface Group {
   steps: Undoable[];
   total: number;
   toast: number;
+  /** `ActionRunner.breaks` when the group last grew: a later count means something came between. */
+  breaks: number;
 }
 
 /** What actions need from the app store. */
@@ -62,6 +64,8 @@ export class ActionRunner {
   private pending: Promise<void> | null = null;
   /** The toast the last equal actions share, while it is on the screen and still the latest. */
   private group: Group | null = null;
+  /** Counts what ends a run of equal actions: an undo, an offer, a failure, an action that moved nothing. */
+  private breaks = 0;
 
   constructor(private host: ActionHost) {}
 
@@ -80,8 +84,6 @@ export class ActionRunner {
 
   private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false, count?: (n: number) => string) {
     const { list } = this.host;
-    // The toast of the action just before this one, if "z" still means it: an equal action joins it.
-    const joined = this.joinable();
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
     // The rows as they were: their conversations are looked up, and they come back on a failure.
@@ -125,11 +127,11 @@ export class ActionRunner {
         await getCurrentWindow().close();
         return;
       }
-      if (moved.length) {
-        this.record({ moved, text: said, renamed: renamed ?? undefined }, failText + (count ? "" : "\0" + said), ids.length, joined, count);
-      }
+      if (moved.length) this.record({ moved, text: said, renamed: renamed ?? undefined }, failText + (count ? "" : "\0" + said), ids.length, count);
+      else this.breaks++;
     } catch (e) {
       failed = true;
+      this.breaks++;
       this.refused(e, rows, failText);
     } finally {
       // Moved: the cache no longer has them here. Refused: they come back with the error.
@@ -139,23 +141,20 @@ export class ActionRunner {
     void this.host.selection.reload();
   }
 
-  /** The group whose last step is still what "z" takes back. */
-  private joinable(): Group | null {
-    return this.group && this.lastUndo && this.lastUndo === this.group.steps.at(-1) ? this.group : null;
-  }
-
   /**
    * Makes `step` what "z" takes back and tells it in a toast. An equal action right after the last
    * one joins its toast instead of adding another: the words count the letters, the time runs anew,
-   * and "z" takes the steps back from the last to the first.
+   * and "z" takes the steps back from the last to the first. The join is decided here, when the
+   * server has answered, not when the action began: «e» pressed again does not wait for the answer.
    */
-  private record(step: Undoable, key: string, n: number, joined: Group | null, count?: (n: number) => string) {
+  private record(step: Undoable, key: string, n: number, count?: (n: number) => string) {
     const { ui } = this.host;
-    const g = joined && joined.key === key && !step.run && ui.toasts.some((x) => x.id === joined.toast) ? joined : null;
+    const last = this.group;
+    const g = last && last.key === key && last.breaks === this.breaks && !step.run && ui.toasts.some((x) => x.id === last.toast) ? last : null;
     if (!g) {
       this.lastUndo = step;
       const toast = ui.toast(step.text, false, { label: t("undo"), run: () => void this.undo() });
-      this.group = { key, steps: [step], total: n, toast };
+      this.group = { key, steps: [step], total: n, toast, breaks: this.breaks };
       return;
     }
     g.steps.push(step);
@@ -311,6 +310,7 @@ export class ActionRunner {
    */
   offer(text: string, run: () => Promise<void>, ms = 10_000) {
     const u: Undoable = { moved: [], text, run };
+    this.breaks++;
     this.lastUndo = u;
     this.host.ui.toast(text, false, { label: t("undo"), run: () => void this.undo() }, ms);
     setTimeout(() => {
@@ -327,6 +327,7 @@ export class ActionRunner {
   hold(text: string, run: () => Promise<void>): () => void {
     const prev = this.lastUndo;
     const u: Undoable = { moved: [], text, run };
+    this.breaks++;
     this.lastUndo = u;
     return () => {
       if (this.lastUndo === u) this.lastUndo = prev && !prev.undone && !prev.expired ? prev : null;
@@ -339,6 +340,7 @@ export class ActionRunner {
     const u = this.lastUndo;
     if (!u) return;
     this.lastUndo = null;
+    this.breaks++;
     u.undone = true;
     try {
       // Equal actions merged into one toast: the last is taken back first.

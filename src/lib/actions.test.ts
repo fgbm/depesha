@@ -370,3 +370,42 @@ describe("equal toasts in a row stand as one", () => {
     }
   });
 });
+
+// «e» and the «Done» button call `archive()` and do not wait: the next press comes while the
+// server still answers the one before, so the join cannot count on the last step being recorded.
+describe("equal toasts of actions that overlap in time", () => {
+  const moves = (ids: string[]): Moved[] => ids.map((id) => ({ account_id: "a", from: "INBOX", to: "Archive", message_ids: [id], unseen: [], snoozed: [], waits: [] }));
+
+  async function pressed(settle: (answers: ReturnType<typeof deferred<Moved[]>>[]) => void) {
+    const s = await inbox();
+    api.thread.mockImplementation(async (id: number) => [row(id)]);
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    const answers: ReturnType<typeof deferred<Moved[]>>[] = [];
+    api.archive.mockImplementation((all: number[]) => {
+      const a = deferred<Moved[]>();
+      answers.push(a);
+      return a.promise.then(() => moves(all.map(String)));
+    });
+    await s.reader.open(1);
+    await flush();
+    for (let i = 0; i < 4; i++) {
+      void s.actions.archive();
+      await flush();
+    }
+    settle(answers);
+    await flush();
+    return s;
+  }
+
+  it("stand as one toast when the server answers each press in turn", async () => {
+    const s = await pressed((a) => a.forEach((x) => x.resolve([])));
+    const toasts = s.ui.toasts.filter((x) => x.action?.label === t("undo"));
+    expect(toasts.map((x) => x.text)).toEqual([tn("done.archived", 4)]);
+  });
+
+  it("stand as one toast when the answers come after both presses, the later first", async () => {
+    const s = await pressed((a) => [...a].reverse().forEach((x) => x.resolve([])));
+    const toasts = s.ui.toasts.filter((x) => x.action?.label === t("undo"));
+    expect(toasts.map((x) => x.text)).toEqual([tn("done.archived", 4)]);
+  });
+});
