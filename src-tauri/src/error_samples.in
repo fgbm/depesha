@@ -138,6 +138,7 @@ fn samples() -> Vec<(String, Error)> {
     add("label-stripping", Error::LabelStripping);
     add("label-check", Error::LabelCheckUnsupported);
     add("copy-refused", Error::CopyRefused("quota says no".into()));
+    add("copy-unchecked", Error::CopyUnchecked(Box::new(Error::Imap(I::No("code: Some(UNAVAILABLE), info: Some(\"UID SEARCH Backend error\")".into())))));
     add("folder-name", Error::FolderName(".".into()));
     v
 }

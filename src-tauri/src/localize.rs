@@ -79,6 +79,7 @@ fn error_ru(err: &Error) -> String {
                 .into()
         }
         Error::CopyRefused(text) => text.clone(),
+        Error::CopyUnchecked(e) => format!("не удалось проверить, есть ли копия в «Отправленных»: {}", error_ru(e)),
         Error::Parse => "не удалось разобрать письмо".into(),
         Error::PrivateAddress(host) => {
             format!("{host} — адрес во внутренней сети; по ссылке из письма Депеша туда не обращается")

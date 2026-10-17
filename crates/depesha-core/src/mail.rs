@@ -697,16 +697,7 @@ pub async fn append_unless_exists(
     message_id: Option<&str>,
 ) -> Result<()> {
     match conn {
-        Conn::Imap(c) => {
-            let exists = match message_id {
-                Some(mid) => !imap::find_by_message_id(c, folder, mid).await?.is_empty(),
-                None => false,
-            };
-            if !exists {
-                imap::append(c, folder, raw, flags).await?;
-            }
-            Ok(())
-        }
+        Conn::Imap(c) => imap::append_unless_exists(c, folder, raw, flags, message_id).await,
         Conn::Ews(s) => ews::append_unless_exists(s, store, account_id, folder, raw, flags, message_id).await,
     }
 }

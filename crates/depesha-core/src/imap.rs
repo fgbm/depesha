@@ -1473,30 +1473,204 @@ async fn find_matching(conn: &mut Conn, folder: &str, message_id: &str, size: Op
         return Ok(Vec::new());
     }
     conn.session.examine(folder).await?;
-    let needle = id.replace(['"', '\\'], "");
-    let uids = uid_search(conn, &format!("HEADER Message-ID \"{needle}\"")).await?;
-    if uids.is_empty() {
+    let uids = uid_search(conn, &header_search(id)).await?;
+    with_message_id(conn, &uids, id, size).await
+}
+
+/// `SEARCH HEADER Message-ID` for a bare id (see `find_matching`).
+fn header_search(id: &str) -> String {
+    format!("HEADER Message-ID \"{}\"", id.replace(['"', '\\'], ""))
+}
+
+/// Of `uids` in the examined folder, those whose Message-ID is exactly `id` (and whose size is
+/// `size`, when given), not marked \Deleted.
+async fn with_message_id(conn: &mut Conn, uids: &[u32], id: &str, size: Option<u32>) -> Result<Vec<u32>> {
+    let mut found = Vec::new();
+    for chunk in uids.chunks(COPY_WINDOW as usize) {
+        let command = format!(
+            "UID FETCH {} (UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])",
+            uid_set(chunk)
+        );
+        found.extend(
+            checked_fetch(conn, command)
+                .await?
+                .into_iter()
+                .filter(|f| chunk.contains(&f.uid))
+                .filter(|f| size.is_none_or(|n| f.size == Some(n)))
+                .filter(|f| f.message_id.as_deref() == Some(id))
+                // A moved original still marked \Deleted is gone, and moving it again would
+                // copy it a second time.
+                .filter(|f| !f.deleted)
+                .map(|f| f.uid),
+        );
+    }
+    Ok(found)
+}
+
+/// One letter of a `checked_fetch`.
+struct Fetched {
+    uid: u32,
+    size: Option<u32>,
+    deleted: bool,
+    /// From `BODY[HEADER.FIELDS (MESSAGE-ID)]`, bare; none when it was not asked for.
+    message_id: Option<String>,
+}
+
+/// A FETCH whose final answer is checked: async-imap ends a fetch at the tagged answer
+/// whatever its status, so a refused read would look like "no such letters", and a copy
+/// looked for that way would be uploaded a second time. A refusal is `Error::Imap` with NO
+/// or BAD.
+async fn checked_fetch(conn: &mut Conn, command: String) -> Result<Vec<Fetched>> {
+    use async_imap::error::Error as E;
+    use async_imap::imap_proto::Status;
+    let id = conn.session.run_command(command).await?;
+    let mut out = Vec::new();
+    loop {
+        let resp = next_response!(conn, "fetch answer");
+        match resp.parsed() {
+            Response::Fetch(_, attrs) => {
+                let mut f = Fetched {
+                    uid: 0,
+                    size: None,
+                    deleted: false,
+                    message_id: None,
+                };
+                for a in attrs {
+                    match a {
+                        AttributeValue::Uid(u) => f.uid = *u,
+                        AttributeValue::Rfc822Size(n) => f.size = Some(*n),
+                        AttributeValue::Flags(flags) => {
+                            f.deleted = flags.iter().any(|x| x.eq_ignore_ascii_case("\\Deleted"))
+                        }
+                        AttributeValue::BodySection { data: Some(data), .. } => f.message_id = message_id_of(data),
+                        _ => {}
+                    }
+                }
+                if f.uid != 0 {
+                    out.push(f);
+                }
+            }
+            Response::Done { tag, status, outcome } if *tag == id => {
+                let text = outcome.information.as_deref().unwrap_or_default().to_owned();
+                return match status {
+                    Status::Ok => Ok(out),
+                    Status::No => Err(E::No(text).into()),
+                    _ => Err(E::Bad(text).into()),
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+/// How many of the newest letters of a folder are read when the server can search it for
+/// neither the Message-ID nor the date; also the batch of one header read.
+const COPY_WINDOW: u32 = 500;
+
+/// Puts the copy of a sent letter into a folder unless one with its Message-ID is already
+/// there: a server that files the copy of a letter sent over SMTP itself, or an earlier try
+/// whose answer was lost, would otherwise leave it twice. Some servers refuse `SEARCH HEADER`
+/// (Yandex answers `NO [UNAVAILABLE] UID SEARCH Backend error` again and again), and a
+/// refused check is not a refused copy. The letters of the folder since the day before the
+/// letter's `Date` and the newest `COPY_WINDOW` by UID are read instead, either one when the
+/// server refuses the other. Each of them is compared by its exact Message-ID, as
+/// `find_matching` does. A refusal of every way is `CopyUnchecked`: the copy is not uploaded
+/// blind.
+pub async fn append_unless_exists(
+    conn: &mut Conn,
+    folder: &str,
+    raw: &[u8],
+    flags: &str,
+    message_id: Option<&str>,
+) -> Result<()> {
+    if let Some(mid) = message_id
+        && !find_copy(conn, folder, raw, mid).await?.is_empty()
+    {
+        return Ok(());
+    }
+    append(conn, folder, raw, flags).await
+}
+
+/// The server's `NO` or `BAD`: the connection still works, and another way may go through.
+fn refused(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::Imap(async_imap::error::Error::No(_) | async_imap::error::Error::Bad(_))
+    )
+}
+
+/// The UIDs of the copy of `raw` in `folder`, by `message_id` (see `append_unless_exists`).
+async fn find_copy(conn: &mut Conn, folder: &str, raw: &[u8], message_id: &str) -> Result<Vec<u32>> {
+    let id = message_id.trim_matches(['<', '>']).trim();
+    if id.is_empty() || id.contains(['<', '>']) {
         return Ok(Vec::new());
     }
-    let fetches: Vec<_> = conn
-        .session
-        .uid_fetch(
-            uid_set(&uids),
-            "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])",
-        )
-        .await?
-        .try_collect()
-        .await?;
-    Ok(fetches
-        .iter()
-        .filter(|f| f.uid.is_some_and(|u| uids.contains(&u)))
-        .filter(|f| size.is_none_or(|n| f.size == Some(n)))
-        .filter(|f| f.header().and_then(message_id_of).as_deref() == Some(id))
-        // A moved original still marked \Deleted is gone, and moving it again would
-        // copy it a second time.
-        .filter(|f| !f.flags().any(|flag| matches!(flag, Flag::Deleted)))
-        .filter_map(|f| f.uid)
-        .collect())
+    let mailbox = conn.session.examine(folder).await?;
+    match uid_search(conn, &header_search(id)).await {
+        Ok(uids) => return with_message_id(conn, &uids, id, None).await,
+        Err(e) if refused(&e) => tracing::info!("SEARCH HEADER refused in {folder}, reading the newest letters: {e}"),
+        Err(e) => return Err(e),
+    }
+    let since = sent_at(raw).map(|t| format!("SINCE {}", crate::query::imap_date(t - 86_400)));
+    let by_date = match since {
+        Some(query) => match uid_search(conn, &query).await {
+            Ok(uids) => Some(uids),
+            Err(e) if refused(&e) => {
+                tracing::info!("SEARCH SINCE refused in {folder}, reading the newest UIDs: {e}");
+                None
+            }
+            Err(e) => return Err(e),
+        },
+        None => None,
+    };
+    // The newest letters are read even when the date search answered: a search index that
+    // lags behind (the reason SEARCH HEADER fails) may not list a copy filed a moment ago.
+    let mut uids = match newest_uids(conn, &mailbox).await {
+        Ok(uids) => uids,
+        Err(e) if refused(&e) && by_date.is_some() => {
+            tracing::info!("the newest UIDs of {folder} were not read: {e}");
+            Vec::new()
+        }
+        Err(e) => return Err(unchecked(e)),
+    };
+    uids.extend(by_date.unwrap_or_default());
+    uids.sort_unstable();
+    uids.dedup();
+    with_message_id(conn, &uids, id, None).await.map_err(unchecked)
+}
+
+/// A refusal of the last way to look for the copy: the check failed, not the copy.
+fn unchecked(e: Error) -> Error {
+    if refused(&e) {
+        Error::CopyUnchecked(Box::new(e))
+    } else {
+        e
+    }
+}
+
+/// The `Date` of a letter, as a Unix time.
+fn sent_at(raw: &[u8]) -> Option<i64> {
+    let msg = mail_parser::MessageParser::default().parse_headers(raw)?;
+    msg.date().map(mail_parser::DateTime::to_timestamp)
+}
+
+/// The UIDs of the examined folder's newest letters without SEARCH: the last `COPY_WINDOW`
+/// UIDs below UIDNEXT, or the last `COPY_WINDOW` sequence numbers when the server gave no
+/// UIDNEXT.
+async fn newest_uids(conn: &mut Conn, mailbox: &Mailbox) -> Result<Vec<u32>> {
+    if mailbox.exists == 0 {
+        return Ok(Vec::new());
+    }
+    let command = match mailbox.uid_next {
+        // `*` is the newest letter whatever its UID, so the range is never empty.
+        Some(next) => format!("UID FETCH {}:* (UID)", next.saturating_sub(COPY_WINDOW).max(1)),
+        None => format!(
+            "FETCH {}:{} (UID)",
+            mailbox.exists.saturating_sub(COPY_WINDOW - 1).max(1),
+            mailbox.exists
+        ),
+    };
+    Ok(checked_fetch(conn, command).await?.into_iter().map(|f| f.uid).collect())
 }
 
 /// The Message-ID of a `HEADER.FIELDS (Message-ID)` block, bare.

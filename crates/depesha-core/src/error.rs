@@ -112,6 +112,10 @@ pub enum Error {
     /// The server refuses to file the copy of a sent letter in «Sent» (see `append_refused`); the text is the refusal as it was worded.
     #[error("{0}")]
     CopyRefused(String),
+    /// The server refused every way to look for the copy of a sent letter in «Sent», so it is
+    /// not known whether the copy is there already (`imap::append_unless_exists`).
+    #[error("could not check whether the copy is already in Sent: {0}")]
+    CopyUnchecked(Box<Error>),
     /// A failure the core words itself, as a code with its parameters.
     #[error("{}", .0.english())]
     Said(Say),
@@ -196,6 +200,7 @@ impl Clone for Error {
             Self::LabelStripping => Self::LabelStripping,
             Self::LabelCheckUnsupported => Self::LabelCheckUnsupported,
             Self::CopyRefused(m) => Self::CopyRefused(m.clone()),
+            Self::CopyUnchecked(e) => Self::CopyUnchecked(e.clone()),
             Self::Said(s) => Self::Said(s.clone()),
             Self::ImapOther(m) => Self::ImapOther(m.clone()),
             Self::StoreOther(m) => Self::StoreOther(m.clone()),
@@ -450,14 +455,15 @@ impl Error {
 
     /// The server's answer to filing a copy in «Sent» (the APPEND and the search for the copy
     /// before it) that is counted as a refusal: any IMAP `NO` or `BAD`, with a code or
-    /// without, and our own `TooLarge`. Even a code that says "later" (`[INUSE]`,
+    /// without, a check for the copy refused every way (`CopyUnchecked`), and our own
+    /// `TooLarge`. Even a code that says "later" (`[INUSE]`,
     /// `[UNAVAILABLE]`, `[TRYAGAIN]`, `[LOCKED]`, `[LIMIT]`, `[SERVERBUG]`) is one: three
     /// answers in a row over some eight hours are a reason to ask the user, and the hold
     /// loses nothing. Only a failure of the connection itself — network, timeout, drop,
     /// TLS, a paused mailbox — is not a refusal and is retried without the count.
     pub fn append_refused(&self) -> bool {
         match self {
-            Self::TooLarge { .. } => true,
+            Self::TooLarge { .. } | Self::CopyUnchecked(_) => true,
             Self::Imap(async_imap::error::Error::No(_) | async_imap::error::Error::Bad(_)) => true,
             Self::Ews { code, .. } => matches!(
                 code.as_str(),

@@ -342,7 +342,7 @@ pub fn imap_criteria_with_labels(q: &SearchQuery, keyword: impl Fn(&str) -> Opti
 }
 
 /// `3-Oct-2026`: IMAP dates are atoms, not strings, but quoting them is also valid.
-fn imap_date(t: i64) -> String {
+pub(crate) fn imap_date(t: i64) -> String {
     Local
         .timestamp_opt(t, 0)
         .single()
