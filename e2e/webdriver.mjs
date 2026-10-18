@@ -55,6 +55,30 @@ export class Driver {
     return v[ELEMENT];
   }
 
+  /** Switches into a frame by its element, so the next script runs in the frame's document. */
+  async frame(el) {
+    await this.req("POST", this.s("/frame"), { id: { [ELEMENT]: el } });
+  }
+
+  /** Back to the page that holds the frames. */
+  async frameUp() {
+    await this.req("POST", this.s("/frame/parent"), {});
+  }
+
+  /**
+   * Runs `fn` with the frame of `css` in front: the page is back in front afterwards, whatever
+   * `fn` did. A frame of an opaque origin (#124) is read this way or not at all.
+   */
+  async inFrame(css, fn) {
+    const el = await this.find(css);
+    await this.frame(el);
+    try {
+      return await fn();
+    } finally {
+      await this.frameUp();
+    }
+  }
+
   async click(el) {
     await this.reveal(el);
     await this.req("POST", this.s(`/element/${el}/click`), {});

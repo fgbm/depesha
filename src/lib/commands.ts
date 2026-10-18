@@ -22,7 +22,7 @@ const go = (v: View) => () => app.selection.setView(v);
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** What needs the main window's list, folders or settings: a letter's own window has none of them. */
-const MAIN_ONLY = /^core\.(search|row-menu$|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
+export const MAIN_ONLY = /^core\.(search|row-menu$|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
 
 /** The open folder as the search takes it: by its readable name, not the server's (modified UTF-7). */
 function readableFolder(): string | null {

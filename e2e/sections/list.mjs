@@ -138,12 +138,18 @@ export async function run() {
   await step("4.3–4.5", "HTML: скрипты вырезаны, трекер скрыт, cid-картинка и вложение на месте", async () => {
     await openBySubject("HTML-письмо с картинками");
     await d.until("banner", async () => (await d.bodyText()).includes("Внешние картинки скрыты"));
+    // The frame of the letter has an opaque origin (#124): the page reads nothing of its document,
+    // which is the point of the change and is checked as such.
+    if (!(await d.exec("const f = document.querySelector('.reader iframe'); try { return f.contentDocument === null } catch { return true }")))
+      throw new Error("страница читает документ кадра письма: происхождение кадра не пустое");
+    // Its text is read by switching into the frame.
     const info = await d.until("iframe", () =>
-      d.exec(`const doc = document.querySelector('.reader iframe')?.contentDocument;
-        if (!doc || !doc.body || !doc.body.innerHTML) return null;
-        return { html: doc.body.innerHTML, logo: doc.querySelector('img[src^="data:image/png"]') !== null,
-                 scripts: doc.querySelectorAll('script').length, onclick: doc.querySelectorAll('[onclick]').length,
-                 tracker: doc.body.innerHTML.includes('tracker.example') };`),
+      d.inFrame(".reader iframe", () =>
+        d.exec(`if (!document.body || !document.body.innerHTML) return null;
+          return { html: document.body.innerHTML, logo: document.querySelector('img[src^="data:image/png"]') !== null,
+                   scripts: document.body.querySelectorAll('script').length, onclick: document.body.querySelectorAll('[onclick]').length,
+                   tracker: document.body.innerHTML.includes('tracker.example') };`),
+      ),
     );
     if (!info.logo) throw new Error("встроенная картинка не подставлена");
     if (info.scripts || info.onclick) throw new Error("скрипты не вырезаны");
@@ -153,14 +159,14 @@ export async function run() {
     await d.button("Показать");
     try {
       await d.until("tracker allowed", () =>
-        d.exec("return document.querySelector('.reader iframe')?.contentDocument?.body?.innerHTML.includes('tracker.example')"),
+        d.inFrame(".reader iframe", () => d.exec("return document.body.innerHTML.includes('tracker.example')")),
       );
     } catch (e) {
       const diag = await d.exec(`const f = document.querySelector('.reader iframe');
         return { srcdoc: (f?.getAttribute('srcdoc') ?? '').includes('tracker.example'),
-                 csp: (f?.getAttribute('srcdoc') ?? '').match(/img-src[^;]*/)?.[0],
-                 body: f?.contentDocument?.body?.innerHTML?.slice(0, 400) };`);
-      throw new Error(`${e.message}; ${JSON.stringify(diag)}`);
+                 csp: (f?.getAttribute('srcdoc') ?? '').match(/img-src[^;]*/)?.[0] };`);
+      const body = await d.inFrame(".reader iframe", () => d.exec("return document.body.innerHTML.slice(0, 400)")).catch(() => "?");
+      throw new Error(`${e.message}; ${JSON.stringify({ ...diag, body })}`);
     }
   });
 
@@ -170,7 +176,7 @@ export async function run() {
     await openBySubject("HTML-письмо с картинками");
     await d.button("Всегда для news@example.org");
     await d.until("remote shown", () =>
-      d.exec("return document.querySelector('.reader iframe')?.contentDocument?.body?.innerHTML.includes('tracker.example')"),
+      d.inFrame(".reader iframe", () => d.exec("return document.body.innerHTML.includes('tracker.example')")),
     );
     await openBySubject("Счёт за октябрь");
     await openBySubject("HTML-письмо с картинками");
@@ -271,7 +277,7 @@ export async function run() {
     const current = () =>
       d.exec("const c = [...document.querySelectorAll('.reader .file.current .fname')].map((e) => e.innerText); if (document.querySelector('.reader .files .more.current')) c.push('+N ещё'); return c;");
     const frameText = () =>
-      d.exec("return document.querySelector('.viewer iframe')?.contentDocument?.body?.innerText ?? ''");
+      d.inFrame(".viewer iframe", () => d.exec("return document.body.innerText"));
     await openFolder("Работа");
     await openBySubject("Документы на проверку");
     await d.click(await d.until("contract.pdf", () => d.xpath("//button[contains(@class,'file-name')][contains(., 'contract.pdf')]")));
@@ -289,7 +295,7 @@ export async function run() {
     await d.until("xlsx", async () => (await frameText()).includes("Реагент Б"), 20000);
     await press("ArrowRight");
     await d.until("markdown", async () => (await frameText()).includes("Заметки к встрече"));
-    const md = await d.exec("return document.querySelector('.viewer iframe').contentDocument.body.innerHTML");
+    const md = await d.inFrame(".viewer iframe", () => d.exec("return document.body.innerHTML"));
     if (!md.includes("<h1") || !md.includes("<table") || md.includes("<script")) throw new Error(`markdown: ${md}`);
     await screenshot("viewer-markdown");
     await press("ArrowRight");

@@ -5,6 +5,7 @@ import {
   caps,
   changed,
   findCommand,
+  frameKey,
   heldMods,
   keyText,
   modName,
@@ -78,6 +79,18 @@ describe("a press as a key name", () => {
     expect(pressName(press("Enter", "Enter", { ctrlKey: true }))).toBe("Mod+Enter");
     expect(pressName(press(" ", "Space"))).toBe("Space");
     expect(pressName(press("F5", "F5"))).toBe("F5");
+  });
+
+  it("reads a name as a frame's document sees the press (#124)", () => {
+    // A letter goes by its place on the keyboard, so the Russian layout finds the same key.
+    expect(frameKey("Mod+p")).toEqual({ code: "KeyP", mod: true, alt: false, shift: false });
+    expect(frameKey("Shift+F10")).toEqual({ key: "F10", mod: false, alt: false, shift: true });
+    expect(frameKey("ContextMenu")).toEqual({ key: "ContextMenu", mod: false, alt: false, shift: false });
+    // A named space is " " to the document; the character holds its own Shift.
+    expect(frameKey("Space")).toEqual({ key: " ", mod: false, alt: false, shift: false });
+    expect(frameKey("#")).toEqual({ key: "#", mod: false, alt: false });
+    // "Mod++" is Ctrl and "+".
+    expect(frameKey("Mod++")).toEqual({ key: "+", mod: true, alt: false });
   });
 
   it("waits while only modifiers are held", () => {

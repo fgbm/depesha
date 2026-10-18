@@ -3845,14 +3845,30 @@ pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase
 }
 
 /// Test builds only (`e2e`): a letter in the cache of the mailbox, body and all, so that a window
-/// of its own can open it with no mail server (a Windows run has none). Returns its id.
+/// of its own can open it with no mail server (a Windows run has none). With `html` it is an HTML
+/// letter with a link, for the frame's relay (#124); without, plain text for the drop steps.
+/// Returns its id.
 #[cfg(feature = "e2e")]
 #[tauri::command(async)]
-pub fn e2e_seed_message(state: St<'_>, account_id: String) -> CmdResult<i64> {
-    let raw = b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed letter\r\nMessage-ID: <seed@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nA letter for the drop run.\r\n";
+pub fn e2e_seed_message(state: St<'_>, account_id: String, html: Option<bool>) -> CmdResult<i64> {
+    let html = html.unwrap_or(false);
+    let (raw, text) = if html {
+        (
+            b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed HTML letter\r\nMessage-ID: <seed-html@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>A letter with <a href=\"https://example.com/frame\">a link</a>.</p>\r\n"
+                .as_slice(),
+            "A letter with a link.",
+        )
+    } else {
+        (
+            b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed letter\r\nMessage-ID: <seed@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nA letter for the drop run.\r\n"
+                .as_slice(),
+            "A letter for the drop run.",
+        )
+    };
     let summary = message::parse_summary(raw);
     let msg = depesha_core::store::NewMessage {
-        uid: 1,
+        // The two seeded letters lie in one folder, and a uid is what a folder knows them by.
+        uid: if html { 2 } else { 1 },
         summary: &summary,
         fallback_date: 1_790_000_000,
         size: raw.len() as u32,
@@ -3872,8 +3888,27 @@ pub fn e2e_seed_message(state: St<'_>, account_id: String) -> CmdResult<i64> {
         }],
     )?;
     let id = state.store.insert_message(&account_id, "INBOX", &msg)?;
-    state.store.save_body(id, raw, "A letter for the drop run.")?;
+    state.store.save_body(id, raw, text)?;
     Ok(id)
+}
+
+/// Test builds only (`e2e`): what a script that reached the app's IPC leaves behind. Called with a
+/// marker it records it, without one it lists what was recorded. A frame's own promise may never
+/// settle — the answer is delivered into the top document — so the run asks the app here, from the
+/// page's own context, whether the letter's frame got through (#124).
+#[cfg(feature = "e2e")]
+static FRAME_PROBES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn e2e_frame_probe(marker: Option<String>) -> CmdResult<Vec<String>> {
+    let mut seen = FRAME_PROBES
+        .lock()
+        .map_err(|_| CmdError::new(depesha_core::ErrorKind::Other, "e2e_frame_probe: poisoned"))?;
+    if let Some(marker) = marker {
+        seen.push(marker);
+    }
+    Ok(seen.clone())
 }
 
 /// The user keeps a letter being written: a quit waiting for the window stops.

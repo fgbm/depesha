@@ -48,13 +48,19 @@ export function createStepRunner({ screenshot, tidyUp, log, results, retried }) 
   let failedInRow = 0;
   const slug = (name) => name.replace(/[^\p{L}\d]+/gu, "_");
 
-  /** `critical`: the steps after it cannot pass without it (the account is not set up). */
+  /**
+   * `critical`: the steps after it cannot pass without it (the account is not set up). What the
+   * step returns, if it is an object, goes into its record (`results.json`): a step that measured
+   * something keeps the measurement with its own name, not in a record of its own.
+   */
   return async function step(criteria, name, fn, { critical = false, retry = false } = {}) {
     const started = Date.now();
     const record = {};
+    const kept = (v) => (v && typeof v === "object" ? v : {});
+    let detail = {};
     try {
       try {
-        await fn();
+        detail = kept(await fn());
       } catch (first) {
         if (!retry) throw first;
         log(`  ↻ [${criteria}] ${name}: перезапуск после «${first.message}»`);
@@ -62,11 +68,11 @@ export function createStepRunner({ screenshot, tidyUp, log, results, retried }) 
         await tidyUp();
         record.retried = true;
         record.firstError = first.message;
-        await fn();
+        detail = kept(await fn());
         retried.push(name);
       }
       failedInRow = 0;
-      results.push({ criteria, name, ok: true, ms: Date.now() - started, ...record });
+      results.push({ ...detail, criteria, name, ok: true, ms: Date.now() - started, ...record });
       log(`  ✓ [${criteria}] ${name} (${Date.now() - started} мс)`);
     } catch (e) {
       results.push({ criteria, name, ok: false, error: e.message, ms: Date.now() - started, ...record });

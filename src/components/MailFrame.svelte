@@ -1,22 +1,27 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
-  import { linkAt } from "../lib/frameLink";
-  // Renders sanitized message HTML in a sandboxed iframe: no scripts, no network
+  import { FRAME_RELAY, RELAY_HASH, THEME_VARS, frameMessage, keysMessage, themeMessage, toFrame } from "../lib/frameRelay";
+  import { frameTakes } from "../lib/frameKeys";
+  // Renders sanitized message HTML in a sandboxed iframe: nothing of the letter runs, no network
   // except images the user allowed, links go through onLink.
-  // `allow-scripts` is there for the page's own listeners, not for the letter's scripts: WebKitGTK does
-  // not run a listener the page added to the document of a frame sandboxed without scripts, so
-  // links, hover and keys of the letter's text were dead (#70). Scripts of the letter stay shut by the
-  // frame's own Content-Security-Policy (`default-src 'none'`), by the window's (`script-src 'self'`)
-  // and by the sanitizer; the sandbox still keeps forms, popups and top navigation off.
+  // `allow-scripts` without `allow-same-origin` (#124): the frame has an opaque origin, so a letter
+  // script that got past the policy can reach nothing of the app's. `allow-scripts` is still needed
+  // — WebKitGTK runs no listener at all in a frame sandboxed without scripts (#70) — so the one
+  // script the frame runs is the relay Depesha writes (frameRelay.ts), allowed by its hash, talking
+  // to the app through postMessage alone. On Windows wry puts Tauri's scripts into every frame, so
+  // there the policy (no script but the relay, no connection) and the ACL of an `about:srcdoc`
+  // source (Remote, no capability) keep the frame off IPC, not the sandbox alone.
   // A srcdoc document also takes the window's CSP (tauri.conf.json), and its own <meta> only
   // narrows it: so the window's policy keeps `img-src https: http:` (remote images, once
-  // allowed) and `style-src 'unsafe-inline'` (the letters' own styles) for this frame alone.
+  // allowed) and `style-src 'unsafe-inline'` (the letters' own styles) for this frame alone, and
+  // lists the relay's hash too.
   let {
     html,
     allowRemote,
     onLink,
     themed = false,
     markdown = false,
+    takes = [],
   }: {
     html: string;
     allowRemote: boolean;
@@ -25,13 +30,12 @@
     themed?: boolean;
     /** Depesha rendered this from Markdown: its bare tables get a grid; an HTML letter lays out its own. */
     markdown?: boolean;
+    /** Keys the surroundings take besides the window's own (VIEWER_TAKES), which the relay stops by itself. */
+    takes?: string[];
   } = $props();
 
   let frame = $state<HTMLIFrameElement | null>(null);
   let hover = $state("");
-
-  /** The theme's colours a themed frame takes from the window, which the frame's document cannot see. */
-  const THEME_VARS = ["--ink", "--muted", "--line", "--link"];
 
   function themeCss(): string {
     const css = getComputedStyle(document.documentElement);
@@ -56,17 +60,22 @@ body th{background:var(--md-head);font-weight:600}`;
 
   /**
    * The frame's own policy, whatever the window's says (and in `dev`, where it is another one):
-   * no script of any kind, no plugins, no frames, no `<base>`, no forms. Pictures from the
-   * network only when allowed; the letters' own styles.
+   * the relay and no other script, no plugins, no frames, no `<base>`, no forms, no connection.
+   * Pictures from the network only when allowed; the letters' own styles.
    */
   const csp = $derived(
-    `default-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:`,
+    `default-src 'none'; script-src ${RELAY_HASH}; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; connect-src 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:`,
   );
+
+  // The relay in the frame's head. Its closing tag is spelled in two parts: written whole, it
+  // would end this component's own script block.
+  const RELAY_ELEMENT = `<script>${FRAME_RELAY}</scr` + `ipt>`;
 
   // The policy comes first in the head: nothing the letter writes can stand before it.
   const srcdoc = $derived(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta charset="utf-8">
 <meta http-equiv="x-dns-prefetch-control" content="off">
+${RELAY_ELEMENT}
 <style>
 html{background:#fff;color:#1d232b}
 body{margin:18px 22px;font:14px/1.5 system-ui,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;overflow-wrap:anywhere}
@@ -81,12 +90,17 @@ ${themed ? themeCss() : ""}
 
   /** Another theme picked, or the system's changed: a themed frame follows without reloading. */
   function repaint() {
-    const root = frame?.contentDocument?.documentElement;
-    if (!root) return;
-    const css = getComputedStyle(document.documentElement);
-    root.style.colorScheme = css.colorScheme || "light";
-    for (const v of THEME_VARS) root.style.setProperty(v, css.getPropertyValue(v).trim());
+    if (themed) toFrame(frame?.contentWindow, themeMessage(getComputedStyle(document.documentElement)));
   }
+
+  /** What the frame must know before the first press: the keys the app takes, and the theme. */
+  function sync() {
+    toFrame(frame?.contentWindow, keysMessage(frameTakes(takes)));
+    repaint();
+  }
+
+  // With the load, and again whenever the frame, the keys or the layout change.
+  $effect(sync);
 
   $effect(() => {
     if (!themed) return;
@@ -100,56 +114,50 @@ ${themed ? themeCss() : ""}
     };
   });
 
-  /** The documents that already have the listeners: a load and the first look must not add them twice. */
-  const attached = new WeakSet<Document>();
-
   /**
-   * Takes the frame's own element, not `frame`: WebKitGTK may load the document before
-   * `bind:this` has set `frame` (the load comes with the srcdoc), and a handler that waits
-   * for `frame` finds nothing, so no link, hover or key of the letter's text reaches the app.
+   * What the relay of the frame says: a link, a hover, a key. Only the frame's own window is
+   * heard — a letter's script runs in it by then, and everything else is a stranger.
    */
-  function attach(el: HTMLIFrameElement | null) {
-    const doc = el?.contentDocument;
-    if (!el || !doc || attached.has(doc)) return;
-    attached.add(doc);
-    doc.addEventListener("click", (e) => {
-      const a = linkAt(e.target);
-      if (!a) return;
-      e.preventDefault();
-      const href = a.getAttribute("href") ?? "";
-      if (href && !href.startsWith("#")) onLink(href);
-    });
-    doc.addEventListener("mouseover", (e) => {
-      const a = linkAt(e.target);
-      hover = a?.getAttribute("href") ?? "";
-    });
-    doc.addEventListener("mouseleave", () => (hover = ""));
-    // Keys pressed inside the frame never reach the window: replay them on the
-    // iframe element so the app shortcuts work after a click into the message.
-    // Plain arrows stay with the frame and scroll the message.
-    doc.addEventListener("keydown", (e) => {
-      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.altKey) return;
-      const copy = new KeyboardEvent("keydown", {
-        key: e.key,
-        code: e.code,
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-        altKey: e.altKey,
-        shiftKey: e.shiftKey,
-        repeat: e.repeat,
+  function onMessage(e: MessageEvent) {
+    const el = frame;
+    if (!el || e.source !== el.contentWindow) return;
+    const msg = frameMessage(e.data);
+    if (!msg) return;
+    if (msg.type === "hover") {
+      hover = msg.href;
+      return;
+    }
+    if (msg.type === "link") {
+      // A message is a stranger's word: an empty address and an anchor of the letter stay inside.
+      if (msg.href && !msg.href.startsWith("#")) onLink(msg.href);
+      return;
+    }
+    // Keys pressed in the frame reach no listener of the window: they are replayed on the iframe
+    // element, which does, so the app's shortcuts work after a click into the message. The plain
+    // arrows are the relay's to keep, and so is the default of a key the app may take.
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: msg.key,
+        code: msg.code,
+        ctrlKey: msg.ctrlKey,
+        metaKey: msg.metaKey,
+        altKey: msg.altKey,
+        shiftKey: msg.shiftKey,
+        repeat: msg.repeat,
         bubbles: true,
         cancelable: true,
-      });
-      if (!el.dispatchEvent(copy)) e.preventDefault();
-    });
+      }),
+    );
   }
 
-  // The load may have come before the frame was bound: look at the document once it is.
-  $effect(() => attach(frame));
+  $effect(() => {
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  });
 </script>
 
 <div class="wrap">
-  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin allow-scripts" {srcdoc} onload={(e) => attach(e.currentTarget as HTMLIFrameElement)}></iframe>
+  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-scripts" {srcdoc} onload={sync}></iframe>
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 

@@ -19,10 +19,11 @@ export async function run() {
     if ((await d.findAll(".reader .files")).length) throw new Error("Markdown-часть показана вложением");
     await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Markdown']"));
     const md = await d.until("markdown drawn", () =>
-      d.exec(`const doc = document.querySelector('.reader iframe')?.contentDocument;
-        if (!doc?.querySelector('h1')) return null;
-        return { boxes: doc.querySelectorAll('input[type=checkbox][disabled]').length, done: doc.querySelectorAll('input[type=checkbox][checked]').length,
-                 table: !!doc.querySelector('table') };`),
+      d.inFrame(".reader iframe", () =>
+        d.exec(`if (!document.querySelector('h1')) return null;
+          return { boxes: document.querySelectorAll('input[type=checkbox][disabled]').length, done: document.querySelectorAll('input[type=checkbox][checked]').length,
+                   table: !!document.querySelector('table') };`),
+      ),
     );
     if (md.boxes !== 2 || md.done !== 1 || !md.table) throw new Error(`Markdown нарисован не так: ${JSON.stringify(md)}`);
     await screenshot("markdown-message");
@@ -116,7 +117,7 @@ export async function run() {
       throw new Error(`${e.message}; список: ${JSON.stringify(await d.exec("return [document.querySelector('.list h2')?.innerText, ...[...document.querySelectorAll('.row .subject')].slice(0, 12).map((x) => x.innerText)]"))}`);
     });
     await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Markdown']"));
-    await d.until("markdown drawn", () => d.exec("return !!document.querySelector('.reader iframe')?.contentDocument?.querySelector('h1')"));
+    await d.until("markdown drawn", () => d.inFrame(".reader iframe", () => d.exec("return !!document.querySelector('h1')")));
     await ctrlP();
     p = await sheet(2, "markdown");
     expectIn("лист Markdown", p.html, `<h1>${subj}</h1>`, "<table", "type=\"checkbox\"", "border-collapse:collapse");
@@ -198,8 +199,8 @@ export async function run() {
     await d.button("Входящие");
 
     // 7. The letter's own frame: its links, hover and keys reach the app, and nothing in it runs.
+    // The frame has an opaque origin (#124): everything in it is read by switching into it.
     await openBySubject("HTML-письмо с картинками");
-    const frameDoc = "document.querySelector('.reader iframe').contentDocument";
     const inFrame = async () => {
       const frame = await d.find(".reader iframe");
       const r = await d.exec("const b = document.querySelector('.reader iframe').getBoundingClientRect(); return [b.width, b.height]");
@@ -207,14 +208,16 @@ export async function run() {
       await d.clickAt(frame, Math.round(r[0] / 2) - 12, Math.round(r[1] / 2) - 12);
       if ((await d.exec("return document.activeElement?.tagName")) !== "IFRAME") throw new Error("фокус не в кадре письма");
     };
-    // The frame's handlers are attached: a link's hover shows its address, and a click asks before
+    // The relay of the frame reports: a link's hover shows its address, and a click asks before
     // opening it instead of the frame following it.
     // The reader shows the subject before the body: the frame is blank until its srcdoc has loaded.
-    await d.until("letter frame drawn", () => d.exec(`return !!${frameDoc}?.querySelector('a')`));
-    await d.exec(`${frameDoc}.querySelector('a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`);
+    await d.until("letter frame drawn", () => d.inFrame(".reader iframe", () => d.exec("return !!document.querySelector('a')")));
+    await d.inFrame(".reader iframe", () => d.exec("document.querySelector('a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))"));
     await d.until("link hover reaches the app", async () => (await textOf(".reader .status")).includes("example.com/news"));
     const clickLink = (selector) =>
-      d.exec(`${frameDoc}.querySelector(arguments[0]).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))`, selector);
+      d.inFrame(".reader iframe", () =>
+        d.exec("document.querySelector(arguments[0]).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))", selector),
+      );
     const dismissQuestion = async () => {
       await press("Escape");
       await d.until("question closed", async () => (await d.findAll(".confirm")).length === 0);
@@ -224,7 +227,7 @@ export async function run() {
     await dismissQuestion();
 
     // 7a. The keys as the driver sends them, with the focus on the page and then inside the frame:
-    // the frame replays them to the window (MailFrame.svelte), so the palette opens and the letter prints.
+    // the relay of the frame posts them to the app (MailFrame.svelte), so the palette opens and the letter prints.
     const paletteOpen = async () => (await d.findAll(".palette")).length === 1;
     const closePalette = async () => {
       await d.pressKey("\uE00C");
@@ -243,20 +246,35 @@ export async function run() {
     await d.chord(["\uE009"], "p");
     p = await sheet(before + 1, "frame-key");
     expectIn("лист по Ctrl+P из кадра письма", p.html, "<h1>HTML-письмо с картинками</h1>");
-    // 7b. The same key as an event of the frame's own document: the window takes it, so the frame's default is cancelled.
-    const prevented = await d.exec(
-      `const e = new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true, cancelable: true });
-       ${frameDoc}.body.dispatchEvent(e); return e.defaultPrevented;`,
+    // 7b. The same key as an event of the frame's own document: the relay stops its default at
+    // once — the app's answer comes asynchronously — and the app prints the sheet.
+    const prevented = await d.inFrame(".reader iframe", () =>
+      d.exec(`const e = new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true, cancelable: true });
+       document.body.dispatchEvent(e); return e.defaultPrevented;`),
     );
     if (!prevented) throw new Error("Ctrl+P в кадре письма достался браузеру");
     await sheet(before + 2, "frame-key-event");
 
-    // 7c. Nothing a letter writes runs in its frame: an image with a handler, a javascript: link and a
-    // data: image with a script do not reach the page (`parent.__pwned`), and the frame stays where it is.
-    await d.exec(`window.__pwned = undefined;
-      ${frameDoc}.body.innerHTML = '<img src="x" onerror="parent.__pwned=1">' +
-        '<a id="js" href="javascript:parent.__pwned=1">j</a>' +
-        '<a id="svg" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cscript%3Eparent.__pwned=1%3C/script%3E%3C/svg%3E">s</a>';`);
+    // 7c. Nothing a letter writes runs in its frame: an image with a handler, an SVG with one, a
+    // javascript: link and a data: image with a script leave no trace, and the frame stays where it
+    // is. The trace is left inside the frame, not in the page: `parent.__pwned = 1` throws a
+    // SecurityError from a frame of an opaque origin, so a probe writing into the page would prove
+    // nothing at all (#124). The last probe is a script of the letter, appended rather than written
+    // into its markup: the policy allows one script, the relay, by its hash, and that script is not
+    // it. It would run — and this step would fail — the moment the frame takes arbitrary inline
+    // script again: 'unsafe-inline' alone or no policy at all. ('unsafe-inline' beside the hash is
+    // inert: a hash in the list makes it ignored, which is CSP 3, not a hole of ours.)
+    await d.exec("window.__pwnedMsg = 0; window.addEventListener('message', (e) => { if (e.data && e.data.pwnedMsg) window.__pwnedMsg++; })");
+    await d.inFrame(".reader iframe", () =>
+      d.exec(`document.documentElement.removeAttribute('data-pwned');
+        document.body.innerHTML = '<img src="x" onerror="document.documentElement.dataset.pwned=1">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" onload="document.documentElement.dataset.pwned=2"></svg>' +
+          '<a id="js" href="javascript:document.documentElement.dataset.pwned=3">j</a>' +
+          '<a id="svg" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cscript%3Edocument.documentElement.dataset.pwned=4%3C/script%3E%3C/svg%3E">s</a>';
+        const s = document.createElement('script');
+        s.textContent = "document.documentElement.dataset.pwned='script';parent.postMessage({pwnedMsg:1},'*')";
+        document.documentElement.appendChild(s);`),
+    );
     await new Promise((r) => setTimeout(r, 800));
     for (const id of ["#js", "#svg"]) {
       await clickLink(id);
@@ -265,9 +283,15 @@ export async function run() {
       await dismissQuestion();
     }
     await new Promise((r) => setTimeout(r, 500));
-    const pwned = await d.exec(`return { pwned: window.__pwned ?? null, url: document.querySelector('.reader iframe').contentWindow.location.href, kept: !!${frameDoc}.getElementById('js') }`);
-    if (pwned.pwned !== null) throw new Error("critical: в кадре письма выполнился код письма (parent.__pwned)");
-    if (pwned.url !== "about:srcdoc" || !pwned.kept) throw new Error(`кадр письма перешёл по ссылке: ${JSON.stringify(pwned)}`);
+    const trace = await d.inFrame(".reader iframe", () =>
+      d.exec("return { pwned: document.documentElement.dataset.pwned ?? null, url: location.href, kept: !!document.getElementById('js'), internals: typeof window.__TAURI_INTERNALS__ }"),
+    );
+    const posted = await d.exec("return window.__pwnedMsg ?? 0");
+    if (trace.pwned !== null) throw new Error(`critical: в кадре письма выполнился код письма (след ${trace.pwned})`);
+    if (posted !== 0) throw new Error("critical: скрипт письма дотянулся до страницы через postMessage");
+    // WebKitGTK puts no init scripts into a frame (wry injects them into the main frame only).
+    if (trace.internals !== "undefined") throw new Error(`critical: в кадре письма есть мост Tauri: ${trace.internals}`);
+    if (trace.url !== "about:srcdoc" || !trace.kept) throw new Error(`кадр письма перешёл по ссылке: ${JSON.stringify(trace)}`);
 
     // 8. A letter that places its text at the top of the page does not cover the header of the sheet.
     const forged = `Подделка шапки ${stamp}`;

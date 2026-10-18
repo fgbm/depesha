@@ -45,6 +45,12 @@ describe("e2e step runner", () => {
     expect(retried).toEqual([]);
   });
 
+  it("keeps what the step measured in its own record", async () => {
+    const { step, results } = setup();
+    await step("0.4", "кадр", async () => ({ probe: { invoke: "silent" } }));
+    expect(results).toEqual([expect.objectContaining({ criteria: "0.4", ok: true, probe: { invoke: "silent" } })]);
+  });
+
   it("does not mark a step that passes the first time", async () => {
     const { step, results } = setup();
     await step("3.1", "папки", async () => {}, { retry: true });

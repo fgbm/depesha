@@ -3,6 +3,7 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import { api } from "../../lib/api";
   import { addrFull, linkify, longDate, size } from "../../lib/format";
+  import { VIEWER_TAKES } from "../../lib/frameKeys";
   import { t } from "../../lib/i18n.svelte";
   import type { MessageView } from "../../lib/types";
   import type { ViewedFile } from "../../lib/viewer";
@@ -44,7 +45,7 @@
     </div>
     <div class="body">
       {#if view.html}
-        <MailFrame html={view.html} allowRemote={false} onLink={(href) => file.openLink(href)} />
+        <MailFrame html={view.html} allowRemote={false} takes={VIEWER_TAKES} onLink={(href) => file.openLink(href)} />
       {:else}
         <div class="plain selectable">
           {#each linkify(view.text ?? "") as part, i (i)}

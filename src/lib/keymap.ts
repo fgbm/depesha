@@ -8,6 +8,7 @@
 // the Russian "у" is "e" (docs/ux.md, principle 5); a character typed with Shift holds
 // it ("#" is Shift+3, not "Shift+3").
 
+import type { FrameKey } from "./frameRelay";
 import { isMac } from "./platform";
 
 /** A key press, as the DOM delivers it; the fields the key naming reads. */
@@ -124,6 +125,27 @@ export function pressNames(e: KeyPress): string[] {
   const out = /^[\x20-\x7e]$/.test(t) || t.length > 1 ? [named(e, t)] : [];
   if (us && us !== t) out.push(named(e, us));
   return out;
+}
+
+/**
+ * A key name as a frame's own document sees the press (#124): a letter by its place on the
+ * keyboard, a character by what it types, a named key as the event spells it. `null` for a name
+ * that stands for no press.
+ */
+export function frameKey(name: string): FrameKey | null {
+  const parts = name.split("+");
+  // "Mod++" would be Ctrl and "+": the last part may itself be "+".
+  const last = name.endsWith("++") ? "+" : (parts.pop() as string);
+  if (name.endsWith("++")) parts.splice(-2);
+  if (!last) return null;
+  const mod = parts.includes("Mod");
+  const alt = parts.includes("Alt");
+  const shift = parts.includes("Shift");
+  if (/^[a-z]$/.test(last)) return { code: `Key${last.toUpperCase()}`, mod, alt, shift };
+  // The event spells the space key " ".
+  if (last === "Space") return { key: " ", mod, alt, shift };
+  // Shift is part of a character ("#" is Shift+3); for a named key it is the name's own.
+  return last.length === 1 ? { key: last, mod, alt } : { key: last, mod, alt, shift };
 }
 
 /** The modifiers held while recording: "Ctrl + …". */

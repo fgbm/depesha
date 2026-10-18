@@ -5,6 +5,7 @@
   import { api } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import type { Sheet } from "../../lib/office";
+  import { VIEWER_TAKES } from "../../lib/frameKeys";
   import { COLUMN_CSS, MARKDOWN_CSS } from "../../lib/prose";
   import type { ViewedFile } from "../../lib/viewer";
   import MailFrame from "../MailFrame.svelte";
@@ -56,7 +57,7 @@
     <div class="cut muted">{sheets[sheet]?.hidden ? t("viewer.rowsHidden", { n: sheets[sheet].hidden }) : t("viewer.cut")}</div>
   {/if}
   {#if html !== null}
-    {#key html}<MailFrame markdown={format === "markdown"} {html} allowRemote={false} onLink={(href) => file.openLink(href)} />{/key}
+    {#key html}<MailFrame markdown={format === "markdown"} {html} allowRemote={false} takes={VIEWER_TAKES} onLink={(href) => file.openLink(href)} />{/key}
   {/if}
   {#if sheets.length > 1}
     <div class="tabs" role="tablist">

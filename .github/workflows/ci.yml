@@ -52,8 +52,8 @@ jobs:
         run: |
           # What a platform build and the drop code need: the core and the shell of the app
           # (src-tauri/ covers tauri.conf.json and the icons), the dependencies, the frontend
-          # build config, the drop code, its scripts and this file.
-          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|vite\.config\.|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
+          # build config, the drop code and the letter's frame (#124), their scripts and this file.
+          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|vite\.config\.|src/lib/(drops|frameKeys|frameLink|frameRelay)\.ts|src/components/MailFrame\.svelte|e2e/((drops|drop-steps|frame-steps|webdriver)\.mjs|(native-drop|windows-display)\.ps1)|\.github/workflows/ci\.yml)'
           platform=false
           if [ "$ALWAYS" = true ]; then
             platform=true

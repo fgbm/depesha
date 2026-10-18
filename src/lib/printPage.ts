@@ -61,7 +61,8 @@ const list = (people: Addr[]) => people.map((a) => esc(addrFull(a))).join(", ");
 // The body is held in its own box (`main`): a letter's `position:absolute` or `fixed` text is
 // placed against it and clipped by it, so it cannot be laid over the header (a forged «From:»).
 // Always light, on white: a dark theme is for the screen. The Content-Security-Policy is the
-// reading frame's (MailFrame.svelte): no scripts, pictures from the network only when allowed.
+// reading frame's (MailFrame.svelte) minus its relay: no scripts of the letter, pictures from
+// the network only when allowed.
 const CSS = `@page{margin:16mm}
 :root{color-scheme:light}
 html{background:#fff;color:#000}

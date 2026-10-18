@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { Driver, reloadWindow } from "./webdriver.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropSteps } from "./drop-steps.mjs";
+import { frameSteps } from "./frame-steps.mjs";
 
 const windows = process.platform === "win32";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,26 +110,30 @@ function nativeDrop({ paths, hover, to, title }) {
 /** The size of the main window, which a letter's window is given as well. */
 let windowSize = null;
 const SEED_TITLE = "Seed letter";
+/** The HTML letter of the frame's step (#124): a link its relay reports. */
+const SEED_HTML_TITLE = "Seed HTML letter";
 
 /**
  * A letter's own window with no mail server: the test build puts a letter into the cache
  * (`e2e_seed_message`) and `message_window` opens it, as a double click in the list does.
- * `fn` works in that window; the main one is back in front afterwards.
+ * `fn` works in that window; the main one is back in front afterwards. `html` seeds the HTML
+ * letter that carries a link, for the frame's relay (#124).
  */
-async function inLetterWindow(fn) {
+async function inLetterWindow(fn, { html = false } = {}) {
+  const title = html ? SEED_HTML_TITLE : SEED_TITLE;
   const account = (await invoke("accounts"))[0];
-  const id = await invoke("e2e_seed_message", { accountId: account.id });
+  const id = await invoke("e2e_seed_message", { accountId: account.id, html });
   const main = await d.req("GET", d.s("/window"));
-  await invoke("message_window", { id, title: SEED_TITLE });
+  await invoke("message_window", { id, title });
   const handles = () => d.req("GET", d.s("/window/handles"));
   await d.until("the letter's window", async () => (await handles()).length === 2, 20000);
   const other = (await handles()).find((h) => h !== main);
   await d.req("POST", d.s("/window"), { handle: other });
   try {
     if (windowSize) await d.req("POST", d.s("/window/rect"), { x: 0, y: 0, ...windowSize });
-    await d.until("the letter", async () => (await d.exec("return document.querySelector('.reader h1')?.innerText ?? ''")).includes(SEED_TITLE), 30000);
-    await fn({
-      title: SEED_TITLE,
+    await d.until("the letter", async () => (await d.exec("return document.querySelector('.reader h1')?.innerText ?? ''")).includes(title), 30000);
+    const out = await fn({
+      title,
       openReply: async () => {
         await d.exec("document.activeElement?.blur?.()");
         await press("r");
@@ -138,6 +143,7 @@ async function inLetterWindow(fn) {
     // Esc closes the window of a letter with nothing being written.
     await press("Escape");
     await d.until("the letter's window closed", async () => (await handles()).length === 1, 20000);
+    return out;
   } finally {
     await d.req("POST", d.s("/window"), { handle: main }).catch(() => {});
   }
@@ -194,6 +200,7 @@ try {
     },
     closeCompose,
   });
+  await frameSteps({ d, step, inLetterWindow, closeCompose, invoke });
   await screenshot("final");
 } catch (e) {
   if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);
