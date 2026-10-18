@@ -19,6 +19,19 @@ import type { MessageRow, Moved } from "./types";
 /** The toast's words: given, or made from the moves done (when they say where the letters went). */
 export type Text = string | ((moved: Moved[]) => string);
 
+/** An action on more letters than this asks first: a slip of «select all» must not take them (#196). */
+export const BULK_LIMIT = 10;
+
+/** The question before an action on many letters: its title in the letters counted, and the button that agrees. */
+export interface Ask {
+  title: (n: number) => string;
+  okLabel: string;
+  /** Words under the title; without them the dialog offers the undo, which most actions have. */
+  note?: string;
+  /** The action loses something: the dialog puts the focus on Cancel. */
+  danger?: boolean;
+}
+
 export interface Undoable {
   moved: Moved[];
   text: string;
@@ -50,7 +63,7 @@ export interface ActionHost {
   readonly mailboxes: Pick<MailboxController, "folders">;
   readonly settingsCtl: Pick<SettingsController, "settings">;
   readonly reader: Pick<Reader, "conversation" | "dropFromConversation" | "opened" | "renameInConversation" | "saw">;
-  readonly ui: Pick<UiController, "fail" | "restate" | "toast" | "toasts" | "track">;
+  readonly ui: Pick<UiController, "confirm" | "fail" | "restate" | "toast" | "toasts" | "track">;
   readonly selection: Pick<SelectionController, "reload" | "selectedIds" | "takeOut">;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
@@ -73,50 +86,66 @@ export class ActionRunner {
    * Takes messages out of the list and runs `run`; the moves it returns can be undone.
    * `single`: the action is about these letters alone — a letter unfolded in the conversation
    * (0.8.4, #180) is dealt with on its own, its thread is not carried along with it.
+   * `ask`: the question put first when the action would take out more than `BULK_LIMIT` letters.
    */
-  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false, count?: (n: number) => string) {
+  async perform(
+    text: Text,
+    ids: number[],
+    run: (ids: number[], own: number[]) => Promise<Moved[]>,
+    failText: string,
+    single = false,
+    count?: (n: number) => string,
+    ask?: Ask,
+  ) {
     if (!ids.length) return;
-    const p = this.host.ui.track(this.act(text, ids, run, failText, single, count));
+    const p = this.act(text, ids, run, failText, single, count, ask);
     this.pending = p;
     await p;
     if (this.pending === p) this.pending = null;
   }
 
-  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false, count?: (n: number) => string) {
+  private async act(
+    text: Text,
+    ids: number[],
+    run: (ids: number[], own: number[]) => Promise<Moved[]>,
+    failText: string,
+    single = false,
+    count?: (n: number) => string,
+    ask?: Ask,
+  ) {
     const { list } = this.host;
+    const { before, rows, threadLetter, threaded } = this.startOf(ids, single);
+    const grouped = this.conversations(rows, single);
+    // Asked only when the question is possible: reading the conversations first takes an answer
+    // from the server, and a key pressed meanwhile would find the row still there and act on it
+    // again (#196). A refusal leaves the list as it was, and the undo of the last action in place.
+    let all = ids;
+    // The letters were read before the rows left; the quick way below reads them after.
+    let read = false;
+    if (ask && this.upper(ids, grouped) > BULK_LIMIT) {
+      const found = await this.readFirst(ids, grouped, rows, failText, ask);
+      if (!found) return;
+      all = found;
+      read = true;
+    }
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
-    // The rows as they were: their conversations are looked up, and they come back on a failure.
-    const before = list.messages;
-    const opened = this.host.reader.opened;
-    const rowOf = (id: number) =>
-      before.find((m) => m.id === id) ?? list.threadRow(id) ?? this.host.reader.conversation.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined);
-    const rows = ids.map(rowOf);
-    // A letter unfolded in the conversation, not open in the pane (0.8.4, #180): the pane keeps
-    // the letter it shows — no "take out", no next row, and a window of a letter of its own stays
-    // open. The row goes (a list is not always grouped), and the letter leaves the conversation.
-    const threadLetter = single && !ids.includes(opened?.row.id ?? -1);
-    // A letter of a thread on screen: a move that leaves it in its thread keeps its place and its
-    // row takes the new folder, instead of going and coming back on the next reload (#180).
-    const threaded = this.host.windowOf === null && ids.length > 0 && ids.every((id) => this.letterOfThread(id));
-    const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
     // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
     this.host.reader.saw(ids, false);
-    for (const id of ids) list.leaving.add(id);
+    const hidden = new Set(ids);
+    // The letters of a conversation leave with the row it stands for.
+    this.markLeaving(all, hidden);
     // Out of sight at once, except a letter of a thread, whose place waits for where it went.
-    if (!threaded) {
-      if (threadLetter) list.remove(ids);
-      else this.host.selection.takeOut(ids);
-    }
+    this.hideRows(ids, threadLetter, threaded);
     let failed = false;
     try {
-      const all = single ? ids : await this.withConversation(ids, rows);
-      for (const id of all) {
-        hidden.add(id);
-        list.leaving.add(id);
+      // The quick way reads the conversations after the rows left: a failure brings them back.
+      if (!read && grouped.length) {
+        all = await this.withConversation(ids, grouped);
+        this.markLeaving(all, hidden);
       }
-      const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
+      const moved = (await this.host.ui.track(run(all, ids))).filter((m) => m.message_ids.length);
       const said = typeof text === "function" ? text(moved) : text;
       // The letter is gone: it leaves the shown conversation with the cache (0.8.4, #180).
       const renamed = threaded ? this.settleThread(ids, rows, moved) : null;
@@ -139,6 +168,63 @@ export class ActionRunner {
     }
     if (failed) list.restore(before, new Set(ids));
     void this.host.selection.reload();
+  }
+
+  /**
+   * The letters the action takes, read before anything leaves the list when more than `BULK_LIMIT`
+   * of them are possible: their count is an upper bound, as `withConversation` drops letters of other
+   * folders (#196). Null says the action ends here: refused, or a conversation that could not be read.
+   */
+  private async readFirst(ids: number[], grouped: MessageRow[], rows: (MessageRow | undefined)[], failText: string, ask: Ask): Promise<number[] | null> {
+    const all = await this.lettersOf(ids, grouped, rows, failText);
+    return all && (await this.mayAsk(ask, all.length)) ? all : null;
+  }
+
+  /** The most letters an action can take: a row that carries a conversation stands for all of it,
+   *  and `withConversation` drops letters of other folders, so this overcounts at worst (#196). */
+  private upper(ids: number[], grouped: MessageRow[]): number {
+    return ids.length + grouped.reduce((n, r) => n + r.thread_count - 1, 0);
+  }
+
+  /** What an action starts from: the rows as they were, and the two shapes of acting on a thread (#180). */
+  private startOf(ids: number[], single: boolean) {
+    const before = this.host.list.messages;
+    const opened = this.host.reader.opened;
+    const rowOf = (id: number) =>
+      before.find((m) => m.id === id) ?? this.host.list.threadRow(id) ?? this.host.reader.conversation.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined);
+    // A letter unfolded in the conversation, not open in the pane (0.8.4, #180): the pane keeps
+    // the letter it shows — no "take out", no next row, and a window of a letter of its own stays
+    // open. The row goes (a list is not always grouped), and the letter leaves the conversation.
+    const threadLetter = single && !ids.includes(opened?.row.id ?? -1);
+    // A letter of a thread on screen: a move that leaves it in its thread keeps its place and its
+    // row takes the new folder, instead of going and coming back on the next reload (#180).
+    const threaded = this.host.windowOf === null && ids.length > 0 && ids.every((id) => this.letterOfThread(id));
+    return { before, rows: ids.map(rowOf), threadLetter, threaded };
+  }
+
+  /**
+   * The letters an action applies to, whole conversations included. The list is left as it was
+   * when a conversation cannot be read: the failure is told, and null says nothing was done.
+   */
+  private async lettersOf(ids: number[], grouped: MessageRow[], rows: (MessageRow | undefined)[], failText: string): Promise<number[] | null> {
+    if (!grouped.length) return ids;
+    try {
+      return await this.withConversation(ids, grouped);
+    } catch (e) {
+      this.breaks++;
+      this.refused(e, rows, failText);
+      void this.host.selection.reload();
+      return null;
+    }
+  }
+
+  /** Whether the action goes on: more letters than `BULK_LIMIT` are asked about first (#196), and a
+   *  refusal ends the run of equal actions as any other break does. */
+  private async mayAsk(ask: Ask, n: number): Promise<boolean> {
+    if (n <= BULK_LIMIT) return true;
+    if (await this.host.ui.confirm({ title: ask.title(n), text: ask.note ?? t("bulk.note"), okLabel: ask.okLabel, danger: ask.danger })) return true;
+    this.breaks++;
+    return false;
   }
 
   /**
@@ -266,13 +352,31 @@ export class ActionRunner {
     }
   }
 
+  /** The letters on their way out: the list keeps them until the server answers, and a failure
+   *  brings them back with the error. */
+  private markLeaving(ids: number[], hidden: Set<number>) {
+    for (const id of ids) {
+      hidden.add(id);
+      this.host.list.leaving.add(id);
+    }
+  }
+
+  /** Out of sight at once, except a letter of a thread, whose place waits for where it went (#180). */
+  private hideRows(ids: number[], threadLetter: boolean, threaded: boolean) {
+    if (threaded) return;
+    if (threadLetter) this.host.list.remove(ids);
+    else this.host.selection.takeOut(ids);
+  }
+
+  /** The rows that carry a conversation to read: a letter of an unfolded thread stands for itself (#179),
+   *  a letter dealt with on its own carries nothing (#180), and a message window shows one letter. */
+  private conversations(rows: (MessageRow | undefined)[], single: boolean): MessageRow[] {
+    if (single || !this.host.settingsCtl.settings.threads || this.host.windowOf !== null) return [];
+    return rows.filter((r): r is MessageRow => !!r && r.thread_count > 1 && !this.host.list.threadRow(r.id));
+  }
+
   /** The ids an action applies to: in a grouped list a row stands for its whole conversation. */
-  private async withConversation(ids: number[], rows: (MessageRow | undefined)[]): Promise<number[]> {
-    // A message window shows one letter, not a row of the list: the action is for it alone.
-    if (!this.host.settingsCtl.settings.threads || this.host.windowOf !== null) return ids;
-    // A letter of an unfolded thread is a row of the list on screen, but it stands for itself:
-    // only a row that carries a conversation is expanded, never a letter of one (#179).
-    const grouped = rows.filter((r): r is MessageRow => !!r && r.thread_count > 1 && !this.host.list.threadRow(r.id));
+  private async withConversation(ids: number[], grouped: MessageRow[]): Promise<number[]> {
     // Every conversation at once, not one after another.
     const threads = await Promise.all(grouped.map((r) => api.thread(r.id)));
     const out = new Set(ids);
@@ -287,21 +391,39 @@ export class ActionRunner {
 
   /** Without `ids`: the selected rows; `single` deals with the given letters alone (#180). */
   remove(ids = this.host.selection.selectedIds(), single = false) {
-    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single, (n) => tn("done.deleted", n));
+    const ask = { title: (n: number) => tn("bulk.delete", n), okLabel: t("act.delete"), danger: true, note: this.goneForGood(ids) ? t("bulk.note.gone") : undefined };
+    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single, (n) => tn("done.deleted", n), ask);
+  }
+
+  /** Whether the delete leaves nothing to take back: in the trash, or in a mailbox without one,
+   *  the backend removes the letters for good and reports no move (#196). */
+  private goneForGood(ids: number[]): boolean {
+    const { list } = this.host;
+    return ids.some((id) => {
+      const row = list.messages.find((m) => m.id === id) ?? list.threadRow(id);
+      if (!row) return false;
+      const folders = this.host.mailboxes.folders.filter((f) => f.account_id === row.account_id);
+      const trash = folders.find((f) => f.role === "trash");
+      // A mailbox not read yet is not a mailbox without the folder.
+      return trash ? trash.name === row.folder : folders.length > 0;
+    });
   }
 
   moveTo(folder: string, ids = this.host.selection.selectedIds()) {
     const name = this.host.mailboxes.folders.find((f) => f.name === folder)?.display_name ?? folder;
-    return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
+    const ask = { title: (n: number) => tn("bulk.move", n, { folder: name }), okLabel: t("bulk.ok.move") };
+    return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"), false, undefined, ask);
   }
 
   /** "Done": out of the inbox, into the archive; `single` deals with the given letters alone (#180). */
   archive(ids = this.host.selection.selectedIds(), single = false) {
-    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"), single, (n) => tn("done.archived", n));
+    const ask = { title: (n: number) => tn("bulk.archive", n), okLabel: t("bulk.ok.archive") };
+    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"), single, (n) => tn("done.archived", n), ask);
   }
 
   spam(ids = this.host.selection.selectedIds()) {
-    return this.perform(t("done.spam"), ids, api.spam, t("err.spam"));
+    const ask = { title: (n: number) => tn("bulk.spam", n), okLabel: t("act.spam"), danger: true };
+    return this.perform(t("done.spam"), ids, api.spam, t("err.spam"), false, undefined, ask);
   }
 
   /**

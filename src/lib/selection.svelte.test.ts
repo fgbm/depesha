@@ -60,7 +60,9 @@ describe("moving through the list", () => {
 
 describe("archiving through the list", () => {
   it("takes the next letter with every key while the previous one is still opening", async () => {
-    api.messages.mockResolvedValue(rows(1, 30));
+    // Rows of conversations: reading one costs the answer of the server, and the key after it
+    // must still act on the next row, not on the one still on its way out (#196).
+    api.messages.mockResolvedValue(rows(1, 30).map((m) => ({ ...m, thread_count: 2 })));
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
@@ -76,7 +78,7 @@ describe("archiving through the list", () => {
       for (const id of ids) gone.add(id);
       return [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String), unseen: [], snoozed: [], waits: [] }];
     });
-    api.messages.mockImplementation(async () => rows(1, 30).filter((m) => !gone.has(m.id)));
+    api.messages.mockImplementation(async () => rows(1, 30).filter((m) => !gone.has(m.id)).map((m) => ({ ...m, thread_count: 2 })));
     vi.useFakeTimers();
 
     for (let n = 1; n <= 20; n++) {
@@ -84,6 +86,7 @@ describe("archiving through the list", () => {
       expect(s.list.messages.map((m) => m.id)).not.toContain(n);
       expect([...s.selection.selected]).toEqual([n + 1]);
     }
+    // Nothing reached the server yet: every press moves the cursor on before the answer.
     expect(gone.size).toBe(0);
     await flush();
     expect([...gone]).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));

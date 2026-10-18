@@ -251,7 +251,10 @@ describe("marks kept by the view", () => {
     expect(lastQuery().keep_ids).toHaveLength(50);
 
     cache.splice(0, 50);
-    await s.actions.archive(gone);
+    const p = s.actions.archive(gone);
+    await flush();
+    s.ui.confirmation!.resolve(true);
+    await p;
     await flush();
     await s.selection.reload();
     const q = lastQuery();

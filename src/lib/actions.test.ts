@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/window", () => import("./testing").then((m) => m.windowModule));
@@ -7,7 +7,8 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
-import { t, tn } from "./i18n.svelte";
+import { BULK_LIMIT } from "./actions.svelte";
+import { i18n, t, tn } from "./i18n.svelte";
 import { labels } from "./labels.svelte";
 import { api, deferred, flush, opened, resetFakes, row, win } from "./testing";
 import type { Moved, MessageRow } from "./types";
@@ -18,6 +19,14 @@ const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
 async function inbox() {
   const list = [1, 2, 3, 4, 5].map((id) => row(id, { thread_count: id <= 3 ? 2 : 1 }));
   api.messages.mockResolvedValue(list);
+  const s = new AppStore();
+  await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+  return s;
+}
+
+/** `n` rows of the inbox, none of them a conversation. */
+async function many(n: number) {
+  api.messages.mockResolvedValue(Array.from({ length: n }, (_, i) => row(i + 1)));
   const s = new AppStore();
   await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
   return s;
@@ -92,6 +101,47 @@ describe("an action", () => {
   });
 });
 
+// The rows leave the list at once on the quick way, so the key after a key finds the next row (#196).
+describe("keys pressed faster than the conversations are read (#196)", () => {
+  it("takes the next row for a key pressed before the conversation is read", async () => {
+    api.messages.mockResolvedValue([row(1, { thread_count: 2 }), row(2, { thread_count: 2 }), row(3)]);
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.select(1);
+    api.thread.mockClear();
+    vi.useFakeTimers();
+    try {
+      // The server takes its time over every conversation.
+      const reading: ReturnType<typeof deferred<MessageRow[]>>[] = [];
+      api.thread.mockImplementation(() => {
+        const a = deferred<MessageRow[]>();
+        reading.push(a);
+        return a.promise;
+      });
+      void s.actions.archive();
+      void s.actions.archive();
+      // Each key takes its own row out at once, the answer of the server still on its way.
+      expect(api.thread.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+      expect(s.list.messages.map((m) => m.id)).toEqual([3]);
+      expect([...s.selection.selected]).toEqual([3]);
+
+      reading.forEach((a) => a.resolve([]));
+      await flush();
+      expect(api.archive.mock.calls.map((c) => c[1])).toEqual([[1], [2]]);
+      expect(s.list.leaving.size).toBe(0);
+
+      // The reader was not left empty: the row the cursor stopped on opens.
+      vi.advanceTimersByTime(200);
+      await flush();
+      expect(s.reader.opened?.row.id).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("an action on a letter of the thread (0.8.4, #180)", () => {
   it("acts on that letter alone, without unfolding its conversation", async () => {
     // The list is not grouped: every letter of the thread is a row of it.
@@ -143,6 +193,181 @@ describe("an action on a letter of the thread (0.8.4, #180)", () => {
     await s.actions.remove([5], true);
     expect(win.close).not.toHaveBeenCalled();
     expect(s.reader.opened?.row.id).toBe(7);
+  });
+});
+
+// A slip of «select all» must not take thousands of letters out without a word (#196).
+describe("many letters at once (#196)", () => {
+  it("takes ten out without a question", async () => {
+    const s = await many(BULK_LIMIT);
+    const all = ids(s);
+    await s.actions.remove(all);
+    expect(s.ui.confirmation).toBeNull();
+    expect(api.remove).toHaveBeenCalledWith(all, all);
+  });
+
+  it("asks about eleven, and a refusal changes nothing", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    const all = ids(s);
+    const p = s.actions.remove(all);
+    await flush();
+    expect(s.ui.confirmation?.title).toContain("11");
+    // A destructive action: the dialog puts the focus on Cancel, not on «Удалить».
+    expect(s.ui.confirmation?.danger).toBe(true);
+    s.ui.confirmation!.resolve(false);
+    await p;
+    expect(api.remove).not.toHaveBeenCalled();
+    expect(ids(s)).toEqual(all);
+    expect(s.list.leaving.size).toBe(0);
+    expect(s.actions.lastUndo).toBeNull();
+  });
+
+  it("takes eleven out once the question is agreed to, and offers the undo as usual", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    const all = ids(s);
+    const p = s.actions.remove(all);
+    await flush();
+    s.ui.confirmation!.resolve(true);
+    await p;
+    expect(api.remove.mock.calls[0][0]).toEqual(all);
+    expect(s.ui.toasts.some((x) => x.action?.label === t("undo"))).toBe(true);
+    expect(s.actions.lastUndo?.moved.length).toBe(1);
+  });
+
+  it("counts the letters of the conversations, not the rows", async () => {
+    api.messages.mockResolvedValue(Array.from({ length: 6 }, (_, i) => row(i + 1, { thread_count: 2 })));
+    api.thread.mockImplementation(async (id: number) => [row(id), row(id + 100)]);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    const p = s.actions.remove(ids(s));
+    await flush();
+    expect(s.ui.confirmation?.title).toContain("12");
+    s.ui.confirmation!.resolve(false);
+    await p;
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+});
+
+// The question names the action and does not promise an undo it cannot give (#196).
+describe("the question about many letters (#196)", () => {
+  it("names the folder a move of many letters goes to", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    s.mailboxes.folders = [{ account_id: "a", name: "Archive", role: "archive", display_name: "Архив" }] as never;
+    const p = s.actions.moveTo("Archive", ids(s));
+    await flush();
+    expect(s.ui.confirmation?.title).toContain("Архив");
+    s.ui.confirmation!.resolve(false);
+    await p;
+    expect(api.move).not.toHaveBeenCalled();
+  });
+
+  it("names the action on the button that agrees", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    const move = s.actions.moveTo("Archive", ids(s));
+    await flush();
+    expect(s.ui.confirmation?.okLabel).toBe(t("bulk.ok.move"));
+    s.ui.confirmation!.resolve(false);
+    await move;
+
+    const archive = s.actions.archive(ids(s));
+    await flush();
+    expect(s.ui.confirmation?.okLabel).toBe(t("bulk.ok.archive"));
+    s.ui.confirmation!.resolve(false);
+    await archive;
+  });
+
+  it("is refused without taking the undo of the action before it", async () => {
+    const s = await many(BULK_LIMIT + 2);
+    await s.actions.archive([1]);
+    const moved = s.actions.lastUndo?.moved;
+    // Eleven letters are left: the question is put, and the refusal leaves the undo in place.
+    const p = s.actions.remove(ids(s));
+    await flush();
+    s.ui.confirmation!.resolve(false);
+    await p;
+    await s.actions.undo();
+    expect(api.undo).toHaveBeenCalledWith(moved);
+  });
+
+  it("shows the progress line only while the server works, not while it asks", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    const all = ids(s);
+    const answer = deferred<Moved[]>();
+    api.remove.mockReturnValue(answer.promise);
+    const p = s.actions.remove(all);
+    await flush();
+    expect(s.ui.confirmation).not.toBeNull();
+    expect(s.ui.busy).toBe(0);
+    s.ui.confirmation!.resolve(true);
+    await flush();
+    expect(s.ui.busy).toBe(1);
+    answer.resolve([{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["1"], unseen: [], snoozed: [], waits: [] }]);
+    await p;
+    expect(s.ui.busy).toBe(0);
+    expect(api.remove.mock.calls[0][0]).toEqual(all);
+  });
+});
+
+// A delete in the trash, or in a mailbox without one, is final: the dialog must not offer an
+// undo the backend cannot give (#196).
+describe("a delete that cannot be taken back (#196)", () => {
+  beforeEach(() => {
+    i18n.lang = "ru";
+  });
+  afterEach(() => {
+    i18n.lang = "en";
+  });
+
+  /** `n` letters of the trash, in a mailbox that has the folder. */
+  async function trashed(n: number) {
+    api.messages.mockResolvedValue(Array.from({ length: n }, (_, i) => row(i + 1, { folder: "Trash" })));
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Trash" });
+    s.mailboxes.folders = [{ account_id: "a", name: "Trash", role: "trash" }] as never;
+    return s;
+  }
+
+  it("says in the trash that the letters go for good", async () => {
+    const s = await trashed(BULK_LIMIT + 1);
+    const p = s.actions.remove(ids(s));
+    await flush();
+    expect(s.ui.confirmation?.text).toContain("безвозвратно");
+    expect(s.ui.confirmation?.text).not.toContain("отменить клавишей z");
+    s.ui.confirmation!.resolve(false);
+    await p;
+  });
+
+  it("promises the undo where the mailbox has a trash to put them in", async () => {
+    const s = await many(BULK_LIMIT + 1);
+    s.mailboxes.folders = [{ account_id: "a", name: "Trash", role: "trash" }] as never;
+    const p = s.actions.remove(ids(s));
+    await flush();
+    expect(s.ui.confirmation?.text).toBe(t("bulk.note"));
+    s.ui.confirmation!.resolve(false);
+    await p;
+  });
+});
+
+// Intl.PluralRules("ru") calls 21, 31 and 101 «one»: the number must be in that form too.
+describe("the words of the question", () => {
+  beforeEach(() => {
+    i18n.lang = "ru";
+  });
+  afterEach(() => {
+    i18n.lang = "en";
+  });
+
+  it("names the number in every Russian form", () => {
+    expect(tn("bulk.delete", 21)).toContain("21");
+    expect(tn("bulk.move", 21, { folder: "Архив" })).toContain("21");
+    expect(tn("bulk.archive", 21)).toContain("21");
+    expect(tn("bulk.spam", 21)).toContain("21");
+  });
+
+  it("leaves the number out of the English one, where it is always one letter", () => {
+    i18n.lang = "en";
+    expect(tn("bulk.delete", 1)).toBe("Delete the message?");
+    expect(tn("bulk.delete", 21)).toContain("21");
   });
 });
 
