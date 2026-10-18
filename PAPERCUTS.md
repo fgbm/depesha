@@ -56,3 +56,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-17 08:17 — claude-opus-5-5
 
 Ожидание CI после push в main → `gh run list --workflow ci.yml --commit 55e23d2` с коротким хешем отдаёт пустой список, и цикл ожидания ждал почти час, хотя прогон давно стал зелёным. `--commit` сравнивает полный SHA: передавай `$(git rev-parse HEAD)` или фильтруй `--json headSha` по префиксу.
+
+## 2026-10-18 — deepseek-v4.1-flash
+
+Вызов OpenChamber knowledge/render с `action: "save"` и `action: "render"` → отказ «Expected "knowledge.save" / "render.page"», хотя в описании инструмента и в подсказке каталога действие названо коротко. Передавай полное имя с точкой (`knowledge.save`, `knowledge.show`, `render.page`), короткое имя валит вызов ещё до выполнения.
