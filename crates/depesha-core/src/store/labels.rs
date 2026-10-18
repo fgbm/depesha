@@ -446,7 +446,8 @@ impl Store {
             return Ok(0);
         }
         // Only a check on a test message proves the folder keeps a keyword (#42, frame 9):
-        // PERMANENTFLAGS promise `\*` on servers that lose the label, so they are no proof.
+        // PERMANENTFLAGS promise `\*` on servers that lose the label, and Exchange keeps a
+        // keyword only for the session, so its own answer is no proof either (#112).
         let keeps = self
             .folder_prop(account_id, folder)?
             .and_then(|p| p.label_check)
@@ -471,19 +472,6 @@ impl Store {
                 (*uid, keywords)
             })
             .collect();
-        // A keyword the server itself returned is one it keeps: the memory is spent, and its
-        // later absence means another program took the label off. Exchange never returns it,
-        // so there the memory stays (#112).
-        let mut spent: Vec<(u32, &str)> = Vec::new();
-        if !keeps {
-            for (uid, keywords) in rows {
-                for keyword in keywords {
-                    if local.get(uid).is_some_and(|own| own.contains(keyword)) {
-                        spent.push((*uid, keyword));
-                    }
-                }
-            }
-        }
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         // Each listed UID found by the index, as in `write_flags`.
@@ -505,14 +493,6 @@ impl Store {
                 "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
                 params![account_id, folder],
             )?;
-        }
-        if !spent.is_empty() {
-            let mut forget = tx.prepare_cached(
-                "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND keyword = ?4",
-            )?;
-            for (uid, keyword) in spent {
-                forget.execute(params![account_id, folder, uid, keyword])?;
-            }
         }
         tx.commit()?;
         Ok(changed)
@@ -1011,10 +991,10 @@ mod tests {
         );
     }
 
-    /// A keyword the server returned once is the server's: taking it off in another program
-    /// after that reaches the cache. Exchange never returns it, so there the memory stays.
+    /// A keyword the server returned once may live only for the session (#112): the memory is
+    /// kept until the user takes the label off, so the next answer without it loses nothing.
     #[test]
-    fn a_label_the_server_confirmed_is_the_servers_again() {
+    fn a_label_the_server_confirmed_once_is_still_kept_here() {
         use super::super::tests::put;
         use crate::store::tests::with_ids;
         let store = mailbox();
@@ -1027,17 +1007,19 @@ mod tests {
             .adjust_keywords("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
             .unwrap();
 
-        // The server keeps it and says so: the memory is spent.
-        store.update_keywords("a", "INBOX", &[(1, vec![kw.clone()])]).unwrap();
-        assert_eq!(store.get(id).unwrap().unwrap().keywords, [kw]);
-        assert!(
-            store.local_labels("a", "INBOX").unwrap().is_empty(),
-            "the server has it now"
+        // The session still has it: not a proof that the folder keeps keywords.
+        let confirmed = vec![kw.clone()];
+        store.update_keywords("a", "INBOX", &[(1, confirmed)]).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, std::slice::from_ref(&kw));
+        assert_eq!(
+            store.local_labels("a", "INBOX").unwrap(),
+            [(1, kw.clone())],
+            "the server may lose it with the session"
         );
 
-        // Taken off in another program: the server's word is the truth.
+        // Another SELECT or a reconnect answers without it: the label stays.
         store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
-        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, [kw]);
     }
 
     /// A label taken off every letter is gone for good, the local memory with it.
