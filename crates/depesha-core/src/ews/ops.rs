@@ -175,19 +175,6 @@ pub fn categories_of(item: Node<'_, '_>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The `Updates` that appends one category to an item's list, leaving the rest as they are.
-pub fn categories_add(name: &str) -> Option<String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "<t:AppendToItemField>{}<t:Message><t:Categories><t:String>{}</t:String></t:Categories></t:Message></t:AppendToItemField>",
-        field("message:Categories"),
-        escape(name)
-    ))
-}
-
 /// The `Updates` that sets an item's categories to exactly `names`; empty clears them.
 pub fn categories_set(names: &[String]) -> String {
     let list: String = names
@@ -195,8 +182,8 @@ pub fn categories_set(names: &[String]) -> String {
         .map(|n| format!("<t:String>{}</t:String>", escape(n)))
         .collect();
     format!(
-        "<t:SetItemField>{}<t:Message><t:Categories>{list}</t:Categories></t:Message></t:SetItemField>",
-        field("message:Categories")
+        "<t:SetItemField>{}<t:Item><t:Categories>{list}</t:Categories></t:Item></t:SetItemField>",
+        field("item:Categories")
     )
 }
 
@@ -1054,8 +1041,10 @@ async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Res
 }
 
 /// Puts labels on items and takes them off, by their category names. Exchange always
-/// keeps categories on the server; Depesha sends the category of the same name. Adding
-/// appends; removing reads the item's categories first and sets the list without them.
+/// keeps categories on the server; Depesha sends the category of the same name. Both
+/// directions read the item's list and write it back changed: Exchange 2019 rejects an
+/// `AppendToItemField` on `Categories` with `ErrorInvalidRequest`. Returns the letters that
+/// had an Exchange id; the caller updates the cache for those only.
 pub async fn set_labels(
     s: &mut Session,
     store: &Store,
@@ -1064,35 +1053,70 @@ pub async fn set_labels(
     uids: &[u32],
     add: &[crate::acl::Label],
     remove: &[crate::acl::Label],
-) -> Result<()> {
-    let ids = store.ews_item_ids(account_id, folder, uids)?;
-    let update_ids = |updates: String, ids: &[String]| {
-        let changes: String = ids
-            .iter()
-            .map(|id| {
-                format!(
-                    r#"<t:ItemChange><t:ItemId Id="{}"/><t:Updates>{updates}</t:Updates></t:ItemChange>"#,
-                    escape(id)
-                )
-            })
-            .collect();
-        format!(
-            r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
-        )
-    };
+) -> Result<Vec<u32>> {
+    let pairs = store.ews_item_ids_by_uid(account_id, folder, uids)?;
+    let ids: Vec<String> = pairs.iter().map(|(_, id)| id.clone()).collect();
+    // A letter that has not reached the sync has no Exchange id yet, and an `UpdateItem`
+    // with no `ItemChange` is rejected by Exchange: nothing to send is not an error.
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
     if !add.is_empty() {
-        for label in add {
-            let Some(update) = categories_add(&label.name) else {
-                continue;
-            };
-            let body = update_ids(update, &ids);
-            let text_ = s.call(&body).await?;
-            check_all(&text_)?;
-        }
+        let names: Vec<String> = add.iter().map(|l| l.name.clone()).collect();
+        add_categories(s, &ids, &names).await?;
     }
     if !remove.is_empty() {
         let drop: HashSet<&str> = remove.iter().map(|l| l.name.as_str()).collect();
         remove_categories(s, &ids, &drop).await?;
+    }
+    Ok(pairs.into_iter().map(|(uid, _)| uid).collect())
+}
+
+/// The item's categories with `add` appended, in the item's order. Exchange compares
+/// names without case, so a name already there is not written twice.
+pub(crate) fn merge_categories(current: &[String], add: &[String]) -> Vec<String> {
+    let mut out = current.to_vec();
+    for name in add {
+        let name = name.trim();
+        if name.is_empty() || out.iter().any(|c| same_category(c, name)) {
+            continue;
+        }
+        out.push(name.to_owned());
+    }
+    out
+}
+
+/// Adds the categories `add` to `ids` by rewriting each item's whole list. The item is
+/// updated by the ChangeKey of the read, and a conflict is retried once on a fresh read.
+async fn add_categories(s: &mut Session, ids: &[String], add: &[String]) -> Result<()> {
+    for chunk in ids.chunks(50) {
+        for attempt in 0..2 {
+            let current = read_categories(s, chunk).await?;
+            let changes: String = current
+                .iter()
+                .filter_map(|(id, key, cats)| {
+                    let merged = merge_categories(cats, add);
+                    if merged.len() == cats.len() {
+                        return None;
+                    }
+                    let update = categories_set(&merged);
+                    Some(format!(
+                        "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
+                        item_ref(id, key.as_deref())
+                    ))
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            let body = update_item(&changes, "AutoResolve");
+            let text_ = s.call(&body).await?;
+            match check_all(&text_) {
+                Ok(()) => break,
+                Err(e) if attempt == 0 && e.is_conflict() => continue,
+                Err(e) => return Err(e),
+            }
+        }
     }
     Ok(())
 }
@@ -1295,11 +1319,19 @@ async fn read_categories(s: &mut Session, ids: &[String]) -> Result<Vec<(String,
     let doc = parse(&text_)?;
     let mut out = Vec::new();
     for r in responses(&doc) {
-        let Ok(resp) = r else { continue };
-        for it in items(resp) {
-            if let Some(id) = item_id(it) {
-                out.push((id, change_key_of(it), categories_of(it)));
+        match r {
+            Ok(resp) => {
+                for it in items(resp) {
+                    if let Some(id) = item_id(it) {
+                        out.push((id, change_key_of(it), categories_of(it)));
+                    }
+                }
             }
+            // A letter expunged between the list and the read has nothing to change; any
+            // other refusal (no rights, a bad id) must not look like "nothing to do", or the
+            // label would be shown here and lost at the next sync.
+            Err(Error::Ews { code, .. }) if code == "ErrorItemNotFound" => {}
+            Err(e) => return Err(e),
         }
     }
     Ok(out)

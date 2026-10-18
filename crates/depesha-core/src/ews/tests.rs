@@ -223,19 +223,20 @@ fn reads_effective_rights_of_a_folder() {
 
 #[test]
 fn writes_an_exchange_category_on_a_letter() {
-    // Adding a category: one AppendToItemField on the message's Categories property.
-    let add = categories_add("Проект «Север»").unwrap();
-    assert!(add.contains("<t:AppendToItemField>"), "{add}");
-    assert!(add.contains(r#"FieldURI="message:Categories""#), "{add}");
-    assert!(add.contains("Проект «Север»"), "{add}");
-    // Blank names are dropped.
-    assert!(categories_add("  ").is_none());
-
-    // Removing one: the whole list is set again without it.
+    // Removing one: the whole list is set again without it. `item:Categories` is the
+    // FieldURI EWS defines; `message:Categories` is not one, and Exchange answers a request
+    // carrying it with ErrorInvalidRequest, with no word about the field.
     let set = categories_set(&["Счета".into()]);
     assert!(set.contains("<t:SetItemField>"), "{set}");
-    assert!(set.contains(r#"FieldURI="message:Categories""#), "{set}");
+    assert!(set.contains(r#"FieldURI="item:Categories""#), "{set}");
+    assert!(set.contains("<t:Item><t:Categories>"), "{set}");
     assert!(set.contains("<t:String>Счета</t:String>"), "{set}");
+    // A name with characters XML reserves is escaped, not sent raw.
+    let escaped = categories_set(&["A&B <счета>".into()]);
+    assert!(
+        escaped.contains("<t:String>A&amp;B &lt;счета&gt;</t:String>"),
+        "{escaped}"
+    );
     // No categories left: an empty SetItemField clears them.
     let clear = categories_set(&[]);
     assert!(clear.contains("<t:SetItemField>"), "{clear}");
@@ -252,6 +253,31 @@ fn writes_an_exchange_category_on_a_letter() {
     )
     .unwrap();
     assert!(categories_of(none.root_element()).is_empty());
+}
+
+/// Adding a category appends it to the names the item already has, and the same name in
+/// another case is not a second category.
+#[test]
+fn merging_a_category_into_a_list() {
+    // Nothing on the item yet.
+    assert_eq!(merge_categories(&[], &["Проект «Север»".into()]), ["Проект «Север»"]);
+    // A name around spaces is the name itself.
+    assert_eq!(merge_categories(&[], &["  Счета  ".into()]), ["Счета"]);
+    // Exchange compares names without case: `счета` is already there as `Счета`.
+    assert_eq!(merge_categories(&["Счета".into()], &["счета".into()]), ["Счета"]);
+    // A space another client left in the name is part of it: the sync and the removal
+    // compare names as they are, so the merge must not treat the two as one.
+    assert_eq!(
+        merge_categories(&["Счета ".into()], &["Счета".into()]),
+        ["Счета ", "Счета"]
+    );
+    // A blank name is not a category.
+    assert_eq!(merge_categories(&["Счета".into()], &["   ".into()]), ["Счета"]);
+    // The item's order is kept and the new name follows it.
+    assert_eq!(
+        merge_categories(&["Первая".into(), "Вторая".into()], &["Третья".into(), "вторая".into()]),
+        ["Первая", "Вторая", "Третья"]
+    );
 }
 
 /// Removing a category rewrites the whole list, so the item is updated by the ChangeKey
