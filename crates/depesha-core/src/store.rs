@@ -85,6 +85,7 @@ const MIGRATIONS: &[Step] = &[
     v25_importance,
     v26_backfills,
     waiting::v27_stop_undo,
+    labels::v28_local_labels,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -1718,8 +1719,11 @@ impl Store {
         let mut removed = 0;
         {
             let mut stmt = tx.prepare("DELETE FROM messages WHERE account_id = ?1 AND folder = ?2 AND uid = ?3")?;
+            let mut labels =
+                tx.prepare("DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid = ?3")?;
             for uid in uids {
                 removed += stmt.execute(params![account_id, folder, uid])?;
+                labels.execute(params![account_id, folder, uid])?;
             }
         }
         tx.commit()?;
@@ -2330,6 +2334,7 @@ impl Store {
         tx.execute("DELETE FROM folder_props WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM namespaces WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM local_seen WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM local_labels WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM archived_by_answer WHERE account_id = ?1", [account_id])?;
         Self::forget_server(&tx, account_id)?;
         tx.execute(
@@ -3289,6 +3294,11 @@ fn clear_folder(tx: &Connection, account_id: &str, folder: &str) -> Result<()> {
     // The read marks are kept by UID: a new UIDVALIDITY makes them name other messages.
     tx.execute(
         "DELETE FROM local_seen WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, folder],
+    )?;
+    // So are the labels remembered here (#112).
+    tx.execute(
+        "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
         params![account_id, folder],
     )?;
     tx.execute(
@@ -5504,6 +5514,7 @@ mod tests {
             "folder_props",
             "namespaces",
             "local_seen",
+            "local_labels",
         ] {
             let mut stmt = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
             let n = stmt.column_count();
@@ -5600,6 +5611,9 @@ mod tests {
                 .save_namespaces(account, &crate::acl::Namespace::default(), 1)
                 .unwrap();
             store.set_local_seen(account, "INBOX", &[uid], 1).unwrap();
+            store
+                .remember_labels(account, "INBOX", &[uid], &[crate::acl::keyword_of("Смета")], &[])
+                .unwrap();
             store
                 .save_server_caps(
                     account,

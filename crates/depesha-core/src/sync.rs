@@ -148,7 +148,7 @@ async fn sync_flags(
                     gone.extend(known.into_iter().filter(|u| changes.vanished(*u)));
                 }
                 report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
-                store.update_keywords(account_id, folder, &changes.keywords)?;
+                off_runtime_thread(|| store.update_keywords(account_id, folder, &changes.keywords))?;
                 report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }
             None => {
@@ -175,7 +175,7 @@ async fn sync_flags(
                     }
                 }
                 report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
-                store.update_keywords(account_id, folder, &keywords)?;
+                off_runtime_thread(|| store.update_keywords(account_id, folder, &keywords))?;
                 let gone: Vec<u32> = known.iter().copied().filter(|u| !alive.contains(u)).collect();
                 report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }

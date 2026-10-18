@@ -4,9 +4,11 @@
 //! "Check again" learned: MYRIGHTS or Exchange's EffectiveRights, the PERMANENTFLAGS,
 //! the owner from NAMESPACE, and the last refusal, remembered so the button stays off.
 
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::{Store, add_column};
+use super::{Store, add_column, json_list};
 use crate::Result;
 use crate::acl::{FolderProps, Label, LabelCheck, Namespace, Owner};
 
@@ -78,6 +80,23 @@ pub(super) fn v15_folder_props_label_check(conn: &Connection) -> Result<()> {
 /// show "being removed"; the row goes when every folder has been handled.
 pub(super) fn v18_label_stripping(conn: &Connection) -> Result<()> {
     add_column(conn, "labels", "stripping", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
+/// 28: a label set here that the folder may not keep on the server: Exchange IMAP answers
+/// FLAGS without it, and a sync would wipe it (#112). Goes when the user takes the label off,
+/// when the server returns it at least once (then the folder keeps it), or with the letter,
+/// the folder's cache or the mailbox.
+pub(super) fn v28_local_labels(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS local_labels (
+             account_id TEXT NOT NULL,
+             folder     TEXT NOT NULL,
+             uid        INTEGER NOT NULL,
+             keyword    TEXT NOT NULL,
+             PRIMARY KEY (account_id, folder, uid, keyword)
+         ) WITHOUT ROWID;",
+    )?;
     Ok(())
 }
 
@@ -366,6 +385,49 @@ impl Store {
         Ok(n)
     }
 
+    /// Remembers a label set here until the folder is known to keep it (#112): a sync
+    /// brings the server's keywords back and would lose it otherwise.
+    pub(crate) fn remember_labels(
+        &self,
+        account_id: &str,
+        folder: &str,
+        uids: &[u32],
+        add: &[String],
+        remove: &[String],
+    ) -> Result<usize> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut n = 0;
+        {
+            let mut insert = tx.prepare_cached(
+                "INSERT OR IGNORE INTO local_labels (account_id, folder, uid, keyword) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let mut delete = tx.prepare_cached(
+                "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND keyword = ?4",
+            )?;
+            for &uid in uids {
+                for kw in add {
+                    n += insert.execute(params![account_id, folder, uid, kw])?;
+                }
+                for kw in remove {
+                    n += delete.execute(params![account_id, folder, uid, kw])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
+    /// The labels remembered for a folder, by UID.
+    pub(super) fn local_labels(&self, account_id: &str, folder: &str) -> Result<Vec<(u32, String)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2 ORDER BY uid, keyword",
+        )?;
+        let rows = stmt.query_map(params![account_id, folder], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Writes the message's own keywords (labels) into the cache.
     pub fn set_keywords(&self, account_id: &str, folder: &str, uid: u32, keywords: &[String]) -> Result<()> {
         let json = serde_json::to_string(keywords).unwrap_or_else(|_| "[]".into());
@@ -383,10 +445,49 @@ impl Store {
         if rows.is_empty() {
             return Ok(0);
         }
-        let payload: Vec<serde_json::Value> = rows.iter().map(|(uid, kw)| serde_json::json!([uid, kw])).collect();
+        // Only a check on a test message proves the folder keeps a keyword (#42, frame 9):
+        // PERMANENTFLAGS promise `\*` on servers that lose the label, so they are no proof.
+        let keeps = self
+            .folder_prop(account_id, folder)?
+            .and_then(|p| p.label_check)
+            .is_some_and(LabelCheck::saves);
+        let mut local: HashMap<u32, Vec<String>> = HashMap::new();
+        // One read of the folder's memory, for the merge or for the drop below.
+        let remembered = self.local_labels(account_id, folder)?;
+        if !keeps {
+            for (uid, keyword) in &remembered {
+                local.entry(*uid).or_default().push(keyword.clone());
+            }
+        }
+        let merged: Vec<(u32, Vec<String>)> = rows
+            .iter()
+            .map(|(uid, keywords)| {
+                let mut keywords = keywords.clone();
+                for keyword in local.get(uid).into_iter().flatten() {
+                    if !keywords.contains(keyword) {
+                        keywords.push(keyword.clone());
+                    }
+                }
+                (*uid, keywords)
+            })
+            .collect();
+        // A keyword the server itself returned is one it keeps: the memory is spent, and its
+        // later absence means another program took the label off. Exchange never returns it,
+        // so there the memory stays (#112).
+        let mut spent: Vec<(u32, &str)> = Vec::new();
+        if !keeps {
+            for (uid, keywords) in rows {
+                for keyword in keywords {
+                    if local.get(uid).is_some_and(|own| own.contains(keyword)) {
+                        spent.push((*uid, keyword));
+                    }
+                }
+            }
+        }
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
         // Each listed UID found by the index, as in `write_flags`.
-        Ok(self
-            .conn()
+        let changed = tx
             .prepare_cached(
                 "WITH s AS MATERIALIZED (
                     SELECT m.id AS id, j.value ->> 1 AS keywords
@@ -396,11 +497,25 @@ impl Store {
                  UPDATE messages SET keywords = s.keywords FROM s
                  WHERE messages.id = s.id AND messages.keywords IS NOT s.keywords",
             )?
-            .execute(params![
-                account_id,
-                folder,
-                serde_json::to_string(&payload).unwrap_or_else(|_| "[]".into())
-            ])?)
+            .execute(params![account_id, folder, json_list(&merged)])?;
+        // The folder keeps keywords: its word is the truth, and the memory of a set here is
+        // no longer needed.
+        if keeps && !remembered.is_empty() {
+            tx.execute(
+                "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
+                params![account_id, folder],
+            )?;
+        }
+        if !spent.is_empty() {
+            let mut forget = tx.prepare_cached(
+                "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND keyword = ?4",
+            )?;
+            for (uid, keyword) in spent {
+                forget.execute(params![account_id, folder, uid, keyword])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// How many cached messages carry each label's keyword, by keyword. The label list
@@ -422,13 +537,23 @@ impl Store {
     /// Takes a keyword off every cached message of the account (#42, frame 4Б), after the
     /// server dropped it. Returns how many rows changed.
     pub fn drop_keyword(&self, account_id: &str, keyword: &str) -> Result<usize> {
-        Ok(self.conn().execute(
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let changed = tx.execute(
             "UPDATE messages SET keywords = (
                  SELECT json_group_array(value) FROM json_each(messages.keywords) WHERE value != ?2
              )
              WHERE account_id = ?1 AND EXISTS (SELECT 1 FROM json_each(messages.keywords) WHERE value = ?2)",
             params![account_id, keyword],
-        )?)
+        )?;
+        // The label is off every letter for good: a memory of setting it here would put it
+        // back on the next sync.
+        tx.execute(
+            "DELETE FROM local_labels WHERE account_id = ?1 AND keyword = ?2",
+            params![account_id, keyword],
+        )?;
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Adds and removes keywords on messages here alone, as a label set by the user just
@@ -806,6 +931,139 @@ mod tests {
         assert_eq!(left, 0);
     }
 
+    /// A label Exchange IMAP took but answers FLAGS without (#112): remembered here, so
+    /// neither the next sync nor the one after it loses it.
+    #[test]
+    fn a_label_set_here_survives_a_sync_that_reports_none() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        let kw = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store
+            .adjust_keywords("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, std::slice::from_ref(&kw));
+
+        for _ in 0..2 {
+            store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
+            assert_eq!(store.get(id).unwrap().unwrap().keywords, std::slice::from_ref(&kw));
+        }
+        assert_eq!(store.local_labels("a", "INBOX").unwrap(), [(1, kw)]);
+    }
+
+    /// A label the user took off here is not put back by the sync that follows.
+    #[test]
+    fn a_label_taken_off_here_does_not_come_back() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        let kw = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store
+            .adjust_keywords("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+
+        // Off here, and the server answers without it: it stays off.
+        store
+            .remember_labels("a", "INBOX", &[1], &[], std::slice::from_ref(&kw))
+            .unwrap();
+        store
+            .adjust_keywords("a", "INBOX", &[1], &[], std::slice::from_ref(&kw))
+            .unwrap();
+        store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
+        assert!(store.local_labels("a", "INBOX").unwrap().is_empty());
+    }
+
+    /// A folder whose test message kept its label is trusted: the server's keywords are
+    /// the truth, and a label another client took off goes away here as well.
+    #[test]
+    fn a_folder_proven_to_keep_labels_trusts_the_server() {
+        use super::super::tests::put;
+        use crate::acl::LabelCheck;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        let kw = keyword_of("Счета");
+        store
+            .set_label_check("a", "INBOX", Some(LabelCheck::Saves), 100)
+            .unwrap();
+        store
+            .remember_labels("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store
+            .adjust_keywords("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+
+        // Set in this folder before the check, taken off in another client: the server wins.
+        store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
+        assert!(
+            store.local_labels("a", "INBOX").unwrap().is_empty(),
+            "the memory goes with the proof"
+        );
+    }
+
+    /// A keyword the server returned once is the server's: taking it off in another program
+    /// after that reaches the cache. Exchange never returns it, so there the memory stays.
+    #[test]
+    fn a_label_the_server_confirmed_is_the_servers_again() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        let kw = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store
+            .adjust_keywords("a", "INBOX", &[1], std::slice::from_ref(&kw), &[])
+            .unwrap();
+
+        // The server keeps it and says so: the memory is spent.
+        store.update_keywords("a", "INBOX", &[(1, vec![kw.clone()])]).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, [kw]);
+        assert!(
+            store.local_labels("a", "INBOX").unwrap().is_empty(),
+            "the server has it now"
+        );
+
+        // Taken off in another program: the server's word is the truth.
+        store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
+    }
+
+    /// A label taken off every letter is gone for good, the local memory with it.
+    #[test]
+    fn dropping_a_keyword_forgets_the_labels_remembered_here() {
+        let store = mailbox();
+        let kw = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1, 2], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store.drop_keyword("a", &kw).unwrap();
+        assert!(store.local_labels("a", "INBOX").unwrap().is_empty());
+    }
+
+    /// A letter removed from the cache takes its remembered labels with it.
+    #[test]
+    fn removing_letters_forgets_their_remembered_labels() {
+        let store = mailbox();
+        let kw = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1, 2], std::slice::from_ref(&kw), &[])
+            .unwrap();
+        store.remove_uids("a", "INBOX", &[1]).unwrap();
+        assert_eq!(store.local_labels("a", "INBOX").unwrap(), [(2, kw)]);
+    }
+
     /// A new UIDVALIDITY renumbers the folder: the UIDs the local read marks were kept
     /// under name other messages now, so the marks must go with the messages.
     #[test]
@@ -822,6 +1080,18 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM local_seen", [], |r| r.get(0))
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    /// The same for a label remembered here (#112): the new letters under those UIDs were
+    /// never labelled.
+    #[test]
+    fn clearing_a_folder_forgets_its_remembered_labels() {
+        let store = mailbox();
+        store
+            .remember_labels("a", "INBOX", &[1], &[keyword_of("Счета")], &[])
+            .unwrap();
+        store.clear_folder("a", "INBOX").unwrap();
+        assert!(store.local_labels("a", "INBOX").unwrap().is_empty());
     }
 
     #[test]

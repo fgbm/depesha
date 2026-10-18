@@ -229,21 +229,23 @@ pub async fn set_labels(
     uids: &[u32],
     change: LabelChange<'_>,
 ) -> Result<()> {
+    let add_kw: Vec<String> = change.add.iter().map(|l| l.keyword.clone()).collect();
+    let remove_kw: Vec<String> = change.remove.iter().map(|l| l.keyword.clone()).collect();
     match conn {
         Conn::Imap(c) => {
-            let add_kw: Vec<String> = change.add.iter().map(|l| l.keyword.clone()).collect();
-            let remove_kw: Vec<String> = change.remove.iter().map(|l| l.keyword.clone()).collect();
-            imap::set_keywords(c, folder, Some(validity), uids, &add_kw, &remove_kw).await
+            imap::set_keywords(c, folder, Some(validity), uids, &add_kw, &remove_kw).await?;
+            // A server may store nothing and say nothing: Exchange 2019 answers FLAGS
+            // without the keyword, so the set is remembered here until it is taken off
+            // (#112). Exchange keeps a category itself, so its branch does not.
+            store.remember_labels(account_id, folder, uids, &add_kw, &remove_kw)?;
         }
         Conn::Ews(s) => {
             ews_check(store, account_id, folder, validity)?;
-            ews::set_labels(s, store, account_id, folder, uids, change.add, change.remove).await
+            ews::set_labels(s, store, account_id, folder, uids, change.add, change.remove).await?;
         }
-    }?;
+    }
     // The server has the new keywords: the cache takes them in at once, so the row shows
     // the label without waiting for a sync.
-    let add_kw: Vec<String> = change.add.iter().map(|l| l.keyword.clone()).collect();
-    let remove_kw: Vec<String> = change.remove.iter().map(|l| l.keyword.clone()).collect();
     store.adjust_keywords(account_id, folder, uids, &add_kw, &remove_kw)?;
     Ok(())
 }
