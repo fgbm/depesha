@@ -49,16 +49,10 @@ export async function frameSteps({ d, step, inLetterWindow, closeCompose, invoke
         await d.pressKey("\uE00C");
         await d.until("question closed", async () => (await d.findAll(".confirm")).length === 0);
         // A key pressed inside the frame: the relay posts it, and the app answers with a reply.
-        const frame = await d.find(".reader iframe");
-        // The lower right corner of the part on screen: the letter's text and its link are up and to
-        // the left. At a page scale of 2 the frame runs past the window, and a point past its edge
-        // is refused («move target out of bounds»). WebDriver counts the offsets from the centre of
-        // the part in view, not of the whole frame.
-        await d.reveal(frame);
-        const [dx, dy] = await d.exec(`const b = document.querySelector('.reader iframe').getBoundingClientRect();
-          const w = Math.min(b.right, innerWidth) - Math.max(b.left, 0), h = Math.min(b.bottom, innerHeight) - Math.max(b.top, 0);
-          return [Math.floor(w / 2) - 12, Math.floor(h / 2) - 12]`);
-        await d.clickAt(frame, dx, dy);
+        // The frame is focused from the page, not clicked: at a page scale of 2 the reader clips it,
+        // and a click WebDriver aims inside the window lands on what covers the frame there. The key
+        // itself is a real one, delivered to the focused frame.
+        await d.exec("document.querySelector('.reader iframe').focus()");
         if ((await d.exec("return document.activeElement?.tagName")) !== "IFRAME") throw new Error("фокус не в кадре письма");
         await d.pressKey("r");
         await d.until("reply by a key of the frame", async () => (await d.findAll(".compose .rich")).length === 1, 20000);
