@@ -489,7 +489,7 @@ mod tests {
     use crate::domain::{Draft, Folder};
     use crate::port::fake::Queue;
     use crate::port::fake_sender::{RAW, Sender as FakeSender};
-    use crate::store::{FollowupPlan, StuckCopy, Withdrawn};
+    use crate::store::{FollowupPlan, Requeued, StuckCopy, Withdrawn};
 
     const DELAY: fn(u32) -> i64 = refusal_delay;
 
@@ -794,7 +794,11 @@ mod tests {
             results: [Err(Error::Closed)].into(),
             probe: Some(Box::new(move |_| {
                 // The user clicks "send now" while this very attempt is already on the wire.
-                assert!(!click_store.outbox_requeue(id, 110).unwrap(), "already on the wire");
+                assert_eq!(
+                    click_store.outbox_requeue(id, 110).unwrap(),
+                    Requeued::InFlight,
+                    "already on the wire"
+                );
             })),
             ..Default::default()
         };

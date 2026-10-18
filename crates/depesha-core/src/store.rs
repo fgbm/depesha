@@ -592,6 +592,19 @@ pub enum Withdrawn {
     Gone,
 }
 
+/// What «send now» did to the row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requeued {
+    /// Due at once.
+    Now,
+    /// The letter was on the wire when the row was looked at: the request must be remembered and
+    /// honoured when that attempt settles. Holds only while the caller keeps its own memory of
+    /// requests locked around the call: the attempt may settle right after the answer.
+    InFlight,
+    /// No such row: the letter already left or was discarded.
+    Gone,
+}
+
 /// What the cache keeps as the failure of a queued letter whose draft cannot be read; the interface
 /// words it itself (`outbox::Words::damaged`).
 pub const DAMAGED_LETTER: &str = "the letter is damaged and cannot be read";
@@ -2727,14 +2740,26 @@ impl Store {
     /// `sending_started` before it leaves and only its own settling clears it
     /// (`outbox_sending`, `outbox_retry_later`); resetting it here too, underneath that
     /// attempt, would let it and a next round both claim the letter, so when one is under way
-    /// this does not touch the row at all. `true`: requeued at once; `false`: the letter is
-    /// being sent right now (the caller remembers the request in memory, `AppState::resend_requested`,
-    /// and asks again once that attempt settles) or there was no such row.
-    pub fn outbox_requeue(&self, id: i64, now: i64) -> Result<bool> {
-        Ok(self.conn().execute(
+    /// this does not touch the row at all. `InFlight`: the caller remembers the request in
+    /// memory (`AppState::resend_requested`) and asks again once that attempt settles.
+    pub fn outbox_requeue(&self, id: i64, now: i64) -> Result<Requeued> {
+        let conn = self.conn();
+        let updated = conn.execute(
             "UPDATE outbox SET failed = 0, next_attempt = ?2, sending_started = 0 WHERE id = ?1 AND sending_started = 0",
             params![id, now],
-        )? == 1)
+        )? == 1;
+        if updated {
+            return Ok(Requeued::Now);
+        }
+        // The row leaves only by a delete, so a second look tells a letter on the wire from
+        // one that is gone. Safe against the attempt settling between the two statements (the
+        // store has one writer), but not against it settling after them: the caller keeps the
+        // answer meaningful by holding its memory of requests across this call.
+        let there = conn
+            .query_row("SELECT 1 FROM outbox WHERE id = ?1", [id], |_| Ok(()))
+            .optional()?
+            .is_some();
+        Ok(if there { Requeued::InFlight } else { Requeued::Gone })
     }
 
     /// Replaces the words of a letter's last failure after the fact (the user's language, a
@@ -3953,19 +3978,38 @@ mod tests {
         store.outbox_retry_later(id, 200, "network", false).unwrap();
         assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
         // «Send now» succeeds once nothing is in flight.
-        assert!(store.outbox_requeue(id, 400).unwrap());
+        assert_eq!(store.outbox_requeue(id, 400).unwrap(), Requeued::Now);
         assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
         // «Send now» landing while the letter is on the wire does not clear the mark from
         // under the attempt (that would let it and the attempt both claim the letter): the
         // caller is told it did not requeue (the app remembers the request in memory instead,
         // `AppState::resend_requested`), and the row is left exactly as the attempt has it.
         store.outbox_sending(id, 500).unwrap();
-        assert!(!store.outbox_requeue(id, 600).unwrap());
+        assert_eq!(store.outbox_requeue(id, 600).unwrap(), Requeued::InFlight);
         assert_eq!(
             store.outbox().unwrap()[0].sending_started,
             500,
             "not cleared out from under the attempt"
         );
+    }
+
+    /// A letter on the wire and a letter that is no longer there are told apart: only the
+    /// first is worth remembering a «send now» for, since nothing will settle for the second.
+    #[test]
+    fn a_send_now_tells_a_letter_gone_from_one_on_the_wire() {
+        let store = mailbox();
+        let id = store
+            .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
+            .unwrap();
+        assert_eq!(store.outbox_requeue(id + 1, 100).unwrap(), Requeued::Gone);
+        store.outbox_sending(id, 100).unwrap();
+        assert_eq!(store.outbox_requeue(id, 110).unwrap(), Requeued::InFlight);
+        // The attempt settled and left the letter in the queue: «send now» takes it at once.
+        store.outbox_retry_later(id, 200, "timeout", false).unwrap();
+        assert_eq!(store.outbox_requeue(id, 210).unwrap(), Requeued::Now);
+        // The letter left or was discarded: the row is gone, not on the wire.
+        store.outbox_remove(id).unwrap();
+        assert_eq!(store.outbox_requeue(id, 300).unwrap(), Requeued::Gone);
     }
 
     #[test]

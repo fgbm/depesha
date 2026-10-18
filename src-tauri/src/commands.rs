@@ -356,6 +356,18 @@ pub async fn account_save(
 pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     state.set_worker(&id, None);
     state.tasks_forget_account(&id);
+    // What the app remembers of this mailbox's queued letters goes with them: a reused row id
+    // must not carry a «send now» or a run of connect timeouts into another mailbox's letter.
+    let queued: Vec<i64> = state
+        .store
+        .outbox()?
+        .into_iter()
+        .filter(|item| item.account_id == id)
+        .map(|item| item.id)
+        .collect();
+    for letter in queued {
+        crate::outbox::forget_letter(&state, letter);
+    }
     // The cache first: while the account is in the settings, a failed removal can be
     // repeated; after that nothing would remove its leftovers.
     state.store.forget_account(&id)?;
@@ -3303,10 +3315,14 @@ pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
 
 #[tauri::command(async)]
 pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
-    if !state.store.outbox_requeue(id, chrono::Utc::now().timestamp())? {
-        // Already on the wire: the request is remembered so the outbox round honours it once
-        // that attempt settles, instead of waiting out its own backoff (#173).
-        crate::state::lock(&state.resend_requested).insert(id);
+    {
+        // The memory is taken before the store is asked and held until the answer is read: the
+        // attempt in flight can settle at any moment in between, and a request remembered after
+        // that settle would wait for one that never comes (#173).
+        let mut requested = crate::state::lock(&state.resend_requested);
+        crate::outbox::remember_send_now(&mut requested, id, || {
+            state.store.outbox_requeue(id, chrono::Utc::now().timestamp())
+        })?;
     }
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
@@ -3317,7 +3333,9 @@ pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
 /// only when the user asks. A letter that can be read is not deleted by this.
 #[tauri::command(async)]
 pub fn outbox_discard(state: St<'_>, id: i64) -> CmdResult<()> {
-    state.store.outbox_discard(id)?;
+    if state.store.outbox_discard(id)? {
+        crate::outbox::forget_letter(&state, id);
+    }
     state.emit("outbox-changed", serde_json::json!({}));
     Ok(())
 }
@@ -3341,7 +3359,10 @@ pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>>
         .map(|i| i.account_id);
     // A letter whose send has started may have left: it is not taken back.
     let draft = match state.store.outbox_withdraw(id)? {
-        depesha_core::store::Withdrawn::Draft(draft) => Some(*draft),
+        depesha_core::store::Withdrawn::Draft(draft) => {
+            crate::outbox::forget_letter(&state, id);
+            Some(*draft)
+        }
         depesha_core::store::Withdrawn::Gone => None,
         depesha_core::store::Withdrawn::Sending => {
             return Err(CmdError::new(

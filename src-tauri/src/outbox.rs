@@ -1,12 +1,13 @@
 //! Sends queued messages one by one. Transient failures (network, SMTP 4xx,
 //! the Exchange rate limit) are retried later; permanent ones wait for the user.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::account::Account;
 use depesha_core::outbox::{self, Attempt, Hold, Settled};
-use depesha_core::store::{OutboxItem, SentCopy, StuckCopy};
+use depesha_core::store::{OutboxItem, Requeued, SentCopy, StuckCopy};
 use depesha_core::{mail, smtp};
 use serde_json::json;
 
@@ -95,6 +96,72 @@ async fn round_inner(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdE
     sent.into_iter().collect()
 }
 
+/// Drops what the app remembered about a letter whose attempt has ended. `outbox.id` has no
+/// `AUTOINCREMENT`, so SQLite reuses a freed id: a new letter would otherwise inherit the
+/// «send now» or the run of connect timeouts of the one before it (#173).
+fn forget(settled: &mut HashSet<i64>, streaks: &mut HashMap<i64, u32>, id: i64) {
+    settled.remove(&id);
+    streaks.remove(&id);
+}
+
+/// Drops what the app remembered about a letter the outbox is done with: sent, discarded, taken
+/// back into editing, or refused for good.
+pub(crate) fn forget_letter(state: &AppState, id: i64) {
+    forget(
+        &mut crate::state::lock(&state.resend_requested),
+        &mut crate::state::lock(&state.connect_timeout_streak),
+        id,
+    );
+}
+
+/// Puts a «send now» in memory before the store is asked. The insert cannot come after the
+/// answer: the attempt in flight may settle in between, and `honour_resend` would then find an
+/// empty set and leave the request unserved for a settle that never comes.
+pub(crate) fn remember_send_now(
+    requested: &mut HashSet<i64>,
+    id: i64,
+    requeue: impl FnOnce() -> depesha_core::Result<Requeued>,
+) -> depesha_core::Result<()> {
+    requested.insert(id);
+    match requeue() {
+        Ok(Requeued::InFlight) => Ok(()),
+        Ok(Requeued::Now | Requeued::Gone) => {
+            requested.remove(&id);
+            Ok(())
+        }
+        Err(e) => {
+            requested.remove(&id);
+            Err(e)
+        }
+    }
+}
+
+/// Honours a «send now» that landed while this very attempt was on the wire: it could not
+/// requeue the letter then (`outbox_requeue` answered `InFlight`), and the attempt has just
+/// settled with its own backoff, so the request is honoured now instead of being lost under it.
+fn honour_resend(state: &AppState, id: i64, now: i64) {
+    if !crate::state::lock(&state.resend_requested).remove(&id) {
+        return;
+    }
+    match state.store.outbox_requeue(id, now) {
+        Ok(Requeued::Now) => state.outbox_notify.notify_one(),
+        // `InFlight`: another round has claimed the letter by now; `Gone`: there is nothing left
+        // to send.
+        Ok(Requeued::InFlight | Requeued::Gone) => {}
+        Err(e) => tracing::warn!("outbox: {e}"),
+    }
+}
+
+/// A refusal is for good: the letter waits for the user and is not tried again, so a «send now»
+/// remembered during the attempt has nothing left to honour and the run of connect timeouts is
+/// over.
+fn refused(state: &AppState, key: &str, item: &OutboxItem, error: depesha_core::Error) {
+    forget_letter(state, item.id);
+    let err = CmdError::from(error);
+    state.task_failed(key, err.clone());
+    state.emit("send-failed", json!({ "id": item.id, "error": err }));
+}
+
 /// Sends one mailbox's due letters, one after another. Once one is refused (the server
 /// said no, the address is bad), the rest of that mailbox waits for the user; the other
 /// mailboxes go on. The steps of one letter are the core's (`outbox::attempt`).
@@ -152,6 +219,7 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             Attempt::Held(Hold::NoAccount) => continue,
             Attempt::Delivered(sent) => {
                 state.task_done(&key);
+                forget_letter(state, item.id);
                 #[allow(
                     clippy::expect_used,
                     reason = "`attempt` delivers only with a mailbox: without one it answers `Held(NoAccount)`"
@@ -197,20 +265,9 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                 // A retry later is the outbox's business; a refusal waits for the user.
                 if transient {
                     state.task_done(&key);
-                    // A «send now» that landed while this very attempt was on the wire could
-                    // not requeue it (`outbox_requeue` returned `false`): the attempt has just
-                    // settled with its own backoff, and the request is honoured now instead of
-                    // being lost under it.
-                    if crate::state::lock(&state.resend_requested).remove(&item.id) {
-                        match state.store.outbox_requeue(item.id, now) {
-                            Ok(_) => state.outbox_notify.notify_one(),
-                            Err(e) => tracing::warn!("outbox: {e}"),
-                        }
-                    }
+                    honour_resend(state, item.id, now);
                 } else {
-                    let err = CmdError::from(error);
-                    state.task_failed(&key, err.clone());
-                    state.emit("send-failed", json!({ "id": item.id, "error": err }));
+                    refused(state, &key, &item, error);
                 }
             }
         }
@@ -645,10 +702,11 @@ mod tests {
             .unwrap();
         // The round claims the letter: it is on the wire.
         assert!(store.outbox_sending(id, 100).unwrap().is_some());
-        // "Send now" lands while it is in flight: `outbox_retry` could not requeue it directly.
-        let mut resend_requested: std::collections::HashSet<i64> = Default::default();
-        assert!(!store.outbox_requeue(id, 110).unwrap());
-        resend_requested.insert(id);
+        // "Send now" lands while it is in flight: `outbox_retry` cannot requeue it and keeps
+        // the request in memory for the attempt that will settle.
+        let mut resend_requested: HashSet<i64> = Default::default();
+        remember_send_now(&mut resend_requested, id, || store.outbox_requeue(id, 110)).unwrap();
+        assert!(resend_requested.contains(&id));
         // The attempt settles with a transient failure and applies its own backoff.
         store.outbox_retry_later(id, 130, "timeout", false).unwrap();
         assert_eq!(
@@ -658,13 +716,49 @@ mod tests {
         );
         // `send_account` sees `Attempt::Failed { transient: true, .. }` and honours the request.
         if resend_requested.remove(&id) {
-            assert!(store.outbox_requeue(id, 150).unwrap());
+            assert_eq!(store.outbox_requeue(id, 150).unwrap(), Requeued::Now);
         }
         assert_eq!(
             store.outbox().unwrap()[0].next_attempt,
             150,
             "the manual retry is not lost to the attempt's own backoff"
         );
+    }
+
+    /// A letter that left or was discarded asks nothing of the next one: the memory of its
+    /// «send now» and of its run of connect timeouts goes with the attempt that ended, so a
+    /// row id SQLite reuses does not bring either back (#173).
+    #[test]
+    fn a_settled_attempt_forgets_its_letter() {
+        let mut settled: HashSet<i64> = [7].into();
+        let mut streaks: HashMap<i64, u32> = [(7, 2), (8, 1)].into();
+        forget(&mut settled, &mut streaks, 7);
+        assert!(settled.is_empty(), "the request was spent, not kept for a reused id");
+        assert_eq!(
+            streaks.keys().copied().collect::<Vec<_>>(),
+            [8],
+            "another letter keeps the run it has"
+        );
+    }
+
+    /// Only a letter on the wire keeps a «send now»: it is the one an attempt still has to
+    /// settle for. One due at once, one that is gone and one whose store call failed leave
+    /// nothing behind.
+    #[test]
+    fn a_send_now_is_kept_only_for_a_letter_on_the_wire() {
+        let mut requested: HashSet<i64> = Default::default();
+        remember_send_now(&mut requested, 7, || Ok(Requeued::InFlight)).unwrap();
+        assert_eq!(requested.iter().copied().collect::<Vec<_>>(), [7]);
+        remember_send_now(&mut requested, 8, || Ok(Requeued::Now)).unwrap();
+        remember_send_now(&mut requested, 9, || Ok(Requeued::Gone)).unwrap();
+        assert_eq!(
+            requested.iter().copied().collect::<Vec<_>>(),
+            [7],
+            "a letter due at once and a letter that is gone are not remembered"
+        );
+        let failed = remember_send_now(&mut requested, 10, || Err(depesha_core::Error::Closed));
+        assert!(failed.is_err(), "the store's error reaches the caller");
+        assert!(!requested.contains(&10), "a failed call leaves no request behind");
     }
 
     fn held(filed: bool) -> StuckCopy {
