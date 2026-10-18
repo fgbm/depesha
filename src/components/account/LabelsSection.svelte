@@ -140,11 +140,17 @@
                     onblur={() => commit(l)}
                   />
                 {:else}
-                  <button class="link" onclick={() => startRename(l)} title={t("label.renameHint")}>{l.name}</button>
+                  <button
+                    class="link"
+                    onclick={() => startRename(l)}
+                    title={t("label.renameHint")}
+                    aria-label={`${t("label.rename")}: ${l.name}`}
+                  >
+                    {l.name}
+                    {#if !l.stripping}<Pencil size={12} color="var(--muted)" />{/if}
+                  </button>
                   {#if l.stripping}
                     <span class="strip small muted">{t("label.stripping")}</span>
-                  {:else}
-                    <Pencil size={12} color="var(--muted)" />
                   {/if}
                 {/if}
               </span>
@@ -280,6 +286,10 @@
     font: inherit;
     padding: 0;
     cursor: pointer;
+    /* The pencil is part of the button: both are one target for the rename. */
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
 
   .link:hover {
