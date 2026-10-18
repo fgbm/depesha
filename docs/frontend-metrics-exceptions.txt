@@ -10,7 +10,6 @@ component	src/components/FolderMenu.svelte	156	строка импорта label
 component	src/components/LabelPicker.svelte	230	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/RowMenu.svelte	163	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/account/FoldersTable.svelte	187	строка импорта labels вместо проброса app.labels (#140, шаг 2)
-component	src/components/account/LabelsSection.svelte	309	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/FavouriteRow.svelte	73	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/FolderRow.svelte	105	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/Labels.svelte	61	строка импорта labels вместо проброса app.labels (#140, шаг 2)

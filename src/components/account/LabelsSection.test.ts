@@ -34,7 +34,11 @@ describe("the label section of a mailbox's page (#42, frame 2)", () => {
     expect(body).toContain("Действия");
     // The rename affordance (its hint) and the label's own colour chip are there.
     expect(body).toContain("письма сохранят метку");
-    expect(body).toMatch(/<button class="link[^"]*"[^>]*>Счета <!--\[0--><svg/);
+    // The pencil sits inside the rename button, so a click on it renames too.
+    const start = body.indexOf('<button class="link');
+    const button = body.slice(start, body.indexOf("</button>", start));
+    expect(button).toContain("Счета");
+    expect(button).toContain("lucide-pencil");
   });
 
   it("says so when the mailbox has no labels yet", () => {
