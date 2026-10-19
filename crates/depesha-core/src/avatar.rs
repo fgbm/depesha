@@ -84,6 +84,169 @@ fn own_domain(host: &str) -> Option<String> {
     Some(host_labels[host_labels.len() - keep..].join("."))
 }
 
+/// How many `Received` headers the walk reads: the mailbox's own hops stand at the top, and a
+/// letter relayed many times is no reason to read the whole chain.
+const MAX_RECEIVED: usize = 5;
+
+/// How many leading hops name no organization: Gmail's own first hop is `by 2002:…`, but a hop
+/// further down may already be the sender's, so the provider's named hop must be at the top.
+const LEADING_HOPS: usize = 2;
+
+/// A dotless `authserv-id` counts only as a long, provider-chosen per-machine name
+/// (`mail-nwsmtp-mxfront-production-main-60`): `mx`, `mail` and `smtp` are short labels anyone
+/// guesses, and a hoster may not strip a copy of one.
+const MIN_DOTLESS_LABEL: usize = 12;
+
+/// The mail system that took the letter from the internet, from the topmost `Received` headers
+/// (#167). The mailbox's own system writes those headers, and the sender's copies of them stand
+/// below.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Delivery {
+    /// Organizational domain of the first named `by` host.
+    pub domain: String,
+    /// Full `by` host names of the provider's consecutive hops, lower case. Yandex signs its
+    /// verdict with the first label of one of them in place of a domain.
+    pub hosts: Vec<String>,
+}
+
+/// [`Delivery`] from the topmost `Received` headers. The provider's MX that took the letter
+/// names itself (`mx.google.com`); Gmail's topmost hop is `by 2002:…`, an address literal that
+/// names no organization, so the walk passes over hosts that name nothing. The first host that
+/// does gives the delivery domain; every hop after it of the same organization is the provider's
+/// too. The first hop of another organization ends the run: whatever stands below is the
+/// sender's. So does a hop that cannot be read at all, and nothing below [`LEADING_HOPS`] is
+/// read while no organization has been found.
+pub(crate) fn delivery_hops(received: &[String]) -> Option<Delivery> {
+    let mut domain: Option<String> = None;
+    let mut hosts = Vec::new();
+    for (i, header) in received.iter().take(MAX_RECEIVED).enumerate() {
+        if domain.is_none() && i >= LEADING_HOPS {
+            break;
+        }
+        match hop(header) {
+            // The text around the clause is the sender's: two `by` tokens make it anyone's.
+            Hop::Ambiguous => break,
+            Hop::Host(host) => match by_org(&host) {
+                None if domain.is_some() => break,
+                None => continue,
+                Some(org) => match &domain {
+                    None => {
+                        domain = Some(org);
+                        hosts.push(host);
+                    }
+                    Some(d) if *d == org => hosts.push(host),
+                    Some(_) => break,
+                },
+            },
+        }
+    }
+    domain.map(|domain| Delivery { domain, hosts })
+}
+
+/// The organization of a `by` host: `None` for an address literal, a name without a dot or one
+/// the public suffix list does not know (`mail.local` names no organization).
+fn by_org(host: &str) -> Option<String> {
+    let literal = host.starts_with('[') && host.ends_with(']');
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    let host = host.strip_prefix("ipv6:").unwrap_or(host);
+    if literal || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') || !known_suffix(host) {
+        return None;
+    }
+    own_domain(host)
+}
+
+/// Whether the public suffix list knows the name's suffix: the list's fallback rule makes any
+/// two labels a domain, and `mail.local` names no organization.
+fn known_suffix(host: &str) -> bool {
+    psl::suffix(host.as_bytes()).is_some_and(|s| s.is_known())
+}
+
+/// What a `Received` header's `by` clause says.
+enum Hop {
+    /// Exactly one clause, naming this host (lower case, without punctuation around it).
+    Host(String),
+    /// Not exactly one readable clause: a `by` in a comment or a quote, a second `by`, a
+    /// comment or quote left open, or no `by` at all. The text around the clause is the
+    /// sender's, so such a hop belongs to no one.
+    Ambiguous,
+}
+
+/// The `by` clause of a `Received` value. Every `by` in the raw text counts, comments and
+/// quotes included, and the text between them must be balanced: the HELO in `from <HELO> (…)`
+/// is the sender's, and a `(` or `"` left open there would otherwise swallow the real clause.
+/// An odd but honest header is therefore refused, which only falls back to the configured and
+/// family domains: less trust, never more.
+fn hop(value: &str) -> Hop {
+    let raw = value
+        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '"'))
+        .filter(|word| word.eq_ignore_ascii_case("by"))
+        .count();
+    if raw != 1 {
+        return Hop::Ambiguous;
+    }
+    let Some(clean) = without_comments_or_quotes(value) else {
+        return Hop::Ambiguous;
+    };
+    let words: Vec<&str> = clean.split_whitespace().collect();
+    let mut clauses = words.iter().enumerate().filter(|(_, w)| w.eq_ignore_ascii_case("by"));
+    let Some((at, _)) = clauses.next() else {
+        // The one `by` was in a comment or a quote: no clause at all.
+        return Hop::Ambiguous;
+    };
+    if clauses.next().is_some() {
+        return Hop::Ambiguous;
+    }
+    match words.get(at + 1).map(|host| trim_host(host)) {
+        Some(host) if !host.is_empty() => Hop::Host(host),
+        _ => Hop::Ambiguous,
+    }
+}
+
+/// A `by` host lower case and without what the punctuation around it leaves: a trailing comma,
+/// a closing comment or the like (`mx.google.com,`, `mx.google.com)`), but an address literal
+/// keeps its brackets.
+fn trim_host(word: &str) -> String {
+    let lower = word.to_ascii_lowercase();
+    if let Some(end) = lower.strip_prefix('[').and_then(|w| w.find(']')).map(|i| i + 2) {
+        return lower[..end].to_owned();
+    }
+    lower
+        .trim_end_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+/// `value` with comments dropped and quoted strings blanked out: neither says what the header
+/// means here. `None` when a comment or a quote is still open at the end: the rest of the
+/// header then has no reading.
+fn without_comments_or_quotes(value: &str) -> Option<String> {
+    let mut out = String::with_capacity(value.len());
+    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    for c in value.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' if quoted || depth > 0 => escaped = true,
+            '"' if depth == 0 => {
+                quoted = !quoted;
+                out.push(' ');
+            }
+            '(' if !quoted => depth += 1,
+            ')' if !quoted && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push(' ');
+                }
+            }
+            _ if depth == 0 && !quoted => out.push(c),
+            _ => {}
+        }
+    }
+    (depth == 0 && !quoted).then_some(out)
+}
+
 /// The logo of an organizational domain as a `data:` URI, or `None` when it publishes none
 /// or does not enforce DMARC (a logo then proves nothing). Only `domain` itself is asked
 /// about (`_dmarc.`, `default._bimi.`): see [`logo_domain`]. The message itself must have
@@ -202,8 +365,9 @@ fn is_svg(body: &[u8]) -> bool {
     head.contains("<svg")
 }
 
-/// Mail services whose servers sign `Authentication-Results` with a domain other than
-/// the mailbox's (`mx.google.com` for `imap.gmail.com`).
+/// Mail services whose servers sign `Authentication-Results` with a domain other than the
+/// mailbox's (`mx.google.com` for `imap.gmail.com`). A fallback for when the letter's own
+/// `Received` headers name no provider hop.
 const FAMILIES: [&[&str]; 3] = [
     &["gmail.com", "googlemail.com", "google.com"],
     &["yandex.ru", "yandex.com", "ya.ru", "yandex.net"],
@@ -217,9 +381,13 @@ const FAMILIES: [&[&str]; 3] = [
 pub struct Receiver {
     /// Organizational domains of the mailbox's server and address.
     pub domains: Vec<String>,
-    /// The part of `domains` that comes from the server (and its provider's family): the only
-    /// part that may be written to the log, the address domain being the operator's own.
+    /// The part of `domains` that comes from the server: the only part that may be written to
+    /// the log, the address domain being the operator's own.
     pub servers: Vec<String>,
+    /// The mail system that took the letter from the internet, from the letter's own `Received`
+    /// headers ([`delivery_hops`]): a provider may sign its verdict with a name that is none of
+    /// the configured ones (`mx.google.com` for `imap.gmail.com`), or with no domain at all.
+    pub delivery: Option<Delivery>,
     /// Exchange Online: writes its verdict without a server name, on top of the
     /// header, and renames the ones that came with the letter.
     pub exchange_online: bool,
@@ -266,14 +434,37 @@ impl Receiver {
         Self {
             domains,
             servers,
+            delivery: None,
             exchange_online,
             exchange: account.is_ews(),
         }
     }
 
+    /// The same receiver, also believing the mail system the letter's `Received` headers name.
+    pub fn with_delivery(&self, delivery: Option<Delivery>) -> Self {
+        Self {
+            delivery,
+            ..self.clone()
+        }
+    }
+
     fn owns(&self, authserv_id: &str) -> bool {
         let id = authserv_id.trim_end_matches('.').to_ascii_lowercase();
-        id.contains('.') && own_domain(&id).is_some_and(|d| self.domains.contains(&d))
+        // Yandex writes the first label of its own MX where a server name goes. The sender
+        // chooses its `from` host, so only the `by` hosts of the provider count here, and only
+        // a provider-chosen per-machine name: `mx` or `mail` is a guess anyone makes.
+        if !id.contains('.') {
+            return id.len() >= MIN_DOTLESS_LABEL
+                && self.delivery.as_ref().is_some_and(|delivery| {
+                    delivery
+                        .hosts
+                        .iter()
+                        .any(|host| host.split('.').next() == Some(id.as_str()))
+                });
+        }
+        own_domain(&id).is_some_and(|d| {
+            self.domains.contains(&d) || self.delivery.as_ref().is_some_and(|delivery| delivery.domain == d)
+        })
     }
 }
 
@@ -408,15 +599,17 @@ fn without_comments(value: &str) -> String {
 
 /// Why a sender is or is not believed: the answer of [`check_sender`]. It holds domains and
 /// result words only, never an address, a subject or a token, so it may go to the log. What the
-/// letter itself wrote (`seen`) is cut to a few short `[a-z0-9.-]` names first; the mailbox's own
-/// address domain is not in it.
+/// letter itself wrote (`seen`, `delivery`) is cut to a few short `[a-z0-9.-]` names first; the
+/// mailbox's own address domain is not in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SenderCheck {
     /// The server of the mailbox wrote no `Authentication-Results`; `seen` are the
-    /// `authserv-id`s the letter did carry (`-` for a header without one).
+    /// `authserv-id`s the letter did carry (`-` for a header without one), `delivery` the
+    /// organization the letter's own `Received` headers name.
     NoOwnHeader {
         seen: Vec<String>,
         receiver: Vec<String>,
+        delivery: Option<String>,
     },
     /// The topmost header of ours has no `dmarc=` result and no passed `dkim`/`spf` at all.
     NoDmarc,
@@ -449,11 +642,16 @@ impl SenderCheck {
 impl std::fmt::Display for SenderCheck {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoOwnHeader { seen, receiver } => write!(
+            Self::NoOwnHeader {
+                seen,
+                receiver,
+                delivery,
+            } => write!(
                 f,
-                "no Authentication-Results of the mailbox's server (seen authserv-id: [{}], receiver domains: [{}])",
+                "no Authentication-Results of the mailbox's server (seen authserv-id: [{}], receiver domains: [{}], delivery domain: {})",
                 seen.join(", "),
-                receiver.join(", ")
+                receiver.join(", "),
+                loggable(delivery.as_deref())
             ),
             Self::NoDmarc => f.write_str("the server's header has no dmarc result"),
             Self::NotAlignedWithoutDmarc => {
@@ -532,6 +730,7 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
     SenderCheck::NoOwnHeader {
         seen,
         receiver: receiver.servers.clone(),
+        delivery: receiver.delivery.as_ref().map(|d| d.domain.clone()),
     }
 }
 
@@ -638,9 +837,18 @@ mod tests {
         })
     }
 
+    /// A delivery of one organization alone: a letter whose `Received` names one provider hop.
+    fn delivery(domain: &str) -> Option<Delivery> {
+        Some(Delivery {
+            domain: domain.into(),
+            hosts: Vec::new(),
+        })
+    }
+
     #[test]
     fn trusts_only_a_passed_dmarc_for_the_sender() {
-        let gmail_box = imap("me@gmail.com", "imap.gmail.com");
+        // Google's MX names itself; the box is read from `imap.gmail.com`.
+        let gmail_box = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         let gmail = |v: &str| vec![v.to_owned()];
         let ar = "mx.google.com; dkim=pass header.i=@ozon.ru; spf=pass; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=ozon.ru";
         assert!(dmarc_passed(&gmail(ar), "ozon.ru", &gmail_box));
@@ -677,14 +885,44 @@ mod tests {
         // A box under a private suffix believes its own name only.
         let pages = imap("me@x.github.io", "imap.x.github.io");
         assert!(!dmarc_passed(&ar("mx.y.github.io"), "bank.ru", &pages));
-        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        let gmail = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         assert!(dmarc_passed(&ar("mx.google.com"), "bank.ru", &gmail));
     }
 
-    fn letter(auth: &str, from: &str) -> Vec<u8> {
-        format!("Received: by mx with SMTP;\r\n{auth}From: GitHub <{from}>\r\nTo: me@x.example\r\nSubject: Hi\r\n\r\nText\r\n")
-            .into_bytes()
+    /// A letter as the mailbox's server hands it over: its own `Received` hops on top, then
+    /// its verdict, then what the sender wrote.
+    fn letter_with(received: &[&str], auth: &str, from: &str) -> Vec<u8> {
+        let mut raw = String::new();
+        for hop in received {
+            raw.push_str("Received: ");
+            raw.push_str(hop);
+            raw.push_str("\r\n");
+        }
+        raw.push_str(auth);
+        raw.push_str(&format!(
+            "From: GitHub <{from}>\r\nTo: me@x.example\r\nSubject: Hi\r\n\r\nText\r\n"
+        ));
+        raw.into_bytes()
     }
+
+    /// Gmail's own two hops (#167): the top one is an address literal, the MX below names itself.
+    const GMAIL_RECEIVED: &[&str] = &[
+        "by 2002:a05:6a00:1234:b0:1:2:3 with SMTP id a1csp123456xyz;\r\n        Mon, 5 Oct 2026 10:00:00 -0700 (PDT)",
+        "from out-1.smtp.github.com (out-1.smtp.github.com. [192.0.2.1])\r\n        by mx.google.com with ESMTPS id x1si1234567pgb.1.2026.10.05.10.00.00;\r\n        Mon, 05 Oct 2026 10:00:00 -0700 (PDT)",
+    ];
+    /// Yandex's hop: the box is on `yandex.ru`, while the MX names `yandex.net`.
+    const YANDEX_RECEIVED: &[&str] = &[
+        "from mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net (mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net [95.108.252.38])\r\n\tby mail-nwsmtp-iva-1.iva.yp-c.yandex.net with LMTPS\r\n\tid 4F8C1D2E3A5B;\r\n\tMon, 5 Oct 2026 20:00:00 +0300",
+    ];
+    const MAILRU_RECEIVED: &[&str] = &[
+        "from mx.github.com (mx.github.com [192.0.2.1])\r\n\tby mxs.mail.ru (Postfix) with ESMTPS id 1A2B3C4D;\r\n\tMon, 5 Oct 2026 20:00:00 +0300 (MSK)",
+    ];
+    /// Yandex's chain in the form it reaches the operator (#167): two provider hops, both
+    /// `yandex.net`, and a verdict signed with the first label of the second one.
+    const YANDEX_HOPS: &[&str] = &[
+        "from mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net [2a02:6b8:c0f:1:0:605:9c1f:2a4d]) by mail-nwsmtp-mxback-production-main-11.vla.yp-c.yandex.net (mxback/Yandex) with ESMTPS id 1A2B3C4D5E6F; Mon, 19 Oct 2026 10:00:00 +0300",
+        "from out-21.smtp.github.com (out-21.smtp.github.com [192.30.252.204]) by mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net (smtp/Yandex) with ESMTPS id 7F8E9D0C; Mon, 19 Oct 2026 10:00:00 +0300",
+    ];
 
     #[test]
     fn real_headers_of_each_provider_are_believed() {
@@ -692,36 +930,52 @@ mod tests {
         let yandex = "Authentication-Results: mail-nwsmtp-mxfront-production-main-7.vla.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-7.vla.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mailfrom=noreply@github.com; dkim=pass header.i=@github.com; dmarc=pass header.from=github.com\r\n";
         let mailru = "Authentication-Results: mxs.mail.ru; spf=pass (mx274.m.smailru.net: domain of github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=noreply@github.com; dkim=pass header.d=github.com header.s=pf2023; dmarc=pass header.from=github.com\r\n";
         let exo = "Authentication-Results: spf=pass (sender IP is 192.0.2.1) smtp.mailfrom=github.com; dkim=pass (signature was verified) header.d=github.com;dmarc=pass action=none header.from=github.com;compauth=pass reason=100\r\n";
-        let verified =
-            |r: &Receiver, auth: &str, from: &str| crate::message::authenticity(&letter(auth, from), r).verified();
-        let cases = [
-            ("gmail", imap("me@gmail.com", "imap.gmail.com"), gmail),
-            ("gmail workspace", imap("me@firm.example", "imap.gmail.com"), gmail),
-            ("yandex", imap("me@yandex.ru", "imap.yandex.ru"), yandex),
-            ("mail.ru", imap("me@mail.ru", "imap.mail.ru"), mailru),
+        let verified = |r: &Receiver, received: &[&str], auth: &str, from: &str| {
+            crate::message::authenticity(&letter_with(received, auth, from), r).verified()
+        };
+        let cases: [(&str, Receiver, &[&str], &str); 5] = [
+            ("gmail", imap("me@gmail.com", "imap.gmail.com"), GMAIL_RECEIVED, gmail),
+            (
+                "gmail workspace",
+                imap("me@firm.example", "imap.gmail.com"),
+                GMAIL_RECEIVED,
+                gmail,
+            ),
+            (
+                "yandex",
+                imap("me@yandex.ru", "imap.yandex.ru"),
+                YANDEX_RECEIVED,
+                yandex,
+            ),
+            ("mail.ru", imap("me@mail.ru", "imap.mail.ru"), MAILRU_RECEIVED, mailru),
             (
                 "exchange online",
                 ews("me@firm.example", "https://outlook.office365.com/EWS/Exchange.asmx"),
+                &[],
                 exo,
             ),
         ];
-        for (name, receiver, auth) in cases {
-            assert!(verified(&receiver, auth, "notifications@github.com"), "{name}");
+        for (name, receiver, received, auth) in cases {
             assert!(
-                !verified(&receiver, auth, "notifications@mail.github.com"),
+                verified(&receiver, received, auth, "notifications@github.com"),
+                "{name}"
+            );
+            assert!(
+                !verified(&receiver, received, auth, "notifications@mail.github.com"),
                 "{name}: header.from is the From domain as it stands"
             );
             assert!(
-                !verified(&receiver, auth, "notifications@github.example"),
+                !verified(&receiver, received, auth, "notifications@github.example"),
                 "{name}: other domain"
             );
             assert!(
-                !verified(&receiver, auth, "notifications@evilgithub.com"),
+                !verified(&receiver, received, auth, "notifications@evilgithub.com"),
                 "{name}: look-alike"
             );
             assert!(
                 !verified(
                     &receiver,
+                    received,
                     &auth.replace("dmarc=pass", "dmarc=fail"),
                     "notifications@github.com"
                 ),
@@ -732,14 +986,333 @@ mod tests {
         // dkim/spf match, and only that.
         let yandex_box = imap("user@yandex.ru", "imap.yandex.ru");
         let plain = "Authentication-Results: mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mail=notifications@github.com; dkim=pass header.i=@github.com\r\n";
-        assert!(verified(&yandex_box, plain, "notifications@github.com"));
-        assert!(!verified(&yandex_box, plain, "notifications@evilgithub.com"));
-        assert!(!verified(&yandex_box, plain, "notifications@mail.github.com"));
+        assert!(verified(
+            &yandex_box,
+            YANDEX_RECEIVED,
+            plain,
+            "notifications@github.com"
+        ));
+        assert!(!verified(
+            &yandex_box,
+            YANDEX_RECEIVED,
+            plain,
+            "notifications@evilgithub.com"
+        ));
+        assert!(!verified(
+            &yandex_box,
+            YANDEX_RECEIVED,
+            plain,
+            "notifications@mail.github.com"
+        ));
+    }
+
+    #[test]
+    fn the_delivery_domain_comes_from_the_by_clause() {
+        let one = |header: &str| delivery_hops(&[header.to_owned()]).map(|d| d.domain);
+        assert_eq!(
+            one("from mx.github.com (mx.github.com [192.0.2.1]) by MX.Example-Mail.KZ with ESMTPS id 1; Mon"),
+            Some("example-mail.kz".into())
+        );
+        // A comment is no clause, and a folded line is one line.
+        assert_eq!(
+            one("from x (r [192.0.2.1]) by\tmx.example.org with ESMTP id 1;\r\n\tMon"),
+            Some("example.org".into())
+        );
+        // A `by` in a comment makes the raw count two: an honest header refused, no more trust.
+        assert_eq!(
+            one("from x (by evil.example) by mx.example.org with ESMTP id 1; Mon"),
+            None
+        );
+        // An address literal names no organization.
+        assert_eq!(one("by [IPv6:2001:db8::1] with SMTP id 1; Mon"), None);
+        assert_eq!(one("by [192.0.2.1] with SMTP id 1; Mon"), None);
+        assert_eq!(one("by 192.0.2.1 with SMTP id 1"), None);
+        // Nor does a name without a dot, or one the list does not know.
+        assert_eq!(one("by localhost with SMTP id 1"), None);
+        assert_eq!(one("by mail.local with SMTP id 1"), None);
+        // No `by` clause at all.
+        assert_eq!(one("from x with SMTP id 1; Mon"), None);
+        // The punctuation around the host is not part of it.
+        assert_eq!(
+            one("from x by mx.google.com, with ESMTP id 1; Mon"),
+            Some("google.com".into())
+        );
+        assert_eq!(
+            one("from x by mx.google.com) with ESMTP id 1; Mon"),
+            Some("google.com".into())
+        );
+        assert_eq!(
+            one("from x by mx.example.org. with ESMTP id 1; Mon"),
+            Some("example.org".into())
+        );
+        // Only the first few headers are read.
+        let mut hidden: Vec<String> = (0..MAX_RECEIVED)
+            .map(|_| "by [192.0.2.1] with SMTP".to_owned())
+            .collect();
+        hidden.push("by mx.example.org with SMTP".to_owned());
+        assert_eq!(delivery_hops(&hidden), None);
+        // The named hop must stand within the first two headers: below them it may be the
+        // sender's, and one literal hop above it is all a provider's own chain may need.
+        let late = [
+            "by [2001:db8::1] with SMTP id 0; Mon",
+            "by [2001:db8::2] with SMTP id 1; Mon",
+            "by mx.example.org with SMTP id 2; Mon",
+        ];
+        let hops: Vec<String> = late.iter().map(|h| (*h).to_owned()).collect();
+        assert_eq!(delivery_hops(&hops), None);
+        let early = [
+            "by [2001:db8::1] with SMTP id 0; Mon",
+            "by mx.example.org with SMTP id 1; Mon",
+        ];
+        let hops: Vec<String> = early.iter().map(|h| (*h).to_owned()).collect();
+        assert_eq!(delivery_hops(&hops).map(|d| d.domain), Some("example.org".into()));
+        // The run stops at the first hop of another organization; only the provider's remain.
+        let chain = [
+            "from out-21.smtp.github.com (out-21.smtp.github.com [192.30.252.204]) by MX.GOOGLE.COM with ESMTPS id 1; Mon",
+            "from mail.github.com by out-21.smtp.github.com with ESMTP id 2; Mon",
+        ];
+        let hops: Vec<String> = chain.iter().map(|h| (*h).to_owned()).collect();
+        assert_eq!(
+            delivery_hops(&hops),
+            Some(Delivery {
+                domain: "google.com".into(),
+                hosts: vec!["mx.google.com".into()],
+            })
+        );
+    }
+
+    #[test]
+    fn a_sender_written_by_in_the_helo_is_no_delivery_domain() {
+        // The HELO is the sender's text: a `by` in it makes the hop unreadable, and no hop
+        // below it is read either.
+        let one = |header: &str| delivery_hops(&[header.to_owned()]);
+        for written in [
+            "from z by evil.com (r [1.2.3.4]) by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+            // An unclosed comment or quote would swallow the real clause, leaving evil.com.
+            "from z by evil.com ( (h [1.2.3.4]) by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+            "from z by evil.com \" (h [1.2.3.4]) by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+            "from z (h [1.2.3.4] by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+            "from z \"h [1.2.3.4] by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+            // A `by` glued to the HELO counts the same.
+            "from z x(by (h [1.2.3.4]) by mail-nwsmtp-x.yandex.net with ESMTPS id 1; Mon",
+        ] {
+            assert_eq!(one(written), None, "{written}");
+            let chain = vec![written.to_owned(), YANDEX_HOPS[1].to_owned()];
+            assert_eq!(delivery_hops(&chain), None, "{written}");
+        }
+        // What was collected above the unreadable hop stays; it is not replaced.
+        let written = "from x by evil.com (r [1.2.3.4]) by mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net with ESMTPS id 1; Mon".to_owned();
+        let chain = vec![YANDEX_HOPS[1].to_owned(), written, YANDEX_HOPS[0].to_owned()];
+        assert_eq!(
+            delivery_hops(&chain),
+            Some(Delivery {
+                domain: "yandex.net".into(),
+                hosts: vec!["mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net".into()],
+            })
+        );
+        // An honest chain of each provider is still read.
+        let hops = |chain: &[&str]| chain.iter().map(|h| (*h).to_owned()).collect::<Vec<String>>();
+        assert_eq!(
+            delivery_hops(&hops(GMAIL_RECEIVED)).map(|d| d.domain),
+            Some("google.com".into())
+        );
+        assert_eq!(
+            delivery_hops(&hops(YANDEX_HOPS)).map(|d| d.domain),
+            Some("yandex.net".into())
+        );
+    }
+
+    #[test]
+    fn a_dotless_id_needs_a_specific_provider_label() {
+        // A hoster that writes `Received` but no verdict of its own: `mx` is what anyone guesses.
+        let hoster = imap("me@firm.kz", "imap.mailhost.kz");
+        let received: &[&str] =
+            &["from mx.github.com (mx.github.com [192.0.2.1]) by mx.hoster.example-mail.kz with ESMTPS id 1; Mon"];
+        let forged = "Authentication-Results: mx; dmarc=pass header.from=bank.ru\r\n";
+        let check =
+            |auth: &str| crate::message::authenticity(&letter_with(received, auth, "security@bank.ru"), &hoster).check;
+        assert!(matches!(
+            check(forged),
+            Some(SenderCheck::NoOwnHeader { delivery: Some(domain), .. }) if domain == "example-mail.kz"
+        ));
+        let generic = hoster.with_delivery(Some(Delivery {
+            domain: "example-mail.kz".into(),
+            hosts: vec!["mx.hoster.example-mail.kz".into()],
+        }));
+        assert!(!generic.owns("mx") && !generic.owns("mail") && !generic.owns("smtp"));
+        // A provider-chosen per-machine name of the same hop is its own.
+        let specific = hoster.with_delivery(Some(Delivery {
+            domain: "example-mail.kz".into(),
+            hosts: vec!["mail-nwsmtp-mxfront-production-main-60.example-mail.kz".into()],
+        }));
+        assert!(specific.owns("mail-nwsmtp-mxfront-production-main-60"));
+        assert!(!specific.owns("mail-nwsmtp-mxfront-production-main-6"));
+    }
+
+    #[test]
+    fn the_letter_names_the_mailboxs_own_mail_system() {
+        let check = |receiver: &Receiver, received: &[&str], auth: &str, from: &str| {
+            crate::message::authenticity(&letter_with(received, auth, from), receiver).check
+        };
+        // Gmail: the top hop is an address literal, the MX below it names itself.
+        let gmail = imap("me@firm.example", "imap.gmail.com");
+        let gmail_ar = "Authentication-Results: mx.google.com; dkim=pass header.i=@github.com; dmarc=pass header.from=github.com\r\n";
+        assert_eq!(
+            check(&gmail, GMAIL_RECEIVED, gmail_ar, "notifications@github.com"),
+            Some(SenderCheck::Passed)
+        );
+
+        // Yandex: the box is on `yandex.ru`, while the server signs as `…yandex.net`.
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let google_alert = "Authentication-Results: mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net: domain of accounts.google.com designates 192.0.2.1 as permitted sender) smtp.mail=noreply@bounces.google.com; dkim=pass header.i=@accounts.google.com\r\n";
+        assert_eq!(
+            check(&yandex, YANDEX_RECEIVED, google_alert, "no-reply@accounts.google.com"),
+            Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+        );
+        let github_ar = "Authentication-Results: mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net; spf=pass (domain of github.com designates 192.0.2.1 as permitted sender) smtp.mail=noreply@github.com; dkim=pass header.i=@github.com\r\n";
+        assert_eq!(
+            check(&yandex, YANDEX_RECEIVED, github_ar, "notifications@github.com"),
+            Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+        );
+        // The family stands in when no hop names Yandex: a letter of another MX or none at all.
+        let other_hop: &[&str] = &[
+            "from out-21.smtp.github.com (out-21.smtp.github.com [192.30.252.204]) by out-21.smtp.github.com with ESMTP id 3; Mon, 19 Oct 2026 10:00:00 +0300",
+        ];
+        for received in [other_hop, &[]] {
+            assert_eq!(
+                check(&yandex, received, github_ar, "notifications@github.com"),
+                Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+            );
+        }
+
+        // A Yandex 360 box on a custom domain: `corp.example` is the only domain of its own.
+        let yandex360 = imap("me@corp.example", "imap.yandex.ru");
+        assert_eq!(
+            check(&yandex360, YANDEX_RECEIVED, github_ar, "notifications@github.com"),
+            Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+        );
+
+        // A provider in no list: its MX names itself, which is the only way to know it.
+        let unknown = imap("me@firm.kz", "imap.mailhost.kz");
+        let unknown_received: &[&str] = &[
+            "from mx.github.com (mx.github.com [192.0.2.1]) by mx3.example-mail.kz with ESMTPS id 7; Mon, 5 Oct 2026 20:00:00 +0600",
+        ];
+        let unknown_ar = "Authentication-Results: mx3.example-mail.kz; dkim=pass header.i=@github.com; dmarc=pass header.from=github.com\r\n";
+        assert_eq!(
+            check(&unknown, unknown_received, unknown_ar, "notifications@github.com"),
+            Some(SenderCheck::Passed)
+        );
+        // Without the letter's `Received` this box knows only `mailhost.kz` and `firm.kz`.
+        assert!(matches!(
+            check(&unknown, &[], unknown_ar, "notifications@github.com"),
+            Some(SenderCheck::NoOwnHeader { delivery: None, .. })
+        ));
+    }
+
+    #[test]
+    fn a_header_below_the_providers_own_is_no_own_server() {
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let check = |received: &[&str], auth: &str, from: &str| {
+            crate::message::authenticity(&letter_with(received, auth, from), &yandex).check
+        };
+        let our_word = || SenderCheck::NoOwnHeader {
+            seen: vec!["evil.example".into()],
+            receiver: yandex.servers.clone(),
+            delivery: Some("yandex.net".into()),
+        };
+        let forged = "Authentication-Results: evil.example; dmarc=pass header.from=bank.ru\r\n";
+        // A pass the sender wrote under a name of its own, below the provider's hop.
+        assert_eq!(check(YANDEX_RECEIVED, forged, "security@bank.ru"), Some(our_word()));
+        // The sender's own `Received` below the provider's names no delivery domain either.
+        let mut chain = YANDEX_RECEIVED.to_vec();
+        chain
+            .push("from bank.ru (bank.ru [192.0.2.9]) by evil.example with ESMTP id 1; Mon, 5 Oct 2026 20:00:00 +0300");
+        assert_eq!(check(&chain, forged, "security@bank.ru"), Some(our_word()));
+        // The topmost hop is an address literal: the walk takes the provider's named MX next
+        // and stops there, so the attacker's block further down is never reached.
+        let mut chain = vec!["by [2001:db8::1] with SMTP id 0; Mon, 5 Oct 2026 20:00:00 +0300"];
+        chain.extend_from_slice(YANDEX_RECEIVED);
+        chain
+            .push("from bank.ru (bank.ru [192.0.2.9]) by evil.example with ESMTP id 2; Mon, 5 Oct 2026 20:00:00 +0300");
+        assert_eq!(check(&chain, forged, "security@bank.ru"), Some(our_word()));
+        // No `Received` at all: the configured domains decide, as before.
+        let own = "Authentication-Results: mx.yandex.ru; dmarc=pass header.from=bank.ru\r\n";
+        assert_eq!(check(&[], own, "security@bank.ru"), Some(SenderCheck::Passed));
+    }
+
+    #[test]
+    fn a_dotless_authserv_id_is_the_providers_own_mx() {
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let hops: Vec<String> = YANDEX_HOPS.iter().map(|h| (*h).to_owned()).collect();
+        let delivery = delivery_hops(&hops).expect("the provider's hops");
+        assert_eq!(delivery.domain, "yandex.net");
+        assert_eq!(delivery.hosts.len(), 2, "{:?}", delivery.hosts);
+        // `before`: how many `Received` headers stand above the verdict; 2 puts it below both.
+        let letter = |before: usize, auth: &str, from: &str| {
+            let mut raw = String::new();
+            for (i, hop) in YANDEX_HOPS.iter().enumerate() {
+                if i == before {
+                    raw.push_str(auth);
+                }
+                raw.push_str("Received: ");
+                raw.push_str(hop);
+                raw.push_str("\r\n");
+            }
+            if before == YANDEX_HOPS.len() {
+                raw.push_str(auth);
+            }
+            raw.push_str(&format!(
+                "From: <{from}>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\r\nText\r\n"
+            ));
+            raw.into_bytes()
+        };
+        let check = |before: usize, auth: &str, from: &str| {
+            crate::message::authenticity(&letter(before, auth, from), &yandex).check
+        };
+        let github = "Authentication-Results: mail-nwsmtp-mxfront-production-main-60; spf=pass (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net: domain of github.com designates 192.30.252.204 as permitted sender, rule=[ip4:192.30.252.0/22]) smtp.mail=noreply@github.com; dkim=pass header.i=@github.com\r\n";
+        let alert = "Authentication-Results: mail-nwsmtp-mxfront-production-main-60; spf=pass (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net: domain of bounces.google.com designates 192.30.252.204 as permitted sender, rule=[ip4:192.30.252.0/22]) smtp.mail=noreply@bounces.google.com; dkim=pass header.i=@accounts.google.com\r\n";
+        // Wherever the verdict sits among the headers, the provider's own hops name its id.
+        for before in 0..=2 {
+            assert_eq!(
+                check(before, github, "notifications@github.com"),
+                Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" }),
+                "{before}"
+            );
+            assert_eq!(
+                check(before, alert, "no-reply@accounts.google.com"),
+                Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" }),
+                "{before}"
+            );
+        }
+        // A label of the provider's that took no hop of this letter is not its id.
+        let other = github.replace("production-main-60", "production-main-61");
+        assert!(matches!(
+            check(1, &other, "notifications@github.com"),
+            Some(SenderCheck::NoOwnHeader { delivery: Some(domain), .. }) if domain == "yandex.net"
+        ));
+        // The sender chooses its `from` host: only the `by` hosts of the provider carry its id.
+        let entered = "Received: from mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net [192.0.2.7]) by mail-nwsmtp-mxfront-production-main-59.vla.yp-c.yandex.net (smtp/Yandex) with ESMTPS id 9; Mon, 19 Oct 2026 10:00:00 +0300\r\n";
+        let bank = "Authentication-Results: mail-nwsmtp-mxfront-production-main-60; dmarc=pass header.from=bank.ru\r\n";
+        let raw = format!("{entered}{bank}From: <security@bank.ru>\r\nSubject: Hi\r\n\r\nText\r\n");
+        assert!(!crate::message::authenticity(raw.as_bytes(), &yandex).verified());
+        // The provider's own header stands above a forged copy of the same short id.
+        let forged =
+            "Authentication-Results: mail-nwsmtp-mxfront-production-main-60; dmarc=pass header.from=bank.ru\r\n";
+        assert_eq!(
+            check(0, &format!("{github}{forged}"), "security@bank.ru"),
+            Some(SenderCheck::NotAlignedWithoutDmarc)
+        );
+        // No `Received`: a dotless id names nothing.
+        let raw = format!("{bank}From: <security@bank.ru>\r\nSubject: Hi\r\n\r\nText\r\n");
+        assert!(matches!(
+            crate::message::authenticity(raw.as_bytes(), &yandex).check,
+            Some(SenderCheck::NoOwnHeader { delivery: None, .. })
+        ));
     }
 
     #[test]
     fn without_a_dmarc_result_an_aligned_dkim_or_spf_is_the_pass() {
-        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         let yx = |tail: &str| {
             format!(
                 "mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mail=notifications@github.com; dkim=pass header.i=@github.com{tail}"
@@ -825,7 +1398,7 @@ mod tests {
 
     #[test]
     fn a_quoted_value_cannot_write_a_result_of_its_own() {
-        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         for forged in [
             r#"mx.yandex.net; spf=pass smtp.mail="a;dkim=pass header.d=bank.ru x"@evil.example"#,
             r#"mx.yandex.net; spf=pass smtp.mail="a;dmarc=pass header.from=bank.ru x"@evil.example"#,
@@ -844,14 +1417,14 @@ mod tests {
 
     #[test]
     fn a_comment_is_no_part_of_the_dkim_result() {
-        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         let h = "mx.yandex.net; dkim=pass (header.d=example.com) header.i=@evil.example";
         assert!(!dmarc_passed(&[h.into()], "example.com", &yandex));
     }
 
     #[test]
     fn an_explicit_dmarc_none_is_no_absence_of_dmarc() {
-        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         let h = "mx.yandex.net; dmarc=none header.from=github.com; dkim=pass header.d=github.com";
         assert_eq!(
             check_sender(&[h.into()], "github.com", &yandex),
@@ -870,7 +1443,8 @@ mod tests {
 
     #[test]
     fn the_check_says_why() {
-        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        // The letter's `Received` names Google's MX, whose name is not the box's.
+        let gmail = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         let one = |s: &str| vec![s.to_owned()];
         let check = |h: &[String], from: &str| check_sender(h, from, &gmail);
         assert_eq!(
@@ -904,20 +1478,21 @@ mod tests {
             "mx.evil.example; dmarc=pass header.from=bank.ru".to_owned(),
             "dmarc=pass header.from=bank.ru".to_owned(),
         ];
-        let SenderCheck::NoOwnHeader { seen, receiver } = check(&foreign, "bank.ru") else {
+        let SenderCheck::NoOwnHeader { seen, receiver, .. } = check(&foreign, "bank.ru") else {
             panic!("not ours");
         };
         assert_eq!(seen, ["mx.evil.example", "-"]);
-        assert!(receiver.contains(&"gmail.com".to_owned()) && receiver.contains(&"google.com".to_owned()));
+        assert!(receiver.contains(&"gmail.com".to_owned()));
         assert!(matches!(check(&[], "bank.ru"), SenderCheck::NoOwnHeader { .. }));
         // The line for the log: domains and words, nothing of the letter.
         let line = check(&foreign, "bank.ru").to_string();
         assert!(line.contains("mx.evil.example") && line.contains("gmail.com"), "{line}");
+        assert!(line.contains("delivery domain: google.com"), "{line}");
     }
 
     #[test]
     fn header_from_is_the_from_domain_exactly() {
-        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        let gmail = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         let one = |from: &str| vec![format!("mx.google.com; dmarc=pass header.from={from}")];
         assert_eq!(
             check_sender(&one("github.com"), "mail.github.com", &gmail),
@@ -941,7 +1516,7 @@ mod tests {
         let many: Vec<String> = (0..1000)
             .map(|i| format!("mx{i}.{}.example; dmarc=pass header.from=bank.ru", "a".repeat(200)))
             .collect();
-        let SenderCheck::NoOwnHeader { seen, receiver } = check_sender(&many, "bank.ru", &gmail) else {
+        let SenderCheck::NoOwnHeader { seen, receiver, .. } = check_sender(&many, "bank.ru", &gmail) else {
             panic!("not ours");
         };
         assert_eq!(seen.len(), MAX_SEEN);
@@ -989,7 +1564,7 @@ mod tests {
 
     #[test]
     fn the_topmost_header_of_ours_decides_even_without_a_dmarc_result() {
-        let gmail_box = imap("me@gmail.com", "imap.gmail.com");
+        let gmail_box = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         let own_without = "mx.google.com; dkim=none; spf=none".to_owned();
         let forged_pass = "mx.google.com; dmarc=pass header.from=bank.ru".to_owned();
         // Ours says nothing of DMARC and stands above a pass the sender wrote under our name.
@@ -1074,7 +1649,7 @@ mod tests {
             &imap("me@example.net", "imap.example.net")
         ));
         // The provider's other domain is its own; a domain like it is not.
-        let yandex = imap("me@company.example", "imap.yandex.ru");
+        let yandex = imap("me@company.example", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         let ar = "mail-nwsmtp-mxfront-production-main-1.vla.yp-c.yandex.net; dmarc=pass header.from=bank.ru";
         assert!(dmarc_passed(&one(ar), "bank.ru", &yandex));
         assert!(!dmarc_passed(

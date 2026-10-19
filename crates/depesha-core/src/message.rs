@@ -524,10 +524,14 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
         return Authenticity::none();
     };
     let from = summary_of(&msg).from;
-    let check = from
-        .as_ref()
-        .and_then(|a| a.email.rsplit_once('@'))
-        .map(|(_, d)| crate::avatar::check_sender(&headers_all(&msg, "Authentication-Results"), d, receiver));
+    let check = from.as_ref().and_then(|a| a.email.rsplit_once('@')).map(|(_, d)| {
+        let delivery = crate::avatar::delivery_hops(&headers_all(&msg, "Received"));
+        crate::avatar::check_sender(
+            &headers_all(&msg, "Authentication-Results"),
+            d,
+            &receiver.with_delivery(delivery),
+        )
+    });
     let internal = receiver.exchange
         && headers_all(&msg, "X-MS-Exchange-Organization-AuthAs")
             .first()
@@ -1173,8 +1177,9 @@ From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
 
     #[test]
     fn gmail_vouches_for_a_letter_of_github() {
+        // Google's MX names itself in the letter's `Received`, not in the box's settings.
         let gmail = Receiver {
-            domains: vec!["gmail.com".into(), "googlemail.com".into(), "google.com".into()],
+            domains: vec!["gmail.com".into()],
             ..Default::default()
         };
         let ok = |raw: String| authenticity(raw.as_bytes(), &gmail).verified();
