@@ -297,6 +297,36 @@ export async function run() {
     await d.until("older letter folded", async () => (await d.findAll(".reader .letter-body")).length === 0);
   });
 
+  await step("4.9.4", "длинное HTML-письмо в цепочке: высота по содержимому, прокрутка одна — у всей ленты (А7)", async () => {
+    const subj = `Смета на длинный монтаж ${stamp}`;
+    helper("thread-long-html", subj);
+    await d.button("Входящие");
+    await openBySubject(subj);
+    // Two older letters folded above the open one; the later of them is the long HTML letter.
+    await d.until("two folded rows", async () => (await d.findAll(".thread .letter .head")).length === 2, 20000);
+    await d.click(await d.xpath("//div[contains(@class,'thread')]//button[contains(@class,'head')][contains(., 'шестидесяти')]"));
+    await d.until("long letter unfolded", async () => (await d.findAll(".thread iframe")).length === 1, 20000);
+    // The frame is as tall as its letter — taller than the window — and has no scroll of its own:
+    // the wheel moves the conversation wherever the pointer stands.
+    const sized = await d.until("frame taller than the window", async () =>
+      d.exec(`const f = document.querySelector('.thread iframe');
+        if (!f) return null;
+        const h = Math.round(f.getBoundingClientRect().height);
+        return h > window.innerHeight ? { height: h, window: window.innerHeight } : null;`),
+    );
+    const inner = await d.inFrame(".thread iframe", () =>
+      d.exec("return { scroll: document.documentElement.scrollHeight, view: document.documentElement.clientHeight };"),
+    );
+    if (inner.scroll > inner.view + 2) throw new Error(`у письма в цепочке своя прокрутка: ${JSON.stringify({ ...sized, ...inner })}`);
+    const scrolled = await d.exec(`const s = document.querySelector('.reader .scroll');
+      const before = s.scrollTop;
+      s.scrollTop = before + 300;
+      s.dispatchEvent(new Event('scroll'));
+      return { moved: Math.round(s.scrollTop - before), room: Math.round(s.scrollHeight - s.clientHeight) };`);
+    if (scrolled.moved < 200 || scrolled.room < 300) throw new Error(`лента не прокручивается: ${JSON.stringify(scrolled)}`);
+    await screenshot("thread-long-html");
+  });
+
   await step("13.1, 13.2", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
     // The counter by the option: unread newsletters of the open list — one in this inbox.
     await d.click(await d.find(".list .view .trigger"));

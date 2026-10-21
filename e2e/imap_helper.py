@@ -220,6 +220,37 @@ def invite_letter(subject, mid, calendar, references=None):
     ).encode()
 
 
+def long_thread(subject):
+    """One conversation whose middle letter is an HTML body far taller than a window, and a short
+    reply after it: a letter unfolded in the thread takes its own height there (#А7)."""
+    b64 = lambda text: base64.encodebytes(text.encode()).decode().replace("\n", "\r\n")
+    now = time.time()
+    root = f"long-{abs(hash(subject))}@example.org"
+    html_mid, last_mid = f"long-html-{abs(hash(subject))}@example.org", f"long-last-{abs(hash(subject))}@example.org"
+    text = "Смета из шестидесяти строк.\r\n\r\n" + "\r\n".join(
+        f"Строка сметы {i}: работа, материалы и доставка на объект." for i in range(1, 61)
+    )
+    html = "<p>Смета из шестидесяти строк.</p>" + "".join(
+        f"<p>Строка сметы {i}: работа, материалы и доставка на объект.</p>" for i in range(1, 61)
+    )
+    subj = lambda line: "=?utf-8?B?" + base64.b64encode(line.encode()).decode() + "?="
+    reply = lambda line, mid, refs: (
+        f"From: =?utf-8?B?{base64.b64encode('Подрядчик'.encode()).decode()}?= <estimate@example.com>\r\n"
+        f"To: {ME}\r\nSubject: {subj(line)}\r\nDate: {email.utils.formatdate(now - 200, localtime=True)}\r\n"
+        f"Message-ID: <{mid}>\r\nIn-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary="alt"\r\n\r\n'
+        f"--alt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(text)}"
+        f"--alt\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(html)}"
+        "--alt--\r\n"
+    ).encode()
+    return [
+        (msg(subject, "Смета готова, подробности в ответе.", when=now - 300, mid=root), now - 300),
+        (reply(f"Re: {subject}", html_mid, [root]), now - 200),
+        (msg(f"Re: {subject}", "Спасибо, посмотрю.", sender="Мария Соколова <maria@example.org>", when=now - 100,
+             mid=last_mid, extra=f"In-Reply-To: <{html_mid}>\r\nReferences: <{root}> <{html_mid}>\r\n"), now - 100),
+    ]
+
+
 def markdown(subject):
     """A letter written in Markdown, as Depesha sends it: text, then the Markdown, then HTML."""
     source = "# Итоги встречи\r\n\r\n- [x] договор подписан\r\n- [ ] подключить сканеры\r\n\r\n| Задача | Кто |\r\n|---|---|\r\n| Сканеры | Алексей |\r\n"
@@ -609,6 +640,14 @@ def main():
     if cmd == "deliver-invite-broken":
         c = conn()
         append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation(broken=True)))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "thread-long-html":
+        # A conversation whose middle letter is an HTML body taller than any window (#А7).
+        c = conn()
+        for raw, when in long_thread(sys.argv[2]):
+            append(c, "INBOX", raw, "(\\Seen)", when)
         c.logout()
         print("ok")
         return

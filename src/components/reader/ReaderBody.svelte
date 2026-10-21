@@ -20,10 +20,13 @@
   let {
     msg,
     viewing,
+    fit = false,
   }: {
     msg: OpenedMessage;
     /** An attachment is shown in place of the letter. */
     viewing: boolean;
+    /** In a conversation: the card takes the height of its letter instead of the pane's, and the pane keeps the only scroll (#А7). */
+    fit?: boolean;
   } = $props();
 
   /** Depesha's own Markdown, with its code blocks coloured: the highlighter comes in a lazy
@@ -127,15 +130,15 @@
   />
 {/if}
 <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
-<div class="body" hidden={viewing}>
+<div class="body" class:fit hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
     {#key `${msg.row.id}:md:${app.reader.allowRemote || msg.trusted_sender}`}
-      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} />
+      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
     {/key}
   {:else if shown === "html" && msg.view.html}
     <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
     {#key `${msg.row.id}:${app.reader.allowRemote || msg.trusted_sender}`}
-      <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} />
+      <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
     {/key}
   {:else}
     <div class="plain selectable">
@@ -162,6 +165,14 @@
     border-radius: 8px;
     background: var(--paper);
     overflow: hidden;
+  }
+
+  /* A letter in a conversation is a card of its own height in the pane's scroll: no floor of the
+     pane's, which would leave the frame a scroll of its own inside it (#А7). */
+  .body.fit {
+    min-height: 0;
+    flex: none;
+    display: block;
   }
 
   /* The card's corners are the frame's. */

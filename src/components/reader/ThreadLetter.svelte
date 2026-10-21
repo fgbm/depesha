@@ -153,7 +153,7 @@
           <MeetingCard {notice} attachment={ics} onAdd={(a) => void addMeeting(m.id, a)} onSave={saveAttachment} />
         </div>
       {/if}
-      <div class="letter-body"><ReaderBody msg={body} viewing={false} /></div>
+      <div class="letter-body"><ReaderBody msg={body} viewing={false} fit /></div>
     {:else}
       <p class="loading muted">{t("loading")}</p>
     {/if}

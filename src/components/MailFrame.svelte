@@ -21,6 +21,7 @@
     onLink,
     themed = false,
     markdown = false,
+    fit = false,
     takes = [],
   }: {
     html: string;
@@ -30,12 +31,16 @@
     themed?: boolean;
     /** Depesha rendered this from Markdown: its bare tables get a grid; an HTML letter lays out its own. */
     markdown?: boolean;
+    /** In a conversation, where the letter stands in the pane's own scroll: the frame takes the height the relay reports, so the letter has no scroll of its own (#А7). */
+    fit?: boolean;
     /** Keys the surroundings take besides the window's own (VIEWER_TAKES), which the relay stops by itself. */
     takes?: string[];
   } = $props();
 
   let frame = $state<HTMLIFrameElement | null>(null);
   let hover = $state("");
+  /** The height the relay of the frame last reported; 0 until it speaks, and the frame keeps its own box. */
+  let fitted = $state(0);
 
   function themeCss(): string {
     const css = getComputedStyle(document.documentElement);
@@ -93,6 +98,13 @@ ${themed ? themeCss() : ""}
     if (themed) toFrame(frame?.contentWindow, themeMessage(getComputedStyle(document.documentElement)));
   }
 
+  // Another letter in this frame is another height: the old one would stretch or clip it until
+  // the relay of the new letter speaks.
+  $effect(() => {
+    void srcdoc;
+    fitted = 0;
+  });
+
   /** What the frame must know before the first press: the keys the app takes, and the theme. */
   function sync() {
     toFrame(frame?.contentWindow, keysMessage(frameTakes(takes)));
@@ -115,8 +127,9 @@ ${themed ? themeCss() : ""}
   });
 
   /**
-   * What the relay of the frame says: a link, a hover, a key. Only the frame's own window is
-   * heard — a letter's script runs in it by then, and everything else is a stranger.
+   * What the relay of the frame says: a link, a hover, a key, the height of the letter. Only the
+   * frame's own window is heard — a letter's script runs in it by then, and everything else is a
+   * stranger.
    */
   function onMessage(e: MessageEvent) {
     const el = frame;
@@ -125,6 +138,10 @@ ${themed ? themeCss() : ""}
     if (!msg) return;
     if (msg.type === "hover") {
       hover = msg.href;
+      return;
+    }
+    if (msg.type === "height") {
+      if (fit) fitted = msg.height;
       return;
     }
     if (msg.type === "link") {
@@ -156,8 +173,8 @@ ${themed ? themeCss() : ""}
   });
 </script>
 
-<div class="wrap">
-  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-scripts" {srcdoc} onload={sync}></iframe>
+<div class="wrap" class:fit>
+  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-scripts" style:height={fit && fitted ? `${fitted}px` : null} {srcdoc} onload={sync}></iframe>
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 
@@ -167,6 +184,16 @@ ${themed ? themeCss() : ""}
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+
+  /* The letter's own height, and the pane the only scroll: the frame is a block of that height. */
+  .wrap.fit {
+    display: block;
+  }
+
+  .wrap.fit iframe {
+    display: block;
+    width: 100%;
   }
 
   iframe {

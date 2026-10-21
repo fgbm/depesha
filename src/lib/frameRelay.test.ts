@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import { FRAME_RELAY, RELAY_HASH, THEME_VARS, frameMessage, type FrameKey } from "./frameRelay";
+import { FRAME_MAX_HEIGHT, FRAME_RELAY, RELAY_HASH, THEME_VARS, frameMessage, type FrameKey } from "./frameRelay";
 
 describe("the relay's hash", () => {
   it("is the hash of the relay itself", () => {
@@ -23,17 +23,53 @@ function frameEnv({ inFrame = true } = {}) {
   const heard = new Map<string, ((e: unknown) => void)[]>();
   const on = (type: string, fn: (e: unknown) => void) => heard.set(type, [...(heard.get(type) ?? []), fn]);
   const style = { colorScheme: "", vars: {} as Record<string, string>, setProperty(k: string, v: string) { this.vars[k] = v; } };
-  const document = { documentElement: { style }, addEventListener: on };
+  /** The letter's body: the relay reports its box, so a test grows and shrinks the letter here. */
+  const body = { height: 800, getBoundingClientRect: () => ({ height: body.height }) };
+  const documentBox = { marginTop: "18px", marginBottom: "18px" };
+  const document = { readyState: "complete", documentElement: { style, scrollHeight: 1000 }, body, addEventListener: on };
   const app = { postMessage: (msg: Record<string, unknown>, target: string) => posts.push({ msg, target }) };
-  const window: Record<string, unknown> = { addEventListener: on, document };
+  const window: Record<string, unknown> = {
+    innerHeight: 1000,
+    addEventListener: on,
+    document,
+    getComputedStyle: (el: unknown) => (el === body ? documentBox : {}),
+  };
   window.parent = inFrame ? app : window;
-  runInNewContext(FRAME_RELAY, { window, document });
+  // The relay's clock, run by hand: a change of the letter is followed one timer tick later.
+  const timers: { id: number; at: number; fn: () => void }[] = [];
+  let now = 0;
+  let nextId = 1;
+  const setTimeout = (fn: () => void, ms = 0) => {
+    const t = { id: nextId++, at: now + ms, fn };
+    timers.push(t);
+    return t.id;
+  };
+  const advance = (ms: number) => {
+    now += ms;
+    for (;;) {
+      const due = timers.filter((t) => t.at <= now).sort((a, b) => a.at - b.at)[0];
+      if (!due) return;
+      timers.splice(timers.indexOf(due), 1);
+      due.fn();
+    }
+  };
+  /** The frame's observer, fired by hand as the browser fires it when the body changes. */
+  const observers: (() => void)[] = [];
+  class ResizeObserver {
+    constructor(fn: () => void) {
+      observers.push(fn);
+    }
+    observe() {}
+  }
+  const resize = () => observers.forEach((fn) => fn());
+  window.ResizeObserver = ResizeObserver;
+  runInNewContext(FRAME_RELAY, { window, document, setTimeout, ResizeObserver });
   const fire = (type: string, e: unknown) => (heard.get(type) ?? []).forEach((fn) => fn(e));
   const fromParent = (data: unknown) => fire("message", { source: app, data });
   /** The app's answer to "which keys do you take from the frame" (#124). */
   const claim = (keys: FrameKey[]) => fromParent({ depeshaFrame: 1, type: "keys", keys });
   const anchor = (href: string) => ({ closest: (sel: string) => (sel === "a, area" ? { getAttribute: () => href } : null) });
-  return { posts, fire, style, app, anchor, fromParent, claim };
+  return { posts, fire, style, app, anchor, fromParent, claim, body, document, advance, resize };
 }
 
 /** A press as the frame's document gets it. */
@@ -72,6 +108,63 @@ describe("what the relay of a frame tells the app", () => {
     const env = frameEnv({ inFrame: false });
     env.fire("keydown", press({ key: "k", code: "KeyK", ctrlKey: true }));
     expect(env.posts).toEqual([]);
+  });
+});
+
+describe("the height a frame reports for its letter", () => {
+  /** What the frame told the app about its height, in the order it said it. */
+  const heights = (env: ReturnType<typeof frameEnv>) => env.posts.map((p) => p.msg).filter((m) => m.type === "height").map((m) => m.height);
+
+  it("tells the app the height of its letter once the frame has settled", () => {
+    const env = frameEnv();
+    expect(heights(env)).toEqual([]);
+    env.advance(100);
+    // The body's box with its margins: the whole of the letter's document, and no scrollbar's width.
+    expect(env.posts).toEqual([{ target: "*", msg: { depeshaFrame: 1, type: "height", height: 836 } }]);
+  });
+
+  it("says it again when the letter grows or shrinks, and stays still when nothing changed", () => {
+    const env = frameEnv();
+    env.advance(100);
+    // A quote of the letter opens, a picture lands: the body changed, the document around it did not.
+    env.body.height = 2400;
+    env.resize();
+    env.advance(100);
+    env.body.height = 400;
+    env.fire("load", {});
+    env.advance(100);
+    // Nothing changed, and the load of the window asks again: the same height is not news.
+    env.fire("load", {});
+    env.advance(500);
+    expect(heights(env)).toEqual([836, 2436, 436]);
+  });
+
+  it("sends one message for a burst of changes, not one per picture", () => {
+    const env = frameEnv();
+    env.advance(100);
+    for (let i = 1; i <= 20; i++) {
+      env.body.height = 800 + i * 100;
+      env.resize();
+    }
+    expect(heights(env)).toEqual([836]);
+    env.advance(100);
+    expect(heights(env)).toEqual([836, 2836]);
+  });
+
+  it("keeps a body stretched to the frame from growing with every answer it gave", () => {
+    const env = frameEnv();
+    // `html,body{height:100%}`: the body is the frame, and the letter overflows it.
+    env.body.height = 1000;
+    env.document.documentElement.scrollHeight = 3000;
+    env.advance(100);
+    expect(heights(env)).toEqual([3000]);
+  });
+
+  it("keeps a letter of any length within the app's bound", () => {
+    const env = frameEnv();
+    env.body.height = 10_000_000;
+    env.advance(100);
+    expect(heights(env)).toEqual([FRAME_MAX_HEIGHT]);
   });
 });
 
@@ -165,8 +258,9 @@ describe("what the relay of a frame takes from the app", () => {
 });
 
 describe("the messages the app accepts from a frame", () => {
-  it("takes the three the relay sends", () => {
+  it("takes the four the relay sends", () => {
     expect(frameMessage({ depeshaFrame: 1, type: "link", href: "https://example.com/x" })).toEqual({ type: "link", href: "https://example.com/x" });
+    expect(frameMessage({ depeshaFrame: 1, type: "height", height: 1234.6 })).toEqual({ type: "height", height: 1235 });
     expect(frameMessage({ depeshaFrame: 1, type: "hover", href: "" })).toEqual({ type: "hover", href: "" });
     const key = { depeshaFrame: 1, type: "key", key: "k", code: "KeyK", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false };
     expect(frameMessage(key)).toEqual({ type: "key", key: "k", code: "KeyK", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false });
@@ -183,6 +277,12 @@ describe("the messages the app accepts from a frame", () => {
       { depeshaFrame: 1, type: "link", href: 7 },
       { depeshaFrame: 1, type: "key", key: "k", code: "KeyK", ctrlKey: "yes", metaKey: false, altKey: false, shiftKey: false, repeat: false },
       { depeshaFrame: 1, type: "theme", colorScheme: "dark", vars: {} },
+      { depeshaFrame: 1, type: "height" },
+      { depeshaFrame: 1, type: "height", height: "800" },
+      { depeshaFrame: 1, type: "height", height: Number.NaN },
+      { depeshaFrame: 1, type: "height", height: Number.POSITIVE_INFINITY },
+      { depeshaFrame: 1, type: "height", height: -1 },
+      { depeshaFrame: 1, type: "height", height: FRAME_MAX_HEIGHT + 1 },
     ]) {
       expect(frameMessage(data)).toBeNull();
     }

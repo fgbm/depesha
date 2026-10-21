@@ -1,12 +1,18 @@
 // The script a letter's frame runs, and the way it talks to the app (#124). The frame has an
 // opaque origin: the parent cannot reach into it, it cannot reach the app, and the only door
 // between them is `postMessage`. The relay is the frame's whole part of the bargain — links,
-// hover, keys and the theme's colours. Covered by frameRelay.test.ts.
+// hover, keys, the theme's colours and the height of the letter. Covered by frameRelay.test.ts.
 
 import { LINK_SELECTOR } from "./frameLink";
 
 /** The colours a themed frame takes from the window, which its own document cannot see. */
 export const THEME_VARS = ["--ink", "--muted", "--line", "--link"] as const;
+
+/**
+ * The tallest a letter may tell the app it is, in pixels. A frame of unknown origin speaks, so
+ * its arithmetic is only as good as this bound: a letter of any real length fits far below it.
+ */
+export const FRAME_MAX_HEIGHT = 200_000;
 
 /**
  * The script the letter's frame runs, delivered inline and allowed by its hash alone: `'self'`
@@ -16,6 +22,7 @@ export const FRAME_RELAY = `(function () {
   var app = window.parent;
   if (!app || app === window) return;
   var VARS = ${JSON.stringify(THEME_VARS)};
+  var MAX_HEIGHT = ${FRAME_MAX_HEIGHT};
   var KEYS = [];
   function send(msg) {
     msg.depeshaFrame = 1;
@@ -39,6 +46,48 @@ export const FRAME_RELAY = `(function () {
       return k.code ? e.code === k.code : e.key === k.key;
     });
   }
+  // The height of the letter, for a frame that stands in a conversation: the app gives such a
+  // frame the height of its own letter, so the conversation scrolls as one piece and the letter
+  // gets no scroll of its own (#А7). The body's box is measured, not the document's scroll
+  // height: the latter never falls below the frame's viewport, and so could not follow a letter
+  // that shrinks — a quote folded back.
+  var lastHeight = -1;
+  var heightTimer = 0;
+  function heightOf() {
+    var b = document.body;
+    if (!b) return 0;
+    var cs = window.getComputedStyle(b);
+    var box = b.getBoundingClientRect().height;
+    var h = box + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+    // A body stretched to the frame (height:100%) reports the frame's own height, and would grow
+    // with every answer it gave. The document's scroll height is the letter's height then, its
+    // overflow included.
+    if (Math.abs(box - window.innerHeight) <= 2) h = document.documentElement.scrollHeight;
+    if (!(h > 0)) return 0;
+    return Math.min(Math.round(h), MAX_HEIGHT);
+  }
+  function tellHeight() {
+    heightTimer = 0;
+    var h = heightOf();
+    if (h === lastHeight) return;
+    lastHeight = h;
+    send({ type: "height", height: h });
+  }
+  // One message per hundred milliseconds: a long letter grows with every picture that lands,
+  // and the app needs its height, not every step of it.
+  function watchHeight() {
+    if (!heightTimer) heightTimer = setTimeout(tellHeight, 100);
+  }
+  function watchBody() {
+    if (window.ResizeObserver && document.body) new ResizeObserver(watchHeight).observe(document.body);
+    watchHeight();
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watchBody);
+  else watchBody();
+  window.addEventListener("load", watchHeight);
+  window.addEventListener("resize", watchHeight);
+  // A picture arrives after the load and a quote opens without one: both change the body alone.
+  document.addEventListener("load", watchHeight, true);
   document.addEventListener("click", function (e) {
     var a = linkAt(e.target);
     if (!a) return;
@@ -82,12 +131,13 @@ export const FRAME_RELAY = `(function () {
  * The relay's hash, as a policy source. Every byte of FRAME_RELAY must show up here: the frame's
  * `<meta>` policy and the window's (`tauri.conf.json`) both list it, or the relay does not run.
  */
-export const RELAY_HASH = "'sha256-fQc/ucaC8xYGEIQj7n3fmBs6A3HwzLWbsNFOlFjcshg='";
+export const RELAY_HASH = "'sha256-5FX+6W5RVf6JttREFCX4wRurqD4iGbstlpK1hTFsx2Y='";
 
-/** What the frame sends: a click on a link, a hover, or a key pressed in the letter. */
+/** What the frame sends: a click on a link, a hover, a key pressed in the letter, its height. */
 export type FrameMessage =
   | { type: "link"; href: string }
   | { type: "hover"; href: string }
+  | { type: "height"; height: number }
   | { type: "key"; key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; repeat: boolean };
 
 /** A key as a frame's own document sees it: what the relay matches a press against. */
@@ -143,6 +193,13 @@ export function frameMessage(data: unknown): FrameMessage | null {
   const m = data as Record<string, unknown>;
   if (m.depeshaFrame !== 1) return null;
   if (m.type === "link" || m.type === "hover") return str(m.href) ? { type: m.type, href: m.href } : null;
+  // A height is a number of pixels the app will give a frame: a string, a NaN or a figure past
+  // the bound is no relay's word, and the frame keeps the height it had.
+  if (m.type === "height") {
+    const h = m.height;
+    if (typeof h !== "number" || !Number.isFinite(h) || h < 0 || h > FRAME_MAX_HEIGHT) return null;
+    return { type: "height", height: Math.round(h) };
+  }
   if (m.type !== "key") return null;
   const { key, code, ctrlKey, metaKey, altKey, shiftKey, repeat } = m;
   if (!str(key) || !str(code) || !bool(ctrlKey) || !bool(metaKey) || !bool(altKey) || !bool(shiftKey) || !bool(repeat)) return null;
