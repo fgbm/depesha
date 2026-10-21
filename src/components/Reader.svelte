@@ -7,7 +7,7 @@
   import { layout } from "../lib/layout.svelte";
   import { viewTitle } from "../lib/titles";
   import { app } from "../lib/store.svelte";
-  import { unverifiedKey } from "../lib/reader.svelte";
+  import { unverifiedKey, unverifiedTip } from "../lib/reader.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
@@ -65,6 +65,10 @@
   });
   const showOpening = $derived(app.reader.opening && waited > 0 && (!msg || app.reader.openingRow?.id !== msg.row.id));
   const account = $derived(msg ? app.mailboxes.account(msg.row.account_id) : undefined);
+  /** The name of the mailbox the letter came to: the line names it (0.8.13). */
+  const boxName = $derived(
+    account ? account.label?.trim() || account.email.split("@")[1] || account.email : "",
+  );
   const isDraft = $derived(msg ? app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);
   const bulk = $derived(app.selection.selected.size > 1);
@@ -229,7 +233,12 @@
             <span aria-hidden="true">·</span>
             {#if msg.sender_unverified}
               <!-- Anyone can write a trusted address into From: the trust waits for a confirmed sender. -->
-              <span>{t(unverifiedKey(msg.why_unverified), { email: msg.view.summary.from.email })}</span>
+              <span
+                class="tip"
+                title={unverifiedTip(msg.why_unverified)
+                  ? t(unverifiedTip(msg.why_unverified)!)
+                  : undefined}
+              >{t(unverifiedKey(msg.why_unverified), { email: msg.view.summary.from.email, box: boxName })}</span>
             {:else}
               <button class="link" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
             {/if}
@@ -350,6 +359,11 @@
     margin: 0 22px 10px;
     font-size: 12px;
     color: var(--muted);
+  }
+  /* The detail of the line is under the dotted bottom: the line itself stays short. */
+  .remote .tip {
+    border-bottom: 1px dotted var(--muted);
+    cursor: help;
   }
 
   .link {

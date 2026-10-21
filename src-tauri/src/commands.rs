@@ -199,6 +199,8 @@ pub struct OwnPatch {
     pub compose_format: Option<String>,
     pub letter_view: Option<String>,
     pub waiting: Option<account::Waiting>,
+    /// Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б).
+    pub trust_by_address: Option<bool>,
     pub quota_warn: Option<bool>,
     pub quota_limit_mb: Option<u64>,
 }
@@ -264,6 +266,9 @@ fn apply_own(account: &mut Account, patch: OwnPatch) {
     }
     if let Some(v) = patch.waiting {
         account.waiting = v;
+    }
+    if let Some(v) = patch.trust_by_address {
+        account.trust_by_address = v;
     }
     if let Some(v) = patch.quota_warn {
         account.quota_warn = v;
@@ -758,7 +763,7 @@ struct Evidence<'a> {
 }
 
 impl<'a> Evidence<'a> {
-    /// The evidence the ladder needs.
+    /// The evidence, gathered for the ladder.
     fn of(
         raw: &'a [u8],
         auth: &'a message::Authenticity,
@@ -779,7 +784,7 @@ impl<'a> Evidence<'a> {
         }
     }
 
-    /// The ladder's evidence.
+    /// The evidence, in the shape the ladder takes it.
     fn ladder(&self) -> sender::Evidence {
         sender::Evidence {
             server: self.auth.check.clone(),
@@ -832,7 +837,7 @@ fn evidence_of<'a>(
     // Exchange at hand, the check over them is the one to make.
     let own_due = listed
         && !auth.verified()
-        && !auth.check.as_ref().is_some_and(|c| !c.no_verdict())
+        && auth.check.as_ref().is_none_or(|c| c.no_verdict())
         && own_full.is_none()
         && (headers_checked || dkim::offline_verdict(raw, sender).is_none());
     let by_address = state.account(&row.account_id)?.trust_by_address;
@@ -1095,12 +1100,20 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
         } else {
             dkim::Headers::Rejected
         };
-        tracing::debug!(id = row.id, outcome = headers_outcome(verdict), "sender check: own check of the original headers done");
+        tracing::debug!(
+            id = row.id,
+            outcome = headers_outcome(verdict),
+            "sender check: own check of the original headers done"
+        );
         return Ok(verdict.passed());
     }
     // The whole letter, when its bytes are the ones the sender signed.
     let verdict = state.signatures.check_letter(row.id, &raw, &sender).await;
-    tracing::debug!(id = row.id, outcome = signature_outcome(verdict), "sender check: own DKIM check done");
+    tracing::debug!(
+        id = row.id,
+        outcome = signature_outcome(verdict),
+        "sender check: own DKIM check done"
+    );
     Ok(verdict.passed())
 }
 

@@ -11,6 +11,7 @@
   import LetterViewField from "./LetterViewField.svelte";
   import SignaturesField from "./SignaturesField.svelte";
   import WaitingField from "./WaitingField.svelte";
+  import Switch from "../prefs/controls/Switch.svelte";
 
   let { form, account }: SectionProps = $props();
 </script>
@@ -32,3 +33,16 @@
 <FieldError {form} keys={["signatures", "default_signature", "reply_signature"]} />
 <WaitingField bind:waiting={form.waiting} accountId={account.id} />
 <FieldError {form} keys={["waiting"]} />
+<SettingsRow
+  id="acc-trust-by-address"
+  kind="toggle"
+  label={t("account.trustByAddress")}
+  hint={t("account.trustByAddressNote")}
+>
+  <Switch
+    checked={form.trustByAddress}
+    label={t("account.trustByAddress")}
+    onchange={(on) => (form.trustByAddress = on)}
+  />
+</SettingsRow>
+<FieldError {form} keys={["trust_by_address"]} />

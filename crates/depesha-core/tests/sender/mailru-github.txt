@@ -1,0 +1,21 @@
+Received: from mx.github.com (mx.github.com [192.0.2.1])
+	by mxs.mail.ru (Postfix) with ESMTPS id 1A2B3C4D;
+	Mon, 5 Oct 2026 20:00:00 +0300 (MSK)
+Authentication-Results: mxs.mail.ru; spf=pass (mx274.m.smailru.net: domain of github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=noreply@github.com; dkim=pass header.d=github.com header.s=pf2023; dmarc=pass header.from=github.com
+From: GitHub <noreply@github.com>
+To: me@box.example
+Subject: [depesha] New issue
+Date: Mon, 05 Oct 2026 20:00:00 +0300
+Message-ID: <CA+abc123=example@mail.ghostscript.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="000000000000abcd"
+
+--000000000000abcd
+Content-Type: text/plain; charset="utf-8"
+
+A new issue was opened in the repository.
+--000000000000abcd
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>A new issue was opened.</p></body></html>
+--000000000000abcd--

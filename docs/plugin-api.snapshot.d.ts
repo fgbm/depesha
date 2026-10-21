@@ -751,7 +751,7 @@ type Unsubscribe = {
     mailto: string | null;
 };
 
-type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from";
+type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from" | "address_only" | "no_check";
 
 type Voice = {
     from: Addr;

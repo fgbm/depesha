@@ -246,19 +246,46 @@ export async function senderChecked(id: number, allowRemote: () => boolean, curr
   return { view: fresh.view, trusted_sender: fresh.trusted_sender, sender_unverified: fresh.sender_unverified, why_unverified: fresh.why_unverified === "checking" ? "unchecked" : fresh.why_unverified };
 }
 
-/** The line about a trusted sender who is not confirmed, by why (#167). */
+/**
+ * The line about a trusted sender who is not confirmed, by why (0.8.13). The line names the
+ * mailbox: the same reason means different things on different servers, and the old text
+ * ("the mailbox's server does not check senders") was untrue on Yandex.
+ */
 export function unverifiedKey(why: Unverified | null): Key {
   switch (why) {
     case "checking":
       return "reader.checkingSender";
     case "unsigned":
-      return "reader.unsignedSender";
+      return "reader.serverUnsigned";
     case "signature":
-      return "reader.badSignature";
+      return "reader.serverBadSignature";
     case "unchecked":
-      return "reader.uncheckedSender";
+      return "reader.serverUnchecked";
+    case "address_only":
+      return "reader.addressNotChecked";
+    case "no_check":
+      return "reader.cannotCheck";
     default:
-      return "reader.unverifiedSender";
+      return "reader.serverNo";
+  }
+}
+
+/**
+ * The tip under the line: the detail the line does not carry (0.8.13). The line says who did
+ * not confirm the sender; the tip says what the server said.
+ */
+export function unverifiedTip(why: Unverified | null): Key | null {
+  switch (why) {
+    case "unsigned":
+      return "reader.tipUnsigned";
+    case "signature":
+      return "reader.tipBadSignature";
+    case "unchecked":
+      return "reader.tipUnchecked";
+    case "no_check":
+      return "reader.tipCannotCheck";
+    default:
+      return null;
   }
 }
 

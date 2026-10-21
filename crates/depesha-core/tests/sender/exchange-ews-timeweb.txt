@@ -1,0 +1,23 @@
+Received: from out-1.smtp.timeweb.cloud (out-1.smtp.timeweb.cloud. [192.0.2.9])
+	by mx.firm.example with ESMTPS id 4C5D6E7F8A9B;
+	Mon, 19 Oct 2026 12:00:00 +0300
+From: Timeweb Cloud <info@timeweb.cloud>
+To: me@box.example
+Subject: =?utf-8?B?0JLRgtNC90LvQtdGC0L9RgNGD0LrQvtC80LA=?=
+Date: Mon, 19 Oct 2026 12:00:00 +0300
+Message-ID: <tw-2026-10-19-1@timeweb.cloud>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+	boundary="_000_1AB2C3D4E5F6_"
+
+--_000_1AB2C3D4E5F6_
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+=D0=92=D0=B0=D1=88 =D1=81=D1=87=D0=B5=D1=82 =D0=B7=D0=B0 =D0=BE=D0=BA=D1=82=D1=8F=D0=B1=D1=80=D1=8C.
+--_000_1AB2C3D4E5F6_
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>=D0=92=D0=B0=D1=88 =D1=81=D1=87=D0=B5=D1=82 =D0=B7=D0=B0 =D0=BE=D0=BA=D1=82=D1=8F=D1=80=D1=8C.</p></body></html>
+--_000_1AB2C3D4E5F6_--

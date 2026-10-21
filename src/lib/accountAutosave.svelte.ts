@@ -28,6 +28,7 @@ const OWN: Record<string, Key> = {
   compose_format: "wizard.composeFormat",
   letter_view: "settings.letterView",
   waiting: "account.waiting.title",
+  trust_by_address: "account.trustByAddress",
   quota_warn: "storage.warnings",
   quota_limit_mb: "storage.warnings",
 };
@@ -47,6 +48,7 @@ export function ownOf(a: Account): Record<string, unknown> {
     compose_format: a.compose_format ?? "",
     letter_view: a.letter_view ?? "",
     waiting: { park: !!w?.park, folder: w?.folder ?? "", stop_to_archive: !!w?.stop_to_archive },
+    trust_by_address: a.trust_by_address === true,
     quota_warn: a.quota_warn !== false,
     quota_limit_mb: a.quota_limit_mb ?? 0,
   };

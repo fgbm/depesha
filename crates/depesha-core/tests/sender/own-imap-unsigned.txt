@@ -1,0 +1,12 @@
+Received: from out-1.smtp.partner.example (out-1.smtp.partner.example. [192.0.2.44])
+	by mx.firm.example with ESMTPS id 6E7F8A9B0C1D;
+	Mon, 19 Oct 2026 15:00:00 +0300
+From: Пётр Лаптев <p.laptev@partner.example>
+To: me@box.example
+Subject: Договор, правки
+Date: Mon, 19 Oct 2026 15:00:00 +0300
+Message-ID: <pl-2026-10-19-1@partner.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Договор во вложении.

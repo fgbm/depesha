@@ -49,6 +49,9 @@ x509-parser = "0.18.1"
 [dev-dependencies]
 # Tests count the statements and commits an operation runs.
 rusqlite = { version = "0.40.2", features = ["bundled", "functions", "trace"] }
+# The table of the corpus of letters is JSON (0.8.13, 7.1 Б).
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 tempfile = "3.27.0"
 tracing-subscriber = "0.3.23"
 # Its own integration tests build the 0.8.0 draft mark.

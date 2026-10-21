@@ -9,6 +9,7 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
+import { unverifiedKey, unverifiedTip } from "./reader.svelte";
 import { api, flush, opened, resetFakes, row, rows } from "./testing";
 
 /** Letters the backend was told were read. */
@@ -208,6 +209,24 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     await s.reader.open(1);
     await flush();
     expect(s.ui.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
+  });
+});
+
+describe("the line about a sender who is not confirmed (0.8.13)", () => {
+  it("names the reason and the mailbox, and keeps the detail in the tip", () => {
+    // The line says who did not confirm the sender; the tip says what the server said.
+    expect(unverifiedKey("server")).toBe("reader.serverNo");
+    expect(unverifiedKey("unsigned")).toBe("reader.serverUnsigned");
+    expect(unverifiedKey("signature")).toBe("reader.serverBadSignature");
+    expect(unverifiedKey("unchecked")).toBe("reader.serverUnchecked");
+    expect(unverifiedKey("address_only")).toBe("reader.addressNotChecked");
+    expect(unverifiedKey("no_check")).toBe("reader.cannotCheck");
+    // The detail is under the line, not in it.
+    expect(unverifiedTip("unsigned")).toBe("reader.tipUnsigned");
+    expect(unverifiedTip("signature")).toBe("reader.tipBadSignature");
+    expect(unverifiedTip("unchecked")).toBe("reader.tipUnchecked");
+    expect(unverifiedTip("no_check")).toBe("reader.tipCannotCheck");
+    expect(unverifiedTip("server")).toBeNull();
   });
 });
 

@@ -68,7 +68,7 @@ impl Step {
 /// What the ladder decided about a letter's sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
-    /// The step that decided.
+    /// The step of the ladder that decided.
     pub step: Step,
     /// The sender is confirmed: the letter's pictures may be shown.
     pub confirmed: bool,
@@ -127,9 +127,7 @@ pub fn decide(evidence: &Evidence) -> Verdict {
     // The mailbox's setting trusts the sender by address where nothing could be learned about
     // the sender at all: the letter carries no signature, or the key could not be asked for.
     // An explicit «no» of the server is not overridden (0.8.13, 6.1 Б).
-    if evidence.by_address
-        && matches!(verdict.reason, Reason::Unsigned | Reason::Unchecked)
-    {
+    if evidence.by_address && matches!(verdict.reason, Reason::Unsigned | Reason::Unchecked) {
         return Verdict {
             step: Step::AddressOnly,
             confirmed: true,
@@ -143,12 +141,7 @@ pub fn decide(evidence: &Evidence) -> Verdict {
 /// The ladder without the mailbox's setting.
 fn weigh(evidence: &Evidence) -> Verdict {
     if !evidence.sole_from {
-        return Verdict {
-            step: Step::None,
-            confirmed: false,
-            logo: false,
-            reason: Reason::AmbiguousFrom,
-        };
+        return no(Reason::AmbiguousFrom);
     }
     // The server's «no» stays a «no»: its own check of the sender failed. A server that said
     // nothing at all is not a «no»: the app's own check stands then.
@@ -156,30 +149,25 @@ fn weigh(evidence: &Evidence) -> Verdict {
         && !check.passed()
         && !check.no_verdict()
     {
-        return Verdict {
-            step: Step::None,
-            confirmed: false,
-            logo: false,
-            reason: Reason::Server,
-        };
+        return no(Reason::Server);
     }
-    if let Some(check) = &evidence.server {
+    if let Some(check) = &evidence.server
+        && check.passed()
+    {
         // `dmarc=pass` aligned with the From domain, or a passed signature of the same
         // organization without a DMARC result: the server checked the sender on the original
         // bytes, and its word is enough.
-        if check.passed() {
-            let step = if check.dmarc_passed() {
-                Step::ServerDmarc
-            } else {
-                Step::ServerSignature
-            };
-            return Verdict {
-                step,
-                confirmed: true,
-                logo: true,
-                reason: Reason::Server,
-            };
-        }
+        let step = if check.dmarc_passed() {
+            Step::ServerDmarc
+        } else {
+            Step::ServerSignature
+        };
+        return Verdict {
+            step,
+            confirmed: true,
+            logo: true,
+            reason: Reason::Server,
+        };
     }
     // A colleague of the same organization: the server of the mailbox says so itself.
     if evidence.internal {
@@ -199,24 +187,9 @@ fn weigh(evidence: &Evidence) -> Verdict {
                 logo: true,
                 reason: Reason::Server,
             },
-            crate::dkim::Signature::Unsigned => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Unsigned,
-            },
-            crate::dkim::Signature::Unchecked => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Unchecked,
-            },
-            crate::dkim::Signature::NotAligned | crate::dkim::Signature::Invalid => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Signature,
-            },
+            crate::dkim::Signature::Unsigned => no(Reason::Unsigned),
+            crate::dkim::Signature::Unchecked => no(Reason::Unchecked),
+            crate::dkim::Signature::NotAligned | crate::dkim::Signature::Invalid => no(Reason::Signature),
         };
     }
     // The original headers of the letter, without its body: the signature covers the From, the
@@ -229,41 +202,26 @@ fn weigh(evidence: &Evidence) -> Verdict {
                 logo: false,
                 reason: Reason::Server,
             },
-            crate::dkim::Headers::Unsigned => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Unsigned,
-            },
-            crate::dkim::Headers::Unchecked => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Unchecked,
-            },
-            crate::dkim::Headers::Rejected => Verdict {
-                step: Step::None,
-                confirmed: false,
-                logo: false,
-                reason: Reason::Signature,
-            },
+            crate::dkim::Headers::Unsigned => no(Reason::Unsigned),
+            crate::dkim::Headers::Unchecked => no(Reason::Unchecked),
+            crate::dkim::Headers::Rejected => no(Reason::Signature),
         };
     }
     // The app's own check is still to be made: the window asks for it.
     if evidence.own_due {
-        return Verdict {
-            step: Step::None,
-            confirmed: false,
-            logo: false,
-            reason: Reason::Checking,
-        };
+        return no(Reason::Checking);
     }
     // Nothing could be checked: the server does not tell, and the app has no way in.
+    no(Reason::NoCheck)
+}
+
+/// Nothing confirmed the sender.
+fn no(reason: Reason) -> Verdict {
     Verdict {
         step: Step::None,
         confirmed: false,
         logo: false,
-        reason: Reason::NoCheck,
+        reason,
     }
 }
 
@@ -321,7 +279,11 @@ mod tests {
 
     #[test]
     fn the_own_check_decides_where_the_server_stayed_silent() {
-        let mut e = evidence(Some(SenderCheck::NoOwnHeader { seen: vec![], receiver: vec![], delivery: None }));
+        let mut e = evidence(Some(SenderCheck::NoOwnHeader {
+            seen: vec![],
+            receiver: vec![],
+            delivery: None,
+        }));
         e.own_full = Some(Signature::Aligned);
         let v = decide(&e);
         assert_eq!(v.step, Step::OwnFull);
@@ -363,12 +325,34 @@ mod tests {
 
     #[test]
     fn the_switch_by_address_says_so() {
+        // 0.8.13, 6.1 Б: the switch trusts the address where nothing could be checked.
         let mut e = evidence(None);
+        e.own_full = Some(crate::dkim::Signature::Unsigned);
         e.by_address = true;
         let v = decide(&e);
         assert_eq!(v.step, Step::AddressOnly);
         assert!(v.confirmed);
-        assert!(!v.logo);
+        assert!(!v.logo, "the switch never gives a logo");
         assert_eq!(v.reason, Reason::AddressOnly);
+    }
+
+    #[test]
+    fn the_switch_by_address_does_not_override_the_servers_no() {
+        let mut e = evidence(Some(SenderCheck::DmarcNot("fail".into())));
+        e.by_address = true;
+        let v = decide(&e);
+        assert!(!v.confirmed);
+        assert_eq!(v.reason, Reason::Server);
+    }
+
+    #[test]
+    fn the_switch_by_address_does_not_override_a_signature_that_does_not_fit() {
+        // The signature is there and is not about the From: the address is not the answer.
+        let mut e = evidence(None);
+        e.own_full = Some(crate::dkim::Signature::NotAligned);
+        e.by_address = true;
+        let v = decide(&e);
+        assert!(!v.confirmed);
+        assert_eq!(v.reason, Reason::Signature);
     }
 }

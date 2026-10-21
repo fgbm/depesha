@@ -90,6 +90,8 @@ export class AccountForm {
   attachmentsDir = $state("");
   /** The inbox as a queue: an answer takes the letter to wait in a folder until the reply. */
   waiting = $state<Waiting>({ park: false, folder: "", stop_to_archive: false });
+  /** Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б). */
+  trustByAddress = $state(false);
   /** Warn when the mailbox fills up. */
   quotaWarn = $state(true);
   /** The own limit for the warnings in GB as typed; empty takes the server's quota. */
@@ -160,6 +162,7 @@ export class AccountForm {
       this.letterView = e.letter_view ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
       if (e.waiting) this.waiting = { ...e.waiting };
+      this.trustByAddress = e.trust_by_address === true;
       this.quotaWarn = e.quota_warn !== false;
       this.showLimit(e.quota_limit_mb ?? 0);
     }
@@ -196,6 +199,7 @@ export class AccountForm {
     if (has("letter_view")) this.letterView = a.letter_view ?? "";
     if (has("attachments_dir")) this.attachmentsDir = a.attachments_dir ?? "";
     if (has("waiting")) this.waiting = a.waiting ? { ...a.waiting } : { park: false, folder: "", stop_to_archive: false };
+    if (has("trust_by_address")) this.trustByAddress = a.trust_by_address === true;
     if (has("quota_warn")) this.quotaWarn = a.quota_warn !== false;
     if (has("quota_limit_mb")) this.showLimit(a.quota_limit_mb ?? 0);
   }
@@ -409,6 +413,7 @@ export class AccountForm {
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
     if (this.letterView) acc.letter_view = this.letterView;
+    if (this.trustByAddress) acc.trust_by_address = true;
     const w = this.waiting;
     if (w.park || w.folder || w.stop_to_archive) acc.waiting = { park: w.park, folder: w.folder, stop_to_archive: w.stop_to_archive };
     if (this.mode === "oauth" && this.provider) acc.auth = { kind: "oauth", provider: this.provider };

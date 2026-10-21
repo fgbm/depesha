@@ -1,0 +1,21 @@
+Received: from out-1.smtp.timeweb.cloud (out-1.smtp.timeweb.cloud. [192.0.2.9])
+	by mx.firm.example with ESMTPS id 4C5D6E7F8A9B;
+	Mon, 19 Oct 2026 12:00:00 +0300
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=timeweb.cloud; s=dkim; t=1792605600; h=from:to:subject:date; bh=Zm9vYmFyYmF6; b=c2lnbmF0dXJl
+From: Timeweb Cloud <info@timeweb.cloud>
+To: me@box.example
+Subject: Счёт за октябрь
+Date: Mon, 19 Oct 2026 12:00:00 +0300
+Message-ID: <tw-2026-10-19-1@timeweb.cloud>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="000000000000abcf"
+
+--000000000000abcf
+Content-Type: text/plain; charset="utf-8"
+
+Ваш счёт за октябрь.
+--000000000000abcf
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>Ваш счёт за октябрь.</p></body></html>
+--000000000000abcf--

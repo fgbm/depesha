@@ -8,6 +8,8 @@ Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surfac
 
 ## 0.8.12
 
+- `OpenedMessage` has `why_unverified` (0.8.13): the reasons of the ladder of evidence are two more: `address_only` (the mailbox's setting trusts the sender by address where nothing could be checked) and `no_check` (the server of the mailbox cannot be asked and the app's own check has no way in). The other reasons keep their meaning.
+- `Account` has `trust_by_address` (0.8.13, 6.1 Б): the mailbox trusts a sender by address where nothing could be checked. Off until the user switches it on; a mailbox saved before it reads as off.
 - `OpenedMessage` has `why_unverified` (#167): why a trusted sender is not confirmed (`server`, `checking`, `unsigned`, `signature`, `unchecked`, `ambiguous_from` — the letter's From is not the one trusted address alone), `null` when `sender_unverified` is false. `checking` means the app checks the letter's DKIM signature in the background; the open letter is updated when the answer comes. A plugin that only reads the message is unaffected; one that builds it (a test fixture) must give the field.
 
 ## 0.8.3

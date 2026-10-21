@@ -1,0 +1,77 @@
+[
+  {
+    "file": "gmail-github.txt",
+    "mailbox": "gmail",
+    "from": "noreply@github.com",
+    "step": "1",
+    "pictures": true,
+    "logo": true
+  },
+  {
+    "file": "yandex-github.txt",
+    "mailbox": "yandex",
+    "from": "noreply@github.com",
+    "step": "2",
+    "pictures": true,
+    "logo": true
+  },
+  {
+    "file": "mailru-github.txt",
+    "mailbox": "mailru",
+    "from": "noreply@github.com",
+    "step": "1",
+    "pictures": true,
+    "logo": true
+  },
+  {
+    "file": "exchange-online-github.txt",
+    "mailbox": "exchange-online",
+    "from": "noreply@github.com",
+    "step": "1",
+    "pictures": true,
+    "logo": true
+  },
+  {
+    "file": "exchange-ews-timeweb.txt",
+    "mailbox": "exchange-ews",
+    "from": "info@timeweb.cloud",
+    "step": "4",
+    "pictures": true,
+    "logo": false
+  },
+  {
+    "file": "gmail-forged.txt",
+    "mailbox": "gmail",
+    "from": "info@timeweb.cloud",
+    "step": "-",
+    "pictures": false,
+    "logo": false,
+    "reason": "server"
+  },
+  {
+    "file": "exchange-ews-forged.txt",
+    "mailbox": "exchange-ews",
+    "from": "info@timeweb.cloud",
+    "step": "-",
+    "pictures": false,
+    "logo": false,
+    "reason": "unsigned"
+  },
+  {
+    "file": "own-imap-newsletter.txt",
+    "mailbox": "own-imap",
+    "from": "info@timeweb.cloud",
+    "step": "3",
+    "pictures": true,
+    "logo": true
+  },
+  {
+    "file": "own-imap-unsigned.txt",
+    "mailbox": "own-imap",
+    "from": "p.laptev@partner.example",
+    "step": "-",
+    "pictures": false,
+    "logo": false,
+    "reason": "unsigned"
+  }
+]

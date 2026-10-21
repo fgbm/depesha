@@ -345,7 +345,10 @@ impl Verifier {
             if remembered.len() >= LETTERS {
                 remembered.clear();
             }
-            remembered.insert(id, (digest(headers), address.trim().to_owned(), verdict, Instant::now()));
+            remembered.insert(
+                id,
+                (digest(headers), address.trim().to_owned(), verdict, Instant::now()),
+            );
         }
         verdict
     }
@@ -439,12 +442,7 @@ impl Verifier {
 }
 
 /// [`Verifier::check_headers`] itself, on a thread of its own.
-async fn verify_headers(
-    auth: &MessageAuthenticator,
-    cache: &TxtCache,
-    headers: &[u8],
-    address: &str,
-) -> Headers {
+async fn verify_headers(auth: &MessageAuthenticator, cache: &TxtCache, headers: &[u8], address: &str) -> Headers {
     let message = match candidates(headers, address) {
         Ok(message) => message,
         Err(verdict) => {
@@ -506,9 +504,9 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
 
 /// What the check of one signature said.
 enum Check {
-    /// The signature is good.
+    /// The signature is good: the letter is the one the key holder signed.
     Pass,
-    /// The signature is not good.
+    /// The signature is bad: the letter is not the one the key holder signed.
     Fail,
     /// DNS did not answer for the key: nothing is known.
     Temp,
@@ -633,11 +631,6 @@ fn strip_signature(value: &[u8]) -> Vec<u8> {
     out
 }
 
-#[cfg(test)]
-pub(crate) fn strip_signature_probe(value: &[u8]) -> Vec<u8> {
-    strip_signature(value)
-}
-
 /// One tag of a `DKIM-Signature` header: the `b=` tag without its value, every other tag as it
 /// is.
 fn strip_b(segment: &[u8]) -> &[u8] {
@@ -726,10 +719,6 @@ mod tests {
         format!("{}{letter}", signer.sign(letter.as_bytes()).unwrap().to_header())
     }
 
-    fn sign(key: Ed25519Key, domain: &str, letter: &str) -> String {
-        sign_with(signer(key, domain), letter)
-    }
-
     /// A signature as a real sender writes it (RFC 6376 §3.7): the signed data is the
     /// canonicalized headers, the `DKIM-Signature` header with its `b=` value deleted, and the
     /// body hash. `mail-auth`'s own signer leaves the body hash out, so a letter signed by it
@@ -770,8 +759,7 @@ mod tests {
         // The signed data: the headers, then the signature's own header without its trailing
         // CRLF, then the body hash.
         let mut data = Vec::new();
-        mail_auth::dkim::Canonicalization::Relaxed
-            .canonicalize_headers(headers.iter().copied(), &mut data);
+        mail_auth::dkim::Canonicalization::Relaxed.canonicalize_headers(headers.iter().copied(), &mut data);
         data.extend_from_slice(b"dkim-signature:");
         data.extend_from_slice(tags.as_bytes());
         data.extend_from_slice(&body_hash);
@@ -1054,14 +1042,7 @@ mod tests {
         // DNS publishes another key: every signature is hashed and verified to the end.
         let (k, _) = keypair();
         let record = keypair().1;
-        let one = sign_rfc_with(
-            k,
-            "1c-bitrix.ru",
-            "s1",
-            &vec!["from"; 300],
-            &[],
-            LETTER,
-        );
+        let one = sign_rfc_with(k, "1c-bitrix.ru", "s1", &vec!["from"; 300], &[], LETTER);
         let header = &one[..one.len() - LETTER.len()];
         // A whitespace-only line goes on with the header above it: no end of the headers.
         let raw = format!("X-Pad: a\r\n \r\n{}{LETTER}", header.repeat(8000));
@@ -1141,14 +1122,7 @@ mod tests {
     async fn a_signature_without_from_or_with_too_many_headers_asks_no_dns() {
         for headers in [vec!["To", "Subject"], vec!["From"; MAX_SIGNED + 1]] {
             let (k, record) = keypair();
-            let signed = sign_rfc_with(
-                k,
-                "1c-bitrix.ru",
-                "s1",
-                &headers,
-                &[],
-                LETTER,
-            );
+            let signed = sign_rfc_with(k, "1c-bitrix.ru", "s1", &headers, &[], LETTER);
             let v = verifier("1c-bitrix.ru", &record);
             assert_eq!(
                 v.check(signed.as_bytes(), SENDER).await,
@@ -1236,6 +1210,49 @@ mod tests {
             ..verifier("1c-bitrix.ru", &record)
         };
         assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Unchecked);
+    }
+
+    #[tokio::test]
+    async fn the_check_of_the_headers_stands_without_the_body() {
+        // 0.8.13, ступень 4: the signature covers the original headers of the letter; the body
+        // Exchange assembled again is not what the sender signed.
+        let (key, record) = keypair();
+        let signed = sign_rfc(key, "1c-bitrix.ru", LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check_headers(signed.as_bytes(), SENDER).await, Headers::Valid);
+        // The body of the letter does not matter here: the headers are what is signed.
+        let changed = signed.replace("logo.png", "track.png");
+        assert_eq!(v.check_headers(changed.as_bytes(), SENDER).await, Headers::Valid);
+        // Changed headers: the signature does not stand.
+        let changed = signed.replace("Subject: Hi", "Subject: Pay now");
+        assert_eq!(v.check_headers(changed.as_bytes(), SENDER).await, Headers::Rejected);
+        // Another address than the trusted one: the signature is not about it.
+        assert_eq!(
+            v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru").await,
+            Headers::Rejected
+        );
+    }
+
+    #[tokio::test]
+    async fn a_letter_without_a_signature_is_unsigned_in_its_headers_too() {
+        let v = dns([]);
+        assert_eq!(v.check_headers(LETTER.as_bytes(), SENDER).await, Headers::Unsigned);
+    }
+
+    #[tokio::test]
+    async fn a_letter_of_another_time_is_not_this_letter() {
+        // The address of the mailbox must stand in the signed `To` or `Cc`, and the time of the
+        // letter must be close to the time it was received.
+        let now = 1_800_000_000;
+        let letter = format!(
+            "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=1c-bitrix.ru; s=s1; t={now}; h=from:to:subject; bh=AAAA; b=AAAA\r\nFrom: Bitrix24 <no-reply@1c-bitrix.ru>\r\nTo: me@firm.example\r\nSubject: Hi\r\nDate: Mon, 19 Oct 2026 12:00:00 +0300\r\n\r\n"
+        );
+        let headers = letter.as_bytes();
+        assert!(not_a_replay(headers, "me@firm.example", now - 3600));
+        // Another mailbox: the letter was not addressed to it.
+        assert!(!not_a_replay(headers, "other@firm.example", now - 3600));
+        // A letter of another time: the signature of a letter sent long ago proves nothing.
+        assert!(!not_a_replay(headers, "me@firm.example", now + 30 * 24 * 3600));
     }
 
     #[tokio::test]

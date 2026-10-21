@@ -1,0 +1,18 @@
+Authentication-Results: spf=pass (sender IP is 192.0.2.1) smtp.mailfrom=github.com; dkim=pass (signature was verified) header.d=github.com;dmarc=pass action=none header.from=github.com;compauth=pass reason=100
+From: GitHub <noreply@github.com>
+To: me@box.example
+Subject: [depesha] New issue
+Date: Mon, 05 Oct 2026 20:00:00 +0300
+Message-ID: <CA+abc123=example@mail.ghostscript.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="000000000000abce"
+
+--000000000000abce
+Content-Type: text/plain; charset="utf-8"
+
+A new issue was opened in the repository.
+--000000000000abce
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>A new issue was opened.</p></body></html>
+--000000000000abce--

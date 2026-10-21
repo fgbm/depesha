@@ -1,0 +1,20 @@
+Received: from mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net [2a02:6b8:c0f:1:0:605:9c1f:2a4d]) by mail-nwsmtp-mxback-production-main-11.vla.yp-c.yandex.net (mxback/Yandex) with ESMTPS id 1A2B3C4D5E6F; Mon, 19 Oct 2026 10:00:00 +0300
+Received: from out-21.smtp.github.com (out-21.smtp.github.com [192.30.252.204]) by mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net (smtp/Yandex) with ESMTPS id 7F8E9D0C; Mon, 19 Oct 2026 10:00:00 +0300
+Authentication-Results: mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-60.vla.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mailfrom=noreply@github.com; dkim=pass header.i=@github.com
+From: GitHub <noreply@github.com>
+To: me@box.example
+Subject: [depesha] New issue
+Date: Mon, 19 Oct 2026 10:00:00 +0300
+Message-ID: <CA+def456=example@mail.ghostscript.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="000000000000fedc"
+
+--000000000000fedc
+Content-Type: text/plain; charset="utf-8"
+
+A new issue was opened in the repository.
+--000000000000fedc
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>A new issue was opened.</p></body></html>
+--000000000000fedc--

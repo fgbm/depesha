@@ -1,0 +1,16 @@
+Received: from out-1.smtp.timeweb.cloud (out-1.smtp.timeweb.cloud. [192.0.2.9])
+	by mx.google.com with ESMTPS id 4C5D6E7F8A9B;
+	Mon, 19 Oct 2026 12:00:00 +0300
+Authentication-Results: mx.google.com;
+       dkim=fail header.i=@timeweb.cloud header.s=dkim header.b=DDDD;
+       spf=pass (google.com: domain of timeweb.cloud designates 192.0.2.9 as permitted sender) smtp.mailfrom=info@timeweb.cloud;
+       dmarc=fail (p=REJECT sp=REJECT dis=NONE) header.from=timeweb.cloud
+From: Timeweb Cloud <info@timeweb.cloud>
+To: me@box.example
+Subject: Срочно: оплатите сервер
+Date: Mon, 19 Oct 2026 12:00:00 +0300
+Message-ID: <tw-2026-10-19-3@timeweb.cloud>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>Оплатите сервер.</p></body></html>
