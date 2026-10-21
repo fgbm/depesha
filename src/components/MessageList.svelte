@@ -651,10 +651,14 @@
     background: var(--selected);
   }
 
-  /* With several chosen the ground goes with the choice, so a cursor row outside it stays bare.
-     No bar, bracket or frame at the left of a row. */
+  /* With several chosen the ground goes with the choice, and a cursor row outside it takes the
+     hover ground, so j/k stay visible. No bar, bracket or frame at the left of a row. */
   .viewport:not(.multi) .row.cursor {
     background: var(--selected);
+  }
+
+  .viewport.multi .row.cursor:not(.selected) {
+    background: var(--hover);
   }
 
   /* The row that has the keyboard but is not the cursor (a click on a notification leads to it) is marked by the same ground. */

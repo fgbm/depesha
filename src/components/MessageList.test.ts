@@ -234,11 +234,11 @@ describe("the cursor has the ground, not a bar (#165, #108)", () => {
       app.reader.openingRow = row(1, "a@cur.example");
       flushSync();
       expect([...t.querySelectorAll(".row")].map(ground)).toEqual(["var(--selected)", BARE, BARE]);
-      // Several chosen: the ground goes with the choice, so the cursor outside it stays bare.
+      // Several chosen: the ground goes with the choice; the cursor outside it has the hover ground.
       app.reader.openingRow = row(2, "b@cur.example");
       app.selection.selected = new Set([1, 3]);
       flushSync();
-      expect([...t.querySelectorAll(".row")].map(ground)).toEqual(["var(--selected)", BARE, "var(--selected)"]);
+      expect([...t.querySelectorAll(".row")].map(ground)).toEqual(["var(--selected)", "var(--hover)", "var(--selected)"]);
       app.reader.openingRow = null;
       app.selection.selected = new Set();
       flushSync();
