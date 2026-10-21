@@ -6,6 +6,7 @@
   imap_helper.py count FOLDER SUBJECT
   imap_helper.py flags FOLDER SUBJECT
   imap_helper.py header FOLDER SUBJECT HEADER
+  imap_helper.py plain FOLDER SUBJECT         the letter's text/plain part, decoded
   imap_helper.py flag FOLDER SUBJECT        set \\Flagged from "another client"
   imap_helper.py big FOLDER SUBJECT KB      deliver a read letter with a KB-sized attachment
   imap_helper.py many-files FOLDER SUBJECT N deliver a read letter with N small text attachments
@@ -13,6 +14,7 @@
 """
 
 import base64
+import email
 import email.utils
 import imaplib
 import socket
@@ -505,6 +507,15 @@ def main():
         if uids:
             typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[])")
             print(data[0][1].decode("utf-8", "replace"))
+    elif cmd == "plain":
+        # The letter's text/plain part, decoded: what a reader without HTML sees.
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[])")
+            letter = email.message_from_bytes(data[0][1])
+            for part in letter.walk():
+                if part.get_content_type() == "text/plain":
+                    print(part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace"))
+                    break
     elif cmd == "flag":
         c.uid("STORE", uids[-1], "+FLAGS", "(\\Flagged)")
         print("ok")

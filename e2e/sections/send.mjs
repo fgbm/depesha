@@ -50,68 +50,6 @@ export async function run() {
     if (n !== "1") throw new Error(`копий: ${n}`);
   });
 
-  await step("5.14", "картинка в тексте Markdown-письма: в текстовой части «[Изображение]», HTML и сама картинка на месте", async () => {
-    const subj = `Картинка в тексте ${stamp}`;
-    // A picture of one pixel, in the text of the letter as Markdown.
-    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-    await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
-    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
-    await setInput(".compose .subject", subj);
-    // The format button of the footer: the letter is written in Markdown.
-    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
-    await d.click(await d.until("Markdown", () => d.xpath("//div[contains(@class,'compose')]//footer//button[@role='menuitemradio'][contains(., 'Markdown')]")));
-    await d.until("markdown letter", async () => (await d.findAll(".compose .cm-editor")).length === 1);
-    // The text of the letter, with a picture in it and a name for the picture.
-    await d.exec(
-      `const el = document.querySelector('.compose .cm-content');
-       el.focus();
-       document.execCommand('insertText', false, arguments[0]);`,
-      `План зала:\n\n![План зала](data:image/png;base64,${png})\n`,
-    );
-    await d.until("picture in the text", async () =>
-      d.exec("return document.querySelector('.compose .cm-content')?.innerText.includes('План зала') || false"));
-    await d.button("Отправить");
-    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
-    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
-    const raw = helper("raw", "INBOX", subj);
-    // The text part stands for the picture: a reader without HTML sees a picture, not an address.
-    const plain = raw.split("Content-Type: text/plain")[1]?.split("Content-Type:")[0] ?? "";
-    if (!plain.includes("[Изображение: План зала]")) throw new Error(`в текстовой части нет «[Изображение: План зала]»:\n${plain}`);
-    if (plain.includes("cid:") || plain.includes("data:image")) throw new Error(`в текстовой части остался адрес картинки:\n${plain}`);
-    // The HTML part and the picture itself are where they were.
-    if (!raw.includes("text/html")) throw new Error(`в письме нет HTML-части:\n${raw}`);
-    if (!raw.includes("image/png")) throw new Error(`в письме нет картинки:\n${raw}`);
-  });
-
-  await step("5.15", "черновик Markdown-письма с картинкой хранит картинку, а не слово", async () => {
-    const subj = `Черновик с картинкой ${stamp}`;
-    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-    await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
-    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
-    await setInput(".compose .subject", subj);
-    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
-    await d.click(await d.until("Markdown", () => d.xpath("//div[contains(@class,'compose')]//footer//button[@role='menuitemradio'][contains(., 'Markdown')]")));
-    await d.until("markdown letter", async () => (await d.findAll(".compose .cm-editor")).length === 1);
-    await d.exec(
-      `const el = document.querySelector('.compose .cm-content');
-       el.focus();
-       document.execCommand('insertText', false, arguments[0]);`,
-      `План зала:\n\n![План зала](data:image/png;base64,${png})\n`,
-    );
-    await d.until("picture in the text", async () =>
-      d.exec("return document.querySelector('.compose .cm-content')?.innerText.includes('План зала') || false"));
-    // The window is closed: the letter is kept as a draft.
-    await d.click(await d.find(".compose header > button:last-child"));
-    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
-    await d.until("draft on server", async () => helper("count", "Drafts", subj) === "1", 15000);
-    const raw = helper("raw", "Drafts", subj);
-    // The draft keeps the picture: the word that stands for it is only in the letter that goes out.
-    if (!raw.includes("![План зала](cid:")) throw new Error(`в черновике нет картинки:\n${raw}`);
-    if (raw.includes("[Изображение")) throw new Error(`в черновике слово вместо картинки:\n${raw}`);
-  });
-
   await step("5.12", "сервер отвергает копию в «Отправленные»: после 3 отказов пауза, задача с тремя кнопками и значок у ящика; «Повторить» кладёт копию (#88)", async () => {
     const subj = `Копия отвергнута ${stamp}`;
     // The copy of the letter sent by the step before is filed in the next round (up to 15 s): it
@@ -189,6 +127,68 @@ export async function run() {
     await openBySubject(`Re: ${subject}`);
     const sent = await textOf(".reader .body");
     if (!sent.includes("Ответ получен.") || !sent.includes("> Тестовое письмо")) throw new Error(`ушло: ${sent}`);
+  });
+
+  await step("5.14", "картинка в тексте Markdown-письма: в текстовой части «[Изображение]», HTML и сама картинка на месте", async () => {
+    const subj = `Картинка в тексте ${stamp}`;
+    // A picture of one pixel, in the text of the letter as Markdown.
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
+    await setInput(".compose .subject", subj);
+    // The format button of the footer: the letter is written in Markdown.
+    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+    await d.click(await d.until("Markdown", () => d.xpath("//div[contains(@class,'compose')]//footer//button[@role='menuitemradio'][contains(., 'Markdown')]")));
+    await d.until("markdown letter", async () => (await d.findAll(".compose .cm-editor")).length === 1);
+    // The text of the letter, with a picture in it and a name for the picture.
+    await d.exec(
+      `const el = document.querySelector('.compose .cm-content');
+       el.focus();
+       document.execCommand('insertText', false, arguments[0]);`,
+      `План зала:\n\n![План зала](data:image/png;base64,${png})\n`,
+    );
+    await d.until("picture in the text", async () =>
+      d.exec("return document.querySelector('.compose .cm-content')?.innerText.includes('План зала') || false"));
+    await d.button("Отправить");
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+    // The text part stands for the picture: a reader without HTML sees a picture, not an address.
+    const plain = helper("plain", "INBOX", subj);
+    if (!plain.includes("[Изображение: План зала]")) throw new Error(`в текстовой части нет «[Изображение: План зала]»:\n${plain}`);
+    if (plain.includes("cid:") || plain.includes("data:image")) throw new Error(`в текстовой части остался адрес картинки:\n${plain}`);
+    // The HTML part and the picture itself are where they were.
+    const raw = helper("raw", "INBOX", subj);
+    if (!raw.includes("text/html")) throw new Error(`в письме нет HTML-части:\n${raw}`);
+    if (!raw.includes("image/png")) throw new Error(`в письме нет картинки:\n${raw}`);
+  });
+
+  await step("5.15", "черновик Markdown-письма с картинкой хранит картинку, а не слово", async () => {
+    const subj = `Черновик с картинкой ${stamp}`;
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
+    await setInput(".compose .subject", subj);
+    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+    await d.click(await d.until("Markdown", () => d.xpath("//div[contains(@class,'compose')]//footer//button[@role='menuitemradio'][contains(., 'Markdown')]")));
+    await d.until("markdown letter", async () => (await d.findAll(".compose .cm-editor")).length === 1);
+    await d.exec(
+      `const el = document.querySelector('.compose .cm-content');
+       el.focus();
+       document.execCommand('insertText', false, arguments[0]);`,
+      `План зала:\n\n![План зала](data:image/png;base64,${png})\n`,
+    );
+    await d.until("picture in the text", async () =>
+      d.exec("return document.querySelector('.compose .cm-content')?.innerText.includes('План зала') || false"));
+    // The window is closed: the letter is kept as a draft.
+    await d.click(await d.find(".compose header > button:last-child"));
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
+    await d.until("draft on server", async () => helper("count", "Drafts", subj) === "1", 15000);
+    // The draft keeps the picture: the word that stands for it is only in the letter that goes out.
+    const plain = helper("plain", "Drafts", subj);
+    if (!plain.includes("![План зала](cid:")) throw new Error(`в черновике нет картинки:\n${plain}`);
+    if (plain.includes("[Изображение")) throw new Error(`в черновике слово вместо картинки:\n${plain}`);
   });
 
   await step("6.1", "удаление переносит в корзину", async () => {
