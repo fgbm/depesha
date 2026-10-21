@@ -183,7 +183,9 @@ describe("a cancelled meeting", () => {
     expect(t.querySelector(".cal-h .pill.bad")?.textContent).toBe("Отменена");
     expect(t.querySelector(".cr.strong")!.classList.contains("struck")).toBe(true);
     expect(t.textContent).toContain("Отменена организатором, Анна Соколова");
-    expect(t.textContent).toContain("Место в календаре освободилось");
+    // Депеша календаря не ведёт: о месте в нём и о напоминаниях карточка молчит.
+    expect(t.textContent).not.toContain("календаре освободилось");
+    expect(t.textContent).not.toContain("Напоминаний");
     expect(buttons(t).join("|")).not.toContain("Добавить в календарь");
     expect(buttons(t)).toContain("Сохранить .ics");
     // The description of a cancelled meeting is not the point of the card any more.
@@ -208,7 +210,8 @@ describe("an update", () => {
     expect(t.querySelector(".cr.strong")?.textContent).toContain("6 ноября");
     expect(t.textContent).toContain("Переговорная 4");
     expect(t.textContent).toContain("было: Переговорная 2");
-    expect(t.querySelector(".note")?.textContent).toContain("Версия 2 приглашения");
+    // Что именно изменилось, видно по строкам карточки: пояснения к макету в письме не место.
+    expect(t.querySelector(".note")).toBeNull();
   });
 
   it("says only that it changed when the earlier letter is not in the case", () => {
@@ -233,7 +236,8 @@ describe("an answer to the invitation", () => {
     expect(t.querySelector(".cal")!.classList.contains("quiet")).toBe(true);
     expect(t.querySelector(".cal-h")?.textContent).toContain("Ответ участника");
     expect(t.querySelector(".cal-h .pill.ok")?.textContent).toBe("Принято");
-    expect(t.textContent).toContain("Это не новое приглашение");
+    // Заголовок «Ответ участника» и пометка уже сказали это: строки под карточкой нет.
+    expect(t.querySelector(".note")).toBeNull();
     expect(buttons(t).join("|")).not.toContain("Добавить в календарь");
   });
 });

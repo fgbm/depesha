@@ -20,6 +20,8 @@
   import ReaderHeader from "./ReaderHeader.svelte";
   import ReaderBody from "./ReaderBody.svelte";
   import AttachmentChip from "./AttachmentChip.svelte";
+  import MeetingCard from "./MeetingCard.svelte";
+  import { addMeeting, meetingFile, saveMeeting } from "../../lib/meetingActions";
   import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
   import { addrName, avatarColor, initials, listDate } from "../../lib/format";
@@ -74,19 +76,19 @@
 
   /** The letter's files, minus the pictures drawn in its text: the reader's list (4.8). */
   const attachments = $derived((body?.view.attachments ?? []).filter((a) => !(a.inline && a.content_id)));
+  /** The meeting the letter invites to: its card stands where the file's chip would (1.1 А). */
+  const notice = $derived(body?.view.calendar ?? null);
+  /** The `.ics` the card speaks for; a calendar of the letter's own forms has none. */
+  const ics = $derived(meetingFile(body?.view));
+  /** The files left to the chips: a file that did not read stays among them and says why above. */
+  const chips = $derived(ics && !notice?.problem ? attachments.filter((a) => a !== ics) : attachments);
   /** The folder the files go to without asking; the pane's viewer reads the same. */
   const saveDir = $derived(app.mailboxes.account(m.account_id)?.attachments_dir?.trim() || app.settingsCtl.settings.attachments_dir?.trim() || "");
 
   /** Saving a file of a letter unfolded here: the pane's viewer saves for the open letter, this
    *  saves for the letter's own id (4.8). No viewer: the name is not a button. */
-  async function saveAttachment(a: AttachmentInfo) {
-    if (!saveDir) return saveAttachmentAs(a);
-    try {
-      const path = await app.ui.track(api.attachmentSaveIn(m.id, a.index));
-      app.ui.toast(t("file.savedTo", { name: path.split(/[\\/]/).pop() ?? a.name, dir: saveDir }));
-    } catch (e) {
-      app.ui.fail(e);
-    }
+  function saveAttachment(a: AttachmentInfo) {
+    void saveMeeting(m.id, a, saveDir);
   }
 
   async function saveAttachmentAs(a: AttachmentInfo) {
@@ -146,14 +148,19 @@
         onSaveAll={() => {}}
         saveDir=""
       />
+      {#if notice}
+        <div class="letter-card">
+          <MeetingCard {notice} attachment={ics} onAdd={(a) => void addMeeting(m.id, a)} onSave={saveAttachment} />
+        </div>
+      {/if}
       <div class="letter-body"><ReaderBody msg={body} viewing={false} /></div>
     {:else}
       <p class="loading muted">{t("loading")}</p>
     {/if}
     <!-- The letter's files: name, size, a button that saves each (4.8). No viewer here. -->
-    {#if attachments.length}
+    {#if chips.length}
       <div class="files">
-        {#each attachments as a (a.index)}
+        {#each chips as a (a.index)}
           <AttachmentChip {a} {saveDir} onSave={saveAttachment} onSaveAs={saveAttachmentAs} />
         {/each}
       </div>
@@ -289,6 +296,11 @@
 
   .letter-body {
     padding: 0 12px 10px;
+  }
+
+  /* The card of the meeting keeps the row's margins, as the body does: the pane's own are wider. */
+  .letter-card :global(.cal) {
+    margin: 8px 12px 10px;
   }
 
   /* The letter's own card is the pane's (ReaderBody): inside the row it keeps the row's margins. */

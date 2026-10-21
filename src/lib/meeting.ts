@@ -229,6 +229,12 @@ export function isUpdate(notice: { sequence: number; method: string }): boolean 
   return notice.method === "request" && notice.sequence > 0;
 }
 
+/** Whether the invitation is not an invitation any more — `METHOD:CANCEL`, or `STATUS:CANCELLED`
+ *  in the meeting itself: the card frames it in red and offers no way into the calendar. */
+export function isCancelled(n: { cancelled: boolean; events: Meeting[] }): boolean {
+  return n.cancelled || !!n.events[0]?.cancelled;
+}
+
 /** Whether this meeting differs from the earlier version in a way the card names. */
 export function changed(previous: Meeting, m: Meeting): boolean {
   return (

@@ -10,11 +10,14 @@ import { extensions, fromRow } from "./extensions.svelte";
 import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
 import { readyQueries } from "./largeMail";
+import { isCancelled } from "./meeting";
+import { addMeeting, copyMeetingLink, meetingFile, saveMeeting } from "./meetingActions";
 import { recentSearches } from "./recentSearches.svelte";
 import { printOpened } from "./print";
 import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
 import { labels } from "./labels.svelte";
+import type { OpenedMessage } from "./types";
 
 const go = (v: View) => () => app.selection.setView(v);
 
@@ -33,6 +36,26 @@ function readableFolder(): string | null {
   return app.mailboxes.folders.find((f) => f.account_id === v.account_id && f.name === v.folder)?.display_name ?? v.folder;
 }
 
+/** The actions of the meeting whose card the open letter holds (0.8.13, 1.1 А): the card's own,
+ *  under the same rules and with no key of their own. */
+function meetingCommands(msg: OpenedMessage): Command[] {
+  const cal = msg.view.calendar;
+  if (!cal) return [];
+  const list: Command[] = [];
+  const ics = meetingFile(msg.view);
+  const off = isCancelled(cal);
+  if (ics) {
+    if (!off && cal.method !== "reply" && !cal.problem) {
+      list.push({ id: "core.meeting-add", title: () => t("cal.addToCalendar"), run: () => void addMeeting(msg.row.id, ics) });
+    }
+    const dir = app.mailboxes.account(msg.row.account_id)?.attachments_dir?.trim() || app.settingsCtl.settings.attachments_dir?.trim() || "";
+    list.push({ id: "core.meeting-save", title: () => t("cal.saveIcs"), run: () => void saveMeeting(msg.row.id, ics, dir) });
+  }
+  const link = off ? null : cal.events[0]?.link;
+  if (link) list.push({ id: "core.meeting-link", title: () => t("cal.copyLink"), run: () => void copyMeetingLink(link) });
+  return list;
+}
+
 export function coreCommands(): Command[] {
   const msg = app.reader.opened;
   const target = app.selection.selectedIds();
@@ -43,6 +66,7 @@ export function coreCommands(): Command[] {
       { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.compose.replyTo(true) },
       { id: "core.forward", title: () => t("act.forward"), run: () => app.compose.forwardOpened() },
       { id: "core.print", title: () => t("act.print"), run: printOpened },
+      ...meetingCommands(msg),
     );
   }
   if (target.length) {

@@ -22,6 +22,7 @@
     changed,
     dayLabel,
     instant,
+    isCancelled,
     isUpdate,
     kindLabel,
     localCaption,
@@ -29,6 +30,7 @@
     repeatLabel,
     whenLabel,
   } from "../../lib/meeting";
+  import { copyMeetingLink } from "../../lib/meetingActions";
   import type { Key } from "../../lib/i18n.svelte";
   import type { AttachmentInfo, Notice } from "../../lib/types";
 
@@ -45,14 +47,16 @@
     /** Hands the file to the calendar of the system. */
     onAdd: (a: AttachmentInfo) => void;
     onSave: (a: AttachmentInfo) => void;
-    onOpenAsText: (a: AttachmentInfo) => void;
+    /** Shows the file itself in place of the letter; absent where the letter has no viewer, as in
+     *  the chain of a conversation, and then the card offers no way into the file's text. */
+    onOpenAsText?: (a: AttachmentInfo) => void;
   } = $props();
 
   const meeting = $derived(notice.events[0] ?? null);
   const previous = $derived(notice.previous);
   const reply = $derived(notice.method === "reply");
   /** `STATUS:CANCELLED` of the meeting itself says it as well as the calendar's method. */
-  const cancelled = $derived(notice.cancelled || !!meeting?.cancelled);
+  const cancelled = $derived(isCancelled(notice));
   /** A later version of the invitation (7.1 А): the mark stands even when the earlier letter is
    *  not in the case, and only then is there nothing to compare it with. */
   const revision = $derived(isUpdate(notice));
@@ -84,16 +88,6 @@
   let attendeesOpen = $state(false);
   let descriptionOpen = $state(false);
   let menu = $state(false);
-
-  async function copyLink() {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      app.ui.toast(t("cal.linkCopied"));
-    } catch (e) {
-      app.ui.fail(e);
-    }
-  }
 </script>
 
 {#if meeting || notice.problem}
@@ -172,11 +166,6 @@
       {/if}
       {#if cancelled}
         <div class="cr bad"><TriangleAlert size={14} /><span>{organizer ? t("cal.cancelledBy", { name: organizer }) : t("cal.cancelledByUnknown")}</span></div>
-        <p class="note">{t("cal.cancelledNote")}</p>
-      {:else if reply}
-        <p class="note">{t("cal.replyNote")}</p>
-      {:else if update}
-        <p class="note">{t("cal.changedNote", { n: notice.sequence })}</p>
       {/if}
       {#if meeting.description && !cancelled}
         <div class="cal-d">
@@ -198,17 +187,17 @@
       {#if attachment}
         <button class="btn ghost save" title={t("cal.saveIcs")} aria-label={t("cal.saveIcs")} onclick={() => onSave(attachment)}><Download size={14} /><span class="lbl">{t("cal.saveIcs")}</span></button>
       {/if}
-      {#if attachment && (cancelled || reply || notice.problem)}
+      {#if attachment && onOpenAsText && (cancelled || reply || notice.problem)}
         <button class="btn ghost" onclick={() => onOpenAsText(attachment)}>{t("cal.openAsText")}</button>
       {/if}
       {#if link && !cancelled}
-        <button class="btn ghost icon" title={t("cal.copyLink")} aria-label={t("cal.copyLink")} onclick={copyLink}><Copy size={14} /></button>
+        <button class="btn ghost icon" title={t("cal.copyLink")} aria-label={t("cal.copyLink")} onclick={() => void copyMeetingLink(link)}><Copy size={14} /></button>
       {/if}
-      {#if attachment && !notice.problem}
+      {#if attachment && onOpenAsText && !notice.problem}
         <span class="anchor">
           <button class="btn ghost icon" title={t("act.more")} aria-label={t("act.more")} onclick={() => (menu = !menu)}><Ellipsis size={14} /></button>
           <Popover bind:open={menu} align="left">
-            <button class="mi" onclick={() => { menu = false; if (attachment) onOpenAsText(attachment); }}>{t("cal.openAsText")}</button>
+            <button class="mi" onclick={() => { menu = false; onOpenAsText(attachment); }}>{t("cal.openAsText")}</button>
           </Popover>
         </span>
       {/if}

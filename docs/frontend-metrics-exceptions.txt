@@ -42,7 +42,8 @@ component	src/components/SearchBox.svelte	345	титул с серверным �
 component	src/components/account/CheckError.svelte	79	прокрутка к ошибке проверки, которая стоит ниже края длинной формы (А3)
 component	src/components/account/ConnectionFields.svelte	206	ошибка проверки в мастере под логином или под сервером, чей сертификат или шифрование не прошли: проп errors и errorAt (А3)
 function	src/components/SearchBox.svelte::onInput	11	оператор без значения не запускает поиск: ветка awaitsValue (А2)
-function	src/lib/commands.ts::coreCommands	133	перенос без своей папки, «Отложенных», «Черновиков» и «Отправленных» (А8)
+function	src/lib/commands.ts::coreCommands	134	перенос без своей папки, «Отложенных», «Черновиков» и «Отправленных» (А8); действия карточки встречи в палитре (0.8.13, 1.1 А) — строка meetingCommands в списке команд открытого письма
+component	src/components/reader/ThreadLetter.svelte	342	карточка встречи в письме, раскрытом в ленте цепочки (0.8.13, 1.1 А): та же карточка на месте чипа .ics, её файл уходит из строки вложений; сохранение вложения зовёт saveMeeting
 function	src/lib/searchSuggest.ts::folderCompletions	20	папка с ролью — по имени из боковой панели, серверное имя в title, без повтора одинаковых подсказок (А11)
 function	src/lib/markdown/markdownEditor.ts::decorate	30	картинка в тексте письма (data:) — одно целое для каретки и Backspace, её base64 не показывается: decorate отдаёт рядом с украшениями и неделимые отрезки, кусок «atom» не украшается, «data» — значок вместо адреса
 component	src/components/prefs/RowControl.svelte	127	плитки оформления в выбранной светлоте: lightOf и themeOf (0.8.12)
