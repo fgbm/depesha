@@ -194,6 +194,13 @@ button {
   cursor: default;
 }
 
+/* The ring of a check box, on every platform alike. Rows and menu items show the focus by
+   their ground, not by a ring. */
+.btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
