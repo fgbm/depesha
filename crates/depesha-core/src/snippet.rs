@@ -59,9 +59,11 @@ fn decode_charset(bytes: &[u8], charset: Option<&str>) -> String {
 }
 
 /// One line for the row: whitespace folded to single spaces, the quoted lines and the
-/// signature dropped, the control characters and direction marks a sender may hide text
-/// with taken out, cut to `LENGTH` with an ellipsis.
+/// signature dropped, the pictures of the text taken out (a row cannot show them), the
+/// control characters and direction marks a sender may hide text with taken out, cut to
+/// `LENGTH` with an ellipsis.
 pub fn normalize(text: &str) -> String {
+    let text = without_pictures(text);
     let mut out = String::new();
     for line in text.lines() {
         let line = line.trim();
@@ -83,6 +85,49 @@ pub fn normalize(text: &str) -> String {
     }
     let folded = out.split_whitespace().collect::<Vec<_>>().join(" ");
     cut(&folded.chars().filter(|c| !is_hidden(*c)).collect::<String>())
+}
+
+/// The text without its pictures: a Markdown image (`![alt](url)`, a Markdown letter's own
+/// picture), and a bare `data:` or `cid:` address. A prefix the server cut may end inside an
+/// image, and then the rest goes with it.
+fn without_pictures(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("![") {
+        out.push_str(&rest[..at]);
+        let image = &rest[at..];
+        // The alt is one line without brackets, the address what stands up to ")".
+        let open = image.find("](").filter(|&mid| !image[2..mid].contains(['\n', '[']));
+        match open {
+            Some(mid) => {
+                rest = image[mid + 2..]
+                    .find(')')
+                    .map_or("", |close| &image[mid + 2 + close + 1..])
+            }
+            None => {
+                out.push_str("![");
+                rest = &image[2..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out.lines()
+        .map(|line| {
+            line.split(' ')
+                .filter(|word| !is_address(word))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A word that is the address of a picture inside the letter: `data:image/…` or `cid:…`.
+/// A word "data:" in the text, with nothing after it, is a word.
+fn is_address(word: &str) -> bool {
+    let word = word.trim_start_matches(['<', '(', '"']).to_ascii_lowercase();
+    word.strip_prefix("data:").is_some_and(|rest| rest.contains(['/', ',']))
+        || word.strip_prefix("cid:").is_some_and(|rest| !rest.is_empty())
 }
 
 /// A character a row must not carry: the control ones and the direction marks that would
@@ -210,6 +255,43 @@ mod tests {
             "Hi \u{fffd}"
         );
     }
+
+    /// Criterion: the pictures of a text (a Markdown image, a bare `data:` or `cid:`
+    /// address) are not shown in the row; a picture cut by the prefix goes whole.
+    #[test]
+    fn leaves_the_pictures_of_a_text_out() {
+        assert_eq!(normalize("![](data:image/png;base64,iVBORw0KGgo=)"), "");
+        assert_eq!(normalize("![План](cid:3f2a@depesha)\n"), "");
+        assert_eq!(
+            normalize("План зала:\n\n![План](data:image/png;base64,AA)\n\nПриходите к 10."),
+            "План зала: Приходите к 10."
+        );
+        assert_eq!(normalize("Вот: data:image/png;base64,AAAA и всё"), "Вот: и всё");
+        assert_eq!(normalize("Смотри <cid:logo@x> тут"), "Смотри тут");
+        // Cut by the prefix inside the address: nothing of it is left.
+        assert_eq!(normalize("Фото:\n![](data:image/jpeg;base64,/9j/4AAQSk"), "Фото:");
+        // What only looks like one stays: a word "Data:", a "!" before a link.
+        assert_eq!(normalize("Data: см. ниже"), "Data: см. ниже");
+        assert_eq!(normalize("Ура![ссылка]"), "Ура![ссылка]");
+    }
+
+    /// Criterion: an incoming letter whose text carries its picture as `data:` gives no
+    /// base64 to the row, neither from its text part nor from its HTML.
+    #[test]
+    fn an_incoming_picture_in_data_gives_no_base64() {
+        let text = format!("![]({PICTURE})\n");
+        let out = from_part(text.as_bytes(), Encoding::Identity, Some("utf-8"), false);
+        assert_eq!(out, "");
+        let html = format!("<p><img src=\"{PICTURE}\"></p>");
+        assert_eq!(from_part(html.as_bytes(), Encoding::Identity, Some("utf-8"), true), "");
+        let encoded = BASE64.encode(format!("Привет!\n{text}"));
+        assert_eq!(
+            from_part(encoded.as_bytes(), Encoding::Base64, Some("utf-8"), false),
+            "Привет!"
+        );
+    }
+
+    const PICTURE: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
     /// The whole downloaded letter gives the same beginning as its text part.
     #[test]

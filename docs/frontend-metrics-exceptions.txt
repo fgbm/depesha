@@ -42,3 +42,4 @@ component	src/components/account/ConnectionFields.svelte	206	ошибка про
 function	src/components/SearchBox.svelte::onInput	11	оператор без значения не запускает поиск: ветка awaitsValue (А2)
 function	src/lib/commands.ts::coreCommands	133	перенос без своей папки, «Отложенных», «Черновиков» и «Отправленных» (А8)
 function	src/lib/searchSuggest.ts::folderCompletions	20	папка с ролью — по имени из боковой панели, серверное имя в title, без повтора одинаковых подсказок (А11)
+function	src/lib/markdown/markdownEditor.ts::decorate	30	картинка в тексте письма (data:) — одно целое для каретки и Backspace, её base64 не показывается: decorate отдаёт рядом с украшениями и неделимые отрезки, кусок «atom» не украшается, «data» — значок вместо адреса

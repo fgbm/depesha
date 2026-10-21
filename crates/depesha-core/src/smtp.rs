@@ -1450,6 +1450,20 @@ mod tests {
     }
 
     #[test]
+    fn a_markdown_letter_of_one_picture_has_no_text_in_the_list() {
+        // A letter of one picture and no words: the picture goes out in its place, and the
+        // list's preview of it, sent or kept as a draft, shows no address and no base64.
+        let text = format!("![](data:image/png;base64,{PNG})\n");
+        let raw = build(&letter(BodyFormat::Markdown, &text, None)).unwrap().formatted();
+        let shown = String::from_utf8(raw.clone()).unwrap();
+        assert!(content_types(&shown).iter().any(|t| t == "image/png"), "{shown}");
+        let view = crate::message::parse_view(&raw, false).unwrap();
+        assert!(view.html.unwrap().contains(&format!("data:image/png;base64,{PNG}")));
+        let snippet = crate::snippet::from_body(&raw);
+        assert_eq!(snippet, "", "{snippet}");
+    }
+
+    #[test]
     fn pictures_in_a_markdown_letter_go_as_related_parts() {
         // A Markdown letter carries its pictures in the letter itself (decision on #45):
         // the HTML part the Markdown renders to holds them as `data:` images, and here they

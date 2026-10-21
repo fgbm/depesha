@@ -15,13 +15,13 @@ function shown(marked: string, opts: Partial<PreviewOptions> = {}): string {
   const state = stateOf(marked);
   const doc = state.doc.toString();
   const replaced = previewPieces(state, { focused: true, markup: false, ...opts })
-    .filter((p): p is Extract<Piece, { from: number; to: number }> => "to" in p && p.kind !== "style" && p.kind !== "token")
+    .filter((p): p is Extract<Piece, { from: number; to: number }> => "to" in p && p.kind !== "style" && p.kind !== "token" && p.kind !== "atom")
     .sort((a, b) => a.from - b.from);
   let out = "";
   let at = 0;
   for (const p of replaced) {
     if (p.from < at) continue; // inside a range already replaced
-    out += doc.slice(at, p.from) + (p.kind === "bullet" ? "•" : p.kind === "task" ? (p.done ? "☑" : "☐") : p.kind === "table" ? "[таблица]" : p.kind === "image" ? "[картинка]" : "");
+    out += doc.slice(at, p.from) + (p.kind === "bullet" ? "•" : p.kind === "task" ? (p.done ? "☑" : "☐") : p.kind === "table" ? "[таблица]" : p.kind === "image" ? "[картинка]" : p.kind === "data" ? "[адрес]" : "");
     at = p.to;
   }
   return out + doc.slice(at);
@@ -98,9 +98,9 @@ describe("Live Preview: the blocks of a letter", () => {
   });
 
   it("shows an image in place, its markup under the caret", () => {
-    const pic = "![План](data:image/png;base64,AA)";
+    const pic = "![План](https://example.com/p.png)";
     expect(shown(pic + "\n\nтекст‸")).toBe("[картинка]\n\nтекст");
-    expect(shown("![План](data:image/png;base64,‸AA)")).toBe(pic);
+    expect(shown("![План](https://example.com/‸p.png)")).toBe(pic);
     expect(shown(pic + "‸", { markup: true })).toBe(pic);
   });
 
@@ -126,6 +126,23 @@ describe("Live Preview: the blocks of a letter", () => {
 });
 
 describe("what the editor draws in place of a picture", () => {
+  it("never shows the base64 of a picture in the text, its markup open or not", () => {
+    const pic = "![План](data:image/png;base64,AA)";
+    expect(shown(pic + "\n\nтекст‸")).toBe("[картинка]\n\nтекст");
+    expect(shown(pic + "‸")).toBe("![План]([адрес])");
+    expect(shown(pic + "‸", { markup: true })).toBe("![План]([адрес])");
+  });
+
+  it("makes a picture in the text one piece, wherever the caret is", () => {
+    const atoms = (marked: string, opts: Partial<PreviewOptions> = {}) =>
+      previewPieces(stateOf(marked), { focused: true, markup: false, ...opts }).filter((p) => p.kind === "atom");
+    const pic = "![План](data:image/png;base64,AA)";
+    expect(atoms(pic + "\n‸")).toEqual([{ kind: "atom", from: 0, to: pic.length }]);
+    expect(atoms(pic + "‸", { markup: true })).toEqual([{ kind: "atom", from: 0, to: pic.length }]);
+    // A remote picture is a link like any other: its markup opens to the caret.
+    expect(atoms("![План](https://example.com/p.png)‸")).toEqual([]);
+  });
+
   it("draws a picture of the letter's own, not a remote one", () => {
     expect(isOwnPicture("data:image/png;base64,AA")).toBe(true);
     expect(isOwnPicture("cid:part1@example")).toBe(true);

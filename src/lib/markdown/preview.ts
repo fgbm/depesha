@@ -31,7 +31,12 @@ export type Piece =
   /** A token of a code block, coloured by the client's own scanner (syntax.ts). */
   | { kind: "token"; from: number; to: number; class: string }
   /** An image in the letter, shown in place with the markup hidden. */
-  | { kind: "image"; from: number; to: number };
+  | { kind: "image"; from: number; to: number }
+  /** A picture the letter carries in its text (`data:`): one piece to the caret and to
+   *  Backspace, so its markup never opens character by character. */
+  | { kind: "atom"; from: number; to: number }
+  /** The address of such a picture where its markup shows: a short chip, not the base64. */
+  | { kind: "data"; from: number; to: number };
 
 /** Elements whose marks show only with the caret in them. */
 const INLINE = new Set(["Emphasis", "StrongEmphasis", "Strikethrough", "InlineCode", "Link", "Autolink", "Escape"]);
@@ -114,12 +119,20 @@ function block(pass: Pass, node: SyntaxNode): boolean | void {
     else pass.lines(from, to, "md-table");
     return false;
   } else if (name === "HTMLBlock") return false;
-  else if (name === "Image") {
-    // An image is shown whole; under the caret its markup stands instead (frame 10 B).
-    if (pass.opts.markup || pass.touches(from, to)) return false;
-    if (node.getChild("URL")) pass.out.push({ kind: "image", from, to });
-    return false;
-  }
+  else if (name === "Image") return image(pass, node);
+}
+
+/** An image is shown whole; under the caret its markup stands instead (frame 10 B). A
+ *  picture of the letter's own text is one piece, and its base64 is never shown. */
+function image(pass: Pass, node: SyntaxNode): false {
+  const { from, to } = node;
+  const url = node.getChild("URL");
+  const inText = !!url && /^data:/i.test(pass.doc.sliceString(url.from, url.from + 5));
+  if (url && inText) pass.out.push({ kind: "atom", from, to });
+  if (pass.opts.markup || pass.touches(from, to)) {
+    if (url && inText) pass.out.push({ kind: "data", from: url.from, to: url.to });
+  } else if (url) pass.out.push({ kind: "image", from, to });
+  return false;
 }
 
 /** The marks of headings, quotes, lists, tasks and rules; inline elements. */

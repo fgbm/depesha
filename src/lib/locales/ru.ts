@@ -212,6 +212,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "compose.picture.altTitle": "Описание картинки",
   "compose.picture.altHint": "Его видят, если картинки в письме отключены, и программы чтения с экрана. Под картинкой не показывается.",
   "compose.picture.describe": "Описание",
+  "compose.picture.inText": "картинка",
   "people.readFailed": "Не удалось прочитать адресную книгу",
   "hints.saveFailed": "Не удалось сохранить ответ на подсказку",
   "startup.localDraftsFailed": "Не удалось проверить локальные черновики",

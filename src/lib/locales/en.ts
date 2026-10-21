@@ -219,6 +219,7 @@ export const en = {
   "compose.picture.altTitle": "Picture description",
   "compose.picture.altHint": "Seen when pictures are off in the message and by screen readers. Not shown under the picture.",
   "compose.picture.describe": "Description",
+  "compose.picture.inText": "picture",
   "people.readFailed": "The address book could not be read",
   "hints.saveFailed": "The answer to the hint could not be kept",
   "startup.localDraftsFailed": "Could not check the local drafts",

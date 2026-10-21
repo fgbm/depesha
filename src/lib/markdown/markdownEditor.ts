@@ -140,6 +140,20 @@ class Picture extends WidgetType {
   }
 }
 
+/** The address of a picture the letter carries in its text, where its markup shows: a chip
+ *  stands for the base64, which no one reads. */
+class PictureData extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const chip = document.createElement("span");
+    chip.className = "md-picture-data";
+    chip.textContent = t("compose.picture.inText");
+    return chip;
+  }
+}
+
 /** The panel a picture opens on click: "Описание" reveals the alt field, "Удалить" takes the
  *  picture out. It floats over the window (document.body), anchored to the picture's place,
  *  so a rewritten description does not tear it down with the widget. */
@@ -280,10 +294,20 @@ function openPicturePanel(view: EditorView, from: number) {
 
 const hidden = Decoration.replace({});
 const bullet = Decoration.replace({ widget: new Bullet() });
+const pictureData = Decoration.replace({ widget: new PictureData() });
+const atom = Decoration.mark({});
 
-function decorate(state: EditorState): DecorationSet {
+/** What the Live Preview draws, and the pictures the caret and Backspace take as one piece. */
+interface Drawn {
+  deco: DecorationSet;
+  atoms: DecorationSet;
+}
+
+function decorate(state: EditorState): Drawn {
   const opts = state.field(mode);
-  const ranges = previewPieces(state, opts).map((p) => {
+  const pieces = previewPieces(state, opts);
+  const atoms = pieces.flatMap((p) => (p.kind === "atom" ? [atom.range(p.from, p.to)] : []));
+  const ranges = pieces.flatMap((p) => {
     switch (p.kind) {
       case "hide":
         return hidden.range(p.from, p.to);
@@ -294,7 +318,12 @@ function decorate(state: EditorState): DecorationSet {
       case "table":
         return Decoration.replace({ widget: new TableView(p.from, state.sliceDoc(p.from, p.to), state.readOnly), block: true }).range(p.from, p.to);
       case "image":
-        return Decoration.replace({ widget: picture(state, p.from, p.to), block: true }).range(p.from, p.to);      case "token":
+        return Decoration.replace({ widget: picture(state, p.from, p.to), block: true }).range(p.from, p.to);
+      case "atom":
+        return [];
+      case "data":
+        return pictureData.range(p.from, p.to);
+      case "token":
         return Decoration.mark({ class: `md-${p.class}` }).range(p.from, p.to);
       case "line":
         return Decoration.line({ class: p.class }).range(p.at);
@@ -302,7 +331,7 @@ function decorate(state: EditorState): DecorationSet {
         return Decoration.mark({ class: p.class }).range(p.from, p.to);
     }
   });
-  return Decoration.set(ranges, true);
+  return { deco: Decoration.set(ranges, true), atoms: Decoration.set(atoms, true) };
 }
 
 /** The picture an `![alt](url)` refers to, read off the document. */
@@ -313,13 +342,13 @@ function picture(state: EditorState, from: number, to: number): Picture {
 }
 
 /** In a field, not a view plugin: a table replaces whole lines, which only a field may. */
-const livePreview = StateField.define<DecorationSet>({
+const livePreview = StateField.define<Drawn>({
   create: decorate,
-  update(deco, tr) {
+  update(drawn, tr) {
     const moved = tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setFocused) || e.is(setMarkup));
-    return moved || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? decorate(tr.state) : deco;
+    return moved || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? decorate(tr.state) : drawn;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => [EditorView.decorations.from(f, (d) => d.deco), EditorView.atomicRanges.of((view) => view.state.field(f).atoms)],
 });
 
 /**
@@ -335,7 +364,7 @@ function intoTable(down: boolean) {
     if (!main.empty || n < 1 || n > state.doc.lines) return false;
     const next = state.doc.line(n);
     let target = -1;
-    state.field(livePreview).between(next.from, next.to, (from, to, deco) => {
+    state.field(livePreview).deco.between(next.from, next.to, (from, to, deco) => {
       if (deco.spec.widget instanceof TableView) target = down ? from : to;
     });
     if (target < 0) return false;
@@ -406,6 +435,8 @@ const theme = EditorView.theme({
   // An image in the letter: shown in place, no wider than the text.
   ".md-picture": { display: "block", margin: "4px 0", cursor: "pointer" },
   ".md-picture img": { maxWidth: "100%", height: "auto", borderRadius: "4px", border: "1px solid var(--line)" },
+  // The base64 of a picture in the text, where its markup shows.
+  ".md-picture-data": { padding: "0 6px", borderRadius: "4px", background: "var(--paper-2)", color: "var(--muted)", fontSize: "12px" },
   // A remote picture is not drawn: its address stands in for it.
   ".md-picture-remote": {
     display: "inline-block",
