@@ -61,6 +61,36 @@ body.night .theme {
   color-scheme: dark;
 }
 
+/* окна с заданной темой — на экране 7, при любом переключателе */
+body .theme.light {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --imp: #8a5200;
+  color-scheme: light;
+}
+body .theme.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #adb3bb;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #3a4553;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  --imp: #e3a63c;
+  color-scheme: dark;
+}
+
 /* --- страница макета (не приложение) --- */
 * { box-sizing: border-box; }
 html { background: #cfc9be; }
@@ -122,9 +152,16 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; backgrou
 .psearch .caret { display: inline-block; width: 1px; height: 15px; background: var(--ink); vertical-align: -3px; margin-left: 1px; }
 .tab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 6px; color: var(--ink); font-size: 13px; white-space: nowrap; overflow: hidden; }
 .tab svg { flex: none; color: var(--muted); }
+.tab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab.on { background: var(--selected); font-weight: 600; }
 .tab.on svg { color: var(--ink); }
 .tab.sub { padding-left: 36px; font-size: 12.5px; }
+/* подпункты: ящики и плагины (0.8.12) */
+.tab .chv { margin-left: auto; display: flex; color: var(--muted); }
+.tab.kid { padding: 6px 10px 6px 36px; gap: 8px; }
+.tab.kid.on { background: var(--selected); font-weight: 600; }
+.tab.kid.off span { color: var(--muted); }
+.kdot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .tab .dotc { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .grp-m { margin: 14px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .sep-m { height: 1px; background: var(--line); margin: 10px 6px; }
@@ -244,7 +281,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <body>
 <div class="ctl">
   <div class="cg"><span>Тема</span><button data-theme-btn="paper" class="on">Бумага</button><button data-theme-btn="night">Ночь</button></div>
-  <div class="cg"><span>Экраны</span><a href="#s1" style="color:#d5dde6">1 Как сейчас</a>&nbsp;·&nbsp;<a href="#s2" style="color:#d5dde6">2 Окно</a>&nbsp;·&nbsp;<a href="#s3" style="color:#d5dde6">3 Разделы</a>&nbsp;·&nbsp;<a href="#s4" style="color:#d5dde6">4 Ящик</a>&nbsp;·&nbsp;<a href="#s5" style="color:#d5dde6">5 Поиск</a>&nbsp;·&nbsp;<a href="#s6" style="color:#d5dde6">6 Ширина</a>&nbsp;·&nbsp;<a href="#s7" style="color:#d5dde6">7 Итог</a>&nbsp;·&nbsp;<a href="#sq" style="color:#d5dde6">Вопросы</a></div>
+  <div class="cg"><span>Экраны</span><a href="#s1" style="color:#d5dde6">1 Как сейчас</a>&nbsp;·&nbsp;<a href="#s2" style="color:#d5dde6">2 Окно</a>&nbsp;·&nbsp;<a href="#s3" style="color:#d5dde6">3 Разделы</a>&nbsp;·&nbsp;<a href="#s4" style="color:#d5dde6">4 Ящик</a>&nbsp;·&nbsp;<a href="#s5" style="color:#d5dde6">5 Поиск</a>&nbsp;·&nbsp;<a href="#s6" style="color:#d5dde6">6 Ширина</a>&nbsp;·&nbsp;<a href="#s7m" style="color:#d5dde6">7 Меню</a>&nbsp;·&nbsp;<a href="#s7" style="color:#d5dde6">8 Итог</a>&nbsp;·&nbsp;<a href="#sq" style="color:#d5dde6">Вопросы</a></div>
 </div>
 <div class="doc">
 
@@ -290,14 +327,12 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <h2 class="screen" id="s2">Экран 2. Устройство окна</h2>
 
 <h3 class="q" data-q="1.1"><span class="n">1.1</span>Как устроено окно</h3>
-<p class="lead">Все три варианта на одном и том же наборе разделов. Состав разделов — вопрос 2.1. Клавиши решены в 0.8.0 (решения 4.1–4.3 того макета): <code>↑</code> и <code>↓</code> по строкам, <code>←</code> и <code>→</code> меняют значение, <code>Ctrl</code>+<code>PgUp</code>/<code>PgDn</code> листают разделы. Во всех вариантах они работают одинаково.</p>
-<div class="cols3">
+<p class="lead">Оба варианта на одном и том же наборе разделов. Вкладки сверху (бывший вариант В) сняты: в строке вкладок нельзя раскрыть «Ящики» и «Плагины» подпунктами (экран 7). Состав разделов — вопрос 2.1. Клавиши решены в 0.8.0 (решения 4.1–4.3 того макета): <code>↑</code> и <code>↓</code> по строкам, <code>←</code> и <code>→</code> меняют значение, <code>Ctrl</code>+<code>PgUp</code>/<code>PgDn</code> листают разделы. Во всех вариантах они работают одинаково.</p>
+<div class="cols2">
   <div><h3 data-q="1.1" data-variant="А" class="v rec"><span class="n">А</span><em>меню разделов слева, страница раздела справа (как сейчас)</em></h3><div class="mini" id="v11a"></div>
     <ul class="pc"><li><span class="plus">+</span> страница раздела помещается в экран без прокрутки</li><li><span class="plus">+</span> меню показывает, что вообще есть; две оси сохраняются (решение 2.1 В)</li><li><span class="minus">−</span> нужно знать, в каком разделе строка; это закрывают поиск и 2.1</li></ul></div>
   <div><h3 data-q="1.1" data-variant="Б" class="v"><span class="n">Б</span><em>одна длинная страница с поиском, меню — оглавление</em></h3><div class="mini" id="v11b"></div>
-    <ul class="pc"><li><span class="plus">+</span> все общие настройки в одной прокрутке, искать раздел не надо</li><li><span class="minus">−</span> 32 строки подряд, <code>↓</code> идёт через все разделы</li><li><span class="minus">−</span> «Клавиши», «Ящики» и «Плагины» всё равно отдельные страницы: окно устроено двумя способами</li></ul></div>
-  <div><h3 data-q="1.1" data-variant="В" class="v"><span class="n">В</span><em>вкладки разделов сверху, страница на всю ширину</em></h3><div class="mini" id="v11c"></div>
-    <ul class="pc"><li><span class="plus">+</span> окно уже, меню не занимает 220 px</li><li><span class="minus">−</span> 10 вкладок в строку не помещаются, осей «Почта / Программа» нет</li><li><span class="minus">−</span> ящики во вкладках не перечислить</li></ul></div>
+    <ul class="pc"><li><span class="plus">+</span> все общие настройки в одной прокрутке, искать раздел не надо</li><li><span class="minus">−</span> 32 строки подряд, <code>↓</code> идёт через все разделы</li><li><span class="minus">−</span> «Клавиши», страницы ящиков и плагинов всё равно отдельные: окно устроено двумя способами</li></ul></div>
 </div>
 
 <!-- ================================================================ -->
@@ -346,8 +381,9 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   <tr><td>Когда закрываю окно · Значка в трее нет (условная) · При входе в систему</td><td>Запуск и обновления · Фон и запуск</td><td class="mv">Фон и уведомления · Фон и запуск</td><td>Программа · Уведомления и фон</td></tr>
   <tr><td>Обновления · Проверить сейчас</td><td>Запуск и обновления · Обновления</td><td class="mv">Обновления (своя страница)</td><td>Программа · Обновления</td></tr>
   <tr><td>Клавиши (все команды)</td><td>Клавиши</td><td class="same">Клавиши</td><td>Клавиши</td></tr>
-  <tr><td>Порядок и названия ящиков, «Добавить ящик»</td><td>Ящики · Ящики</td><td class="same">Ящики (без заголовка группы)</td><td>Ящики</td></tr>
-  <tr><td>Менеджер плагинов · Напоминания · Шаблоны ответов</td><td>Плагины · Все плагины</td><td class="mv">Плагины (без заголовка группы)</td><td>Плагины</td></tr>
+  <tr><td>Список и порядок ящиков, «Добавить ящик»</td><td>Ящики · Ящики</td><td class="mv">Ящики — общая страница; каждый ящик — подпункт меню со своей страницей</td><td class="mv">то же</td></tr>
+  <tr><td>Список плагинов, «Установить из папки…»</td><td>Плагины · Все плагины</td><td class="mv">Плагины — общая страница; каждый плагин — подпункт меню (6.1)</td><td class="mv">то же</td></tr>
+  <tr><td>«Напоминания» (плагин «Ждут ответа») · «Шаблоны ответов»</td><td>Плагины · Все плагины, группами под списком</td><td class="mv" colspan="2">страница своего плагина</td></tr>
   <tr class="sec"><td colspan="4">Страница ящика (по вопросу 3.1 А)</td></tr>
   <tr><td>Название ящика · Имя отправителя · Цвет</td><td>Общее</td><td class="same" colspan="2">Общее</td></tr>
   <tr><td>Адрес (поле недоступно)</td><td>Общее</td><td class="gone" colspan="2">убрать: адрес уже стоит в заголовке страницы рядом с названием</td></tr>
@@ -365,13 +401,11 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <h2 class="screen" id="s4">Экран 4. Страница ящика</h2>
 
 <h3 class="q" data-q="3.1"><span class="n">3.1</span>Как устроена страница ящика</h3>
-<p class="lead">Сейчас поля стоят на всю ширину (1000 px), сеткой «подпись сверху». На общих страницах строка устроена иначе: подпись 250 px, контрол справа. Одна и та же настройка, например «Показывать письма», выглядит в двух местах по-разному.</p>
-<div class="cols3">
+<p class="lead">Ящики стоят подпунктами меню (экран 7), вопрос только о том, как устроена страница одного ящика. Прежний вариант Б «разделы ящика подпунктами меню» снят: подпункты меню теперь — сами ящики, третьего уровня в меню нет. Сейчас поля стоят на всю ширину (1000 px), сеткой «подпись сверху». На общих страницах строка устроена иначе: подпись 250 px, контрол справа. Одна и та же настройка, например «Показывать письма», выглядит в двух местах по-разному.</p>
+<div class="cols2">
   <div><h3 data-q="3.1" data-variant="А" class="v rec"><span class="n">А</span><em>одна страница с якорями, строки той же сетки, что в общих</em></h3><div class="mini" id="v31a"></div>
     <ul class="pc"><li><span class="plus">+</span> похожее устроено одинаково: строка «Показывать письма» та же, что в общих, только с «Как в общих»</li><li><span class="plus">+</span> якоря и одна прокрутка — как решено в 0.6.0</li><li><span class="plus">+</span> у «Подключения» свой раздел</li></ul></div>
-  <div><h3 data-q="3.1" data-variant="Б" class="v"><span class="n">Б</span><em>разделы ящика — подпунктами меню слева</em></h3><div class="mini" id="v31b"></div>
-    <ul class="pc"><li><span class="plus">+</span> каждый раздел помещается в экран</li><li><span class="minus">−</span> меню растёт на 5 пунктов на каждый открытый ящик</li><li><span class="minus">−</span> <span class="dec">решение 0.6.0: одна прокручиваемая страница</span></li></ul></div>
-  <div><h3 data-q="3.1" data-variant="В" class="v"><span class="n">В</span><em>настоящие вкладки: виден один раздел</em></h3><div class="mini" id="v31c"></div>
+  <div><h3 data-q="3.1" data-variant="Б" class="v"><span class="n">Б</span><em>настоящие вкладки: виден один раздел</em></h3><div class="mini" id="v31c"></div>
     <ul class="pc"><li><span class="plus">+</span> короткая страница</li><li><span class="minus">−</span> вкладки и якоря на вид одинаковы, а ведут себя по-разному</li><li><span class="minus">−</span> <span class="dec">решение 0.6.0: одна прокручиваемая страница</span></li></ul></div>
 </div>
 
@@ -394,13 +428,13 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     <p class="note">Подвал остаётся на каждой странице ящика.</p></div>
 </div>
 
-<h3 class="q" data-q="3.4"><span class="n">3.4</span>Список ящиков</h3>
-<p class="lead">Решение 2.6 Б: в меню один пункт «Ящики», ящики перечислены внутри страницы. Совет аудита А18: шестерёнка оторвана от названия, стрелки видны при одном ящике.</p>
+<h3 class="q" data-q="3.4"><span class="n">3.4</span>Общая страница «Ящики»: где меняется порядок</h3>
+<p class="lead">Пункт «Ящики» открывает общую страницу: список ящиков, порядок и «Добавить ящик». Каждый ящик открывается своим подпунктом меню, поэтому прежний вариант «поле названия и шестерёнка в списке» снят (решение 2.6 Б заменено требованием оператора). Остался один вопрос: где менять порядок. Стрелки порядка видны от двух ящиков (А18).</p>
 <div class="cols2">
-  <div><h3 data-q="3.4" data-variant="А" class="v rec"><span class="n">А</span><em>строка ящика — одна кнопка, название правится на странице ящика</em></h3><div class="mini6" id="v34a"></div>
-    <ul class="pc"><li><span class="plus">+</span> у строки одна цель: открыть ящик (<code>Enter</code> или щелчок); поле названия уже есть в «Общем»</li><li><span class="plus">+</span> порядок меняют <code>Alt</code>+<code>↑</code>/<code>↓</code> или перетаскиванием; стрелки видны от двух ящиков</li></ul></div>
-  <div><h3 data-q="3.4" data-variant="Б" class="v"><span class="n">Б</span><em>как сейчас, по А18: поле ≤ 680 px, шестерёнка сразу за ним</em></h3><div class="mini6" id="v34b"></div>
-    <ul class="pc"><li><span class="plus">+</span> название правится прямо в списке</li><li><span class="minus">−</span> у строки две цели: переименовать и открыть; название правится в двух местах</li></ul></div>
+  <div><h3 data-q="3.4" data-variant="А" class="v rec"><span class="n">А</span><em>только на общей странице: <code>Alt</code>+<code>↑</code>/<code>↓</code> или перетаскиванием строки</em></h3><div class="mini6" id="v34a"></div>
+    <ul class="pc"><li><span class="plus">+</span> в меню клавиши только ходят, ничего не меняют</li><li><span class="plus">+</span> строка ящика на странице открывает его страницу, как подпункт</li><li><span class="plus">+</span> название ящика правится только на его странице, в «Общем»</li></ul></div>
+  <div><h3 data-q="3.4" data-variant="Б" class="v"><span class="n">Б</span><em>ещё и в меню: <code>Alt</code>+<code>↑</code>/<code>↓</code> на подпункте ящика</em></h3><div class="mini6" id="v34b"></div>
+    <ul class="pc"><li><span class="plus">+</span> порядок меняется, не уходя с открытого ящика</li><li><span class="minus">−</span> у подпункта две цели: открыть и переставить</li><li><span class="minus">−</span> у подпунктов плагинов такого действия нет: похожее устроено по-разному</li></ul></div>
 </div>
 
 <!-- ================================================================ -->
@@ -462,34 +496,85 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 </div>
 
 <!-- ================================================================ -->
-<h2 class="screen" id="s7">Экран 7. Итог по рекомендациям</h2>
-<p class="lead">Ответы: 1.1 А · 2.1 А · 2.2 А · 3.1 А · 3.2 А · 3.3 А · 3.4 А · 4.1 Б · 4.2 А · 4.3 А · 4.4 А · 5.1 А · 5.2 А. Окно 1040 px. Тема переключается вверху страницы.</p>
+<h2 class="screen" id="s7m">Экран 7. Меню с ящиками и плагинами</h2>
+<p class="lead">Требование оператора: пункт «Ящики» раскрывается в подпункты, по одному на ящик, с цветной точкой и именем, как в боковой панели приложения. Подпункт открывает страницу ящика. Сам пункт «Ящики» открывает общую страницу: список, порядок, «Добавить ящик». «Плагины» устроены так же: подпункт — плагин со своей страницей, сам пункт — общий список и установка. Текущий подпункт отмечен фоном выбора, полос слева нет. В кадрах 3 ящика и 2 плагина; встроенных плагинов в коде 8, какие из них стоят в меню — вопрос 6.1.</p>
+<h3 class="q">Светлая тема: открыт ящик «Работа»; «Плагины» раскрыт клавишей <code>→</code></h3>
+<div id="m-light"></div>
+<h3 class="q">Тёмная тема: открыт плагин «Ждут ответа»; «Ящики» раскрыт клавишей <code>→</code></h3>
+<div id="m-dark"></div>
+<h3 class="q">Клавиши в меню</h3>
+<table class="dtable" style="max-width:1000px">
+  <tr><th>Клавиша</th><th>Что делает</th></tr>
+  <tr><td><code>↑</code> / <code>↓</code></td><td>По пунктам и раскрытым подпунктам подряд. Страница открывается сразу, как сейчас.</td></tr>
+  <tr><td><code>→</code></td><td>На свёрнутом пункте с подпунктами раскрывает его. На остальных ведёт в страницу, как сейчас (решение 0.8.0, 4.3 А).</td></tr>
+  <tr><td><code>←</code></td><td>На подпункте сворачивает пункт и возвращает на него. На раскрытом пункте сворачивает его.</td></tr>
+  <tr><td><code>Enter</code></td><td>Открывает страницу пункта или подпункта и ведёт в неё.</td></tr>
+  <tr><td><code>Ctrl</code>+<code>PgUp</code> / <code>PgDn</code></td><td>Предыдущая или следующая страница; подпункты раскрытого пункта идут по порядку.</td></tr>
+  <tr><td><code>Alt</code>+<code>←</code></td><td>Со страницы обратно в меню, на текущий пункт или подпункт (решение 0.8.0, 4.3 А).</td></tr>
+</table>
+<p class="note">Решение 0.8.0, 4.3 А меняется в одном месте: <code>→</code> на свёрнутом пункте раскрывает его, а не ведёт в страницу.</p>
+
+<h3 class="q" data-q="6.1"><span class="n">6.1</span>Какие плагины стоят подпунктами</h3>
+<p class="lead">В коде 8 встроенных плагинов. Свои настройки есть у двух: «Ждут ответа» (группа «Напоминания») и «Шаблоны ответов».</p>
+<div class="cols2">
+  <div><h3 data-q="6.1" data-variant="А" class="v rec"><span class="n">А</span><em>все установленные: встроенные и сторонние, включённые и выключенные</em></h3><div class="mini6" id="v61a"></div>
+    <ul class="pc"><li><span class="plus">+</span> как сказал оператор: у каждого плагина своя страница</li><li><span class="plus">+</span> выключенный плагин находится там же, где включённый</li><li><span class="minus">−</span> 8 подпунктов; страница плагина без настроек — описание и состояние</li></ul></div>
+  <div><h3 data-q="6.1" data-variant="Б" class="v"><span class="n">Б</span><em>только плагины со своими настройками</em></h3><div class="mini6" id="v61b"></div>
+    <ul class="pc"><li><span class="plus">+</span> нет страниц, где нечего настроить</li><li><span class="minus">−</span> плагин то есть в меню, то нет, смотря по настройкам: похожее устроено по-разному</li></ul></div>
+</div>
+
+<h3 class="q" data-q="6.2"><span class="n">6.2</span>Когда пункт раскрыт</h3>
+<div class="cols2">
+  <div><h3 data-q="6.2" data-variant="А" class="v rec"><span class="n">А</span><em>пока открыта его общая страница или страница подпункта</em></h3><div class="mini6" id="v62a"></div>
+    <ul class="pc"><li><span class="plus">+</span> так и сказал оператор: открыли «Ящики» — появились подпункты</li><li><span class="plus">+</span> <code>↓</code> с «Клавиш» открывает «Ящики», следующий <code>↓</code> — первый ящик</li><li><span class="plus">+</span> на других страницах меню короткое</li></ul></div>
+  <div><h3 data-q="6.2" data-variant="Б" class="v"><span class="n">Б</span><em>раскрывает и сворачивает человек (<code>→</code> / <code>←</code>), окно это помнит</em></h3><div class="mini6" id="v62b"></div>
+    <ul class="pc"><li><span class="plus">+</span> к ящику одним щелчком с любой страницы</li><li><span class="minus">−</span> меню длинное на всех страницах; с 8 плагинами (6.1 А) уходит за край</li></ul></div>
+</div>
+
+<h3 class="q" data-q="6.3"><span class="n">6.3</span>Где включается и выключается плагин</h3>
+<div class="cols2">
+  <div><h3 data-q="6.3" data-variant="А" class="v"><span class="n">А</span><em>первой строкой на странице плагина; в общем списке только состояние</em></h3><div class="mini6" id="v63a"></div>
+    <ul class="pc"><li><span class="plus">+</span> всё о плагине — на его странице</li><li><span class="minus">−</span> чтобы выключить пять плагинов, надо пройти пять страниц</li></ul></div>
+  <div><h3 data-q="6.3" data-variant="Б" class="v rec"><span class="n">Б</span><em>переключателем в общем списке, как сейчас; на странице — описание и настройки</em></h3><div class="mini6" id="v63b"></div>
+    <ul class="pc"><li><span class="plus">+</span> одна настройка в одном месте, список включённого виден сразу</li><li><span class="plus">+</span> как сейчас устроен список встроенных плагинов</li></ul></div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="screen" id="s7">Экран 8. Итог по рекомендациям</h2>
+<p class="lead">Ответы: 1.1 А · 2.1 А · 2.2 А · 3.1 А · 3.2 А · 3.3 А · 3.4 А · 4.1 Б · 4.2 А · 4.3 А · 4.4 А · 5.1 А · 5.2 А · 6.1 А · 6.2 А · 6.3 Б. Окно 1040 px, ящики и плагины — подпунктами меню. Тема переключается вверху страницы.</p>
 <h3 class="q">Главная страница: «Чтение», курсор на строке «Показывать письма»</h3>
 <div id="fin-main"></div>
-<h3 class="q">Страница ящика «Работа»: подключение изменено</h3>
+<h3 class="q">Страница ящика «Работа»: «Ящики» раскрыт, подключение изменено</h3>
 <div id="fin-mailbox"></div>
 <h3 class="q">Поиск «вложен»: найденное — живыми строками</h3>
 <div id="fin-search"></div>
-<h3 class="q">Список ящиков: два ящика</h3>
+<h3 class="q">Общая страница «Ящики»: три ящика</h3>
 <div id="fin-boxes"></div>
+<h3 class="q">Общая страница «Плагины»: список и установка</h3>
+<div id="fin-plugins"></div>
+<h3 class="q">Страница плагина «Шаблоны ответов»</h3>
+<div id="fin-plugin"></div>
 
 <!-- ================================================================ -->
 <h2 class="screen" id="sq">Вопросы</h2>
 <table class="dtable qt">
   <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую</th></tr>
-  <tr data-q="1.1" data-q-title="Устройство окна" data-variants="А,Б,В" data-recommended="А"><td>1.1</td><td>Устройство окна</td><td>А меню разделов слева · Б одна длинная страница с оглавлением · В вкладки сверху</td><td>А</td></tr>
+  <tr data-q="1.1" data-q-title="Устройство окна" data-variants="А,Б" data-recommended="А"><td>1.1</td><td>Устройство окна</td><td>А меню разделов слева · Б одна длинная страница с оглавлением (вкладки сверху сняты)</td><td>А</td></tr>
   <tr data-q="2.1" data-q-title="Состав разделов" data-variants="А,Б" data-recommended="А"><td>2.1</td><td>Состав разделов</td><td>А две оси, 10 пунктов по целям · Б пять крупных разделов</td><td>А</td></tr>
   <tr data-q="2.2" data-q-title="Группа из одного пункта" data-variants="А,Б" data-recommended="А"><td>2.2</td><td>Группа из одного пункта</td><td>А без заголовка · Б с заголовком, как сейчас</td><td>А</td></tr>
-  <tr data-q="3.1" data-q-title="Страница ящика: устройство" data-variants="А,Б,В" data-recommended="А"><td>3.1</td><td>Страница ящика: устройство</td><td>А одна страница с якорями, строки сеткой общих · Б подпункты меню · В вкладки</td><td>А</td></tr>
+  <tr data-q="3.1" data-q-title="Страница ящика: устройство" data-variants="А,Б" data-recommended="А"><td>3.1</td><td>Страница ящика: устройство</td><td>А одна страница с якорями, строки сеткой общих · Б вкладки (разделы подпунктами сняты)</td><td>А</td></tr>
   <tr data-q="3.2" data-q-title="Где «Проверить и сохранить»" data-variants="А,Б,В" data-recommended="А"><td>3.2</td><td>Где «Проверить и сохранить»</td><td>А в «Подключении», после правки · Б в подвале, после правки · В в подвале всегда</td><td>А</td></tr>
   <tr data-q="3.3" data-q-title="Где «Удалить ящик»" data-variants="А,Б" data-recommended="А"><td>3.3</td><td>Где «Удалить ящик»</td><td>А последней строкой страницы · Б в подвале</td><td>А</td></tr>
-  <tr data-q="3.4" data-q-title="Список ящиков" data-variants="А,Б" data-recommended="А"><td>3.4</td><td>Список ящиков</td><td>А строка — кнопка, название на странице ящика · Б поле и шестерёнка рядом</td><td>А</td></tr>
+  <tr data-q="3.4" data-q-title="Общая страница «Ящики»: где порядок" data-variants="А,Б" data-recommended="А"><td>3.4</td><td>Общая страница «Ящики»: где меняется порядок</td><td>А только на общей странице · Б ещё и в меню, на подпункте</td><td>А</td></tr>
   <tr data-q="4.1" data-q-title="Как поиск показывает найденное" data-variants="А,Б,В" data-recommended="Б"><td>4.1</td><td>Как поиск показывает найденное</td><td>А список вместо страницы · Б живые строки на месте · В поверх окна</td><td>Б</td></tr>
   <tr data-q="4.2" data-q-title="Что находит поиск" data-variants="А,Б" data-recommended="А"><td>4.2</td><td>Что находит поиск</td><td>А ещё поля ящиков и команды · Б как сейчас</td><td>А</td></tr>
   <tr data-q="4.3" data-q-title="Фокус при открытии окна" data-variants="А,Б" data-recommended="А"><td>4.3</td><td>Фокус при открытии окна</td><td>А в поиск · Б на пункт меню</td><td>А</td></tr>
   <tr data-q="4.4" data-q-title="Кнопка «Нажать» в «Клавишах»" data-variants="А,Б" data-recommended="А"><td>4.4</td><td>Кнопка «Нажать» в «Клавишах»</td><td>А «Найти по нажатию» · Б «Найти по клавише»</td><td>А</td></tr>
   <tr data-q="5.1" data-q-title="Ширина окна" data-variants="А,Б,В" data-recommended="А"><td>5.1</td><td>Ширина окна</td><td>А 1040 px · Б 1280 px · В 960 px</td><td>А</td></tr>
   <tr data-q="5.2" data-q-title="Колонка и вся ширина" data-variants="А,Б" data-recommended="А"><td>5.2</td><td>Колонка и вся ширина</td><td>А строки в колонке везде, таблицы широко · Б ящик на всю ширину</td><td>А</td></tr>
+  <tr data-q="6.1" data-q-title="Какие плагины в подпунктах" data-variants="А,Б" data-recommended="А"><td>6.1</td><td>Какие плагины стоят подпунктами</td><td>А все установленные · Б только со своими настройками</td><td>А</td></tr>
+  <tr data-q="6.2" data-q-title="Когда пункт раскрыт" data-variants="А,Б" data-recommended="А"><td>6.2</td><td>Когда пункт раскрыт</td><td>А пока открыта его страница или подпункт · Б как оставил человек</td><td>А</td></tr>
+  <tr data-q="6.3" data-q-title="Где включается плагин" data-variants="А,Б" data-recommended="Б"><td>6.3</td><td>Где включается и выключается плагин</td><td>А на странице плагина · Б в общем списке, как сейчас</td><td>Б</td></tr>
 </table>
 
 </div>
@@ -514,6 +599,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     plus: '<path d="M5 12h14M12 5v14"/>',
     chev: '<path d="m9 18 6-6-6-6"/>',
+    chevd: '<path d="m6 9 6 6 6-6"/>',
   };
   const ic = (n, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
 
@@ -601,27 +687,37 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   const MENU_NEW = [
     { h: "Почта", i: [["book", "Чтение"], ["pen", "Написание"], ["clock", "Отложить и ждать"], ["drive", "Хранение"]] },
     { h: "Программа", i: [["palette", "Вид и язык"], ["bell", "Фон и уведомления"], ["refresh", "Обновления"], ["keyboard", "Клавиши"]] },
-    { h: null, i: [["inbox", "Ящики"]] },
-    { h: null, i: [["puzzle", "Плагины"]] },
+    { h: null, i: [["inbox", "Ящики", null, "boxes"]] },
+    { h: null, i: [["puzzle", "Плагины", null, "plugins"]] },
   ];
   const MENU_B = [
     { h: null, i: [["book", "Почта"], ["palette", "Программа"], ["keyboard", "Клавиши"]] },
-    { h: null, i: [["inbox", "Ящики"]] },
-    { h: null, i: [["puzzle", "Плагины"]] },
+    { h: null, i: [["inbox", "Ящики", null, "boxes"]] },
+    { h: null, i: [["puzzle", "Плагины", null, "plugins"]] },
   ];
+  /* подпункты: ящики (точка цвета и имя, как в боковой панели) и плагины */
+  const BOXES = [["#3f7fca", "Работа", "anna@example.org"], ["#d98a1c", "Личный", "anna.k@mail.example"], ["#4aa36c", "Север", "sever@example.com"]];
+  const PLUGS2 = [["Ждут ответа"], ["Шаблоны ответов"]];
+  const PLUGS8 = [["Палитра команд"], ["Цвет ящика в заголовке письма"], ["Отложить"], ["Ждут ответа"], ["Люди и рассылки", 1], ["Отправить позже"], ["Шаблоны ответов"], ["Проверка перед отправкой"]];
   function nav(menu, active, opt = {}) {
+    const kids = { boxes: BOXES.map((b) => [b[1], b[0]]), plugins: (opt.plugs || PLUGS2).map((x) => [x[0], null, x[1]]) };
+    const open = new Set(opt.open || []);
+    // 6.2 А: пункт раскрыт, пока открыта его страница или страница подпункта
+    for (const [k, parent] of [["boxes", "Ящики"], ["plugins", "Плагины"]]) if (active === parent || kids[k].some((x) => x[0] === opt.kid)) open.add(parent);
+    if (opt.closed) for (const x of opt.closed) open.delete(x);
     let h = `<nav class="nav"><h3>Настройки</h3><div class="psearch${opt.q ? " on" : ""}">${ic("search", 14)}<span class="ph">${opt.q ? opt.q + '<span class="caret"></span>' : "Найти настройку"}</span></div>`;
     for (const g of menu) {
       h += g.h ? `<div class="grp-m">${g.h}</div>` : `<div style="height:14px"></div>`;
-      for (const [icn, t, sub] of g.i) {
-        h += `<div class="tab${t === active && !opt.noActive ? " on" : ""}${sub ? " sub" : ""}">${icn ? ic(icn) : ""}<span>${t}</span></div>`;
-        if (opt.after && opt.after[t]) h += opt.after[t];
+      for (const [icn, t, sub, kk] of g.i) {
+        const isOpen = kk && open.has(t);
+        h += `<div class="tab${t === active && !opt.noActive && !opt.kid ? " on" : ""}${sub ? " sub" : ""}">${icn ? ic(icn) : ""}<span>${t}</span>${kk ? `<span class="chv">${ic(isOpen ? "chevd" : "chev", 14)}</span>` : ""}</div>`;
+        if (isOpen) for (const [name, color, off] of kids[kk]) h += `<div class="tab kid${name === opt.kid ? " on" : ""}${off ? " off" : ""}">${color ? `<span class="kdot" style="background:${color}"></span>` : ""}<span>${name}</span></div>`;
       }
     }
     return h + `</nav>`;
   }
-  function win({ menu, active, title, sub, body, w, h = 640, q, contentCls = "", noActive, after, header = true, extra = "" }) {
-    return `<div class="theme"><div class="win" style="${w ? `width:${w}px;` : ""}height:${h}px">${menu ? nav(menu, active, { q, noActive, after }) : ""}<span class="closex">${ic("x", 18)}</span><div class="pane">${header ? `<header><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ""}</header>` : ""}<div class="content ${contentCls}">${body}</div></div>${extra}</div></div>`;
+  function win({ menu, active, title, sub, body, w, h = 640, q, contentCls = "", noActive, header = true, extra = "", kid, open, closed, plugs, tcls = "" }) {
+    return `<div class="theme ${tcls}"><div class="win" style="${w ? `width:${w}px;` : ""}height:${h}px">${menu ? nav(menu, active, { q, noActive, kid, open, closed, plugs }) : ""}<span class="closex">${ic("x", 18)}</span><div class="pane">${header ? `<header><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ""}</header>` : ""}<div class="content ${contentCls}">${body}</div></div>${extra}</div></div>`;
   }
   const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
@@ -683,14 +779,14 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       <label class="field"><span>Подписи</span>${SIG}</label></div>
   </div>
   <footer class="afoot"><span class="btn ghost danger-text">Удалить ящик</span><span class="spacer"></span><span class="btn primary dis">Проверить и сохранить</span></footer>`;
-  put("now-mailbox", win({ menu: MENU_NOW, active: "Ящики", title: "Работа", sub: "anna@example.org", body: mbNowBody, w: W, h: 640, contentCls: "flush" }));
+  put("now-mailbox", win({ menu: MENU_NOW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", body: mbNowBody, w: W, h: 640, contentCls: "flush" }));
 
   /* страница ящика по 3.1 А: строки сеткой 250 px, колонка 680 */
   const mrow = (l, c, h, cls = "") => `<div class="rw ${cls}"><div class="lab"><div class="t">${l}</div>${h ? `<div class="h">${h}</div>` : ""}</div><div class="c">${c}</div></div>`;
-  const mbGeneral = (cur) => `<section class="g"><h4>Общее</h4>
-      ${mrow("Название ящика", '<span class="input" style="min-width:300px">Работа</span>', null, cur === "name" ? "cur" : "")}
+  const mbGeneral = (cur, name = "Работа", col = 1) => `<section class="g"><h4>Общее</h4>
+      ${mrow("Название ящика", `<span class="input" style="min-width:300px">${name}</span>`, null, cur === "name" ? "cur" : "")}
       ${mrow("Имя отправителя", '<span class="input" style="min-width:300px">Анна Крылова</span>', "Видят получатели.")}
-      ${mrow("Цвет", colors())}</section>`;
+      ${mrow("Цвет", colors(col))}</section>`;
   const mbLetters = `<section class="g"><h4>Письма и подписи</h4>
       ${mrow("Формат писем", C.sel("Как в общих — HTML"))}
       ${mrow("Показывать письма", C.sel("Как в общих — Как прислал отправитель"))}
@@ -710,52 +806,58 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   const mbDelete = `<section class="g nohead">${mrow("", '<span class="btn ghost danger-text">Удалить ящик</span>')}</section>`;
 
   // 3.1 А
-  put("v31a", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
+  put("v31a", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW)}<div class="abody">${mbGeneral()}${mbLetters}</div>` }));
-  // 3.1 Б
-  const subs = { "Ящики": ["Общее", "Письма и подписи", "Подключение", "Хранилище", "Сервер", "Метки"].map((t, i) => `<div class="tab sub${i === 1 ? " on" : ""}"><span>${t}</span></div>`).join("") };
-  put("v31b", win({ menu: MENU_NEW, active: "", noActive: true, after: subs, title: "Работа · Письма и подписи", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
-    body: `<div class="abody">${mbLetters}</div>` }));
-  // 3.1 В
+  // 3.1 Б (вкладки)
   const tabsV = `<nav class="atoc">${TOC_NEW.map((t, i) => `<a class="${i === 0 ? "on" : ""}" style="${i === 0 ? "" : ""}">${t}</a>`).join("")}</nav>`;
-  put("v31c", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
+  put("v31c", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${tabsV}<div class="abody">${mbGeneral()}<p class="muted" style="font-size:12px">Остальные разделы — на своих вкладках; страница не прокручивается дальше «Общего».</p></div>` }));
 
   // 3.2
-  put("v32a", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
+  put("v32a", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW, 2)}<div class="abody">${mbConn(true, true)}${mbStorage}</div>` }));
-  put("v32b", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
+  put("v32b", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW, 2)}<div class="abody">${mbConn(true, false)}${mbStorage}</div><footer class="afoot"><span class="btn ghost danger-text">Удалить ящик</span><span class="spacer"></span><span class="pending">Подключение изменено: оно сохранится после проверки.</span><span class="btn ghost">Отмена</span><span class="btn primary">Проверить и сохранить</span></footer>` }));
-  put("v32c", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
+  put("v32c", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW, 0)}<div class="abody">${mbGeneral()}${mbLetters}</div><footer class="afoot"><span class="btn ghost danger-text">Удалить ящик</span><span class="spacer"></span><span class="btn primary dis">Проверить и сохранить</span></footer>` }));
 
   // 3.3
-  put("v33a", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 460, contentCls: "flush",
+  put("v33a", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW, 5)}<div class="abody">${mbStorage}${mbLabels}${mbDelete}</div>` }));
-  put("v33b", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 460, contentCls: "flush",
+  put("v33b", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 680, contentCls: "flush",
     body: `${atoc(TOC_NEW, 5)}<div class="abody">${mbStorage}${mbLabels}</div><footer class="afoot"><span class="btn ghost danger-text">Удалить ящик</span><span class="spacer"></span></footer>` }));
 
-  // 3.4
-  const boxA = (two, cur) => `<p class="muted" style="font-size:13px;margin:4px 0 10px;max-width:680px">Порядок ящиков в сайдбаре и в общих списках.</p>
-    <div class="mbrow${cur ? " cur" : ""}">${two ? '<span class="arrows">↑<br>↓</span>' : ""}<span class="dotc" style="width:10px;height:10px;border-radius:50%;background:#3f7fca"></span><span class="mbn">Работа<div class="mba">anna@example.org</div></span><span class="muted">${ic("chev", 16)}</span></div>
-    ${two ? `<div class="mbrow"><span class="arrows">↑<br>↓</span><span style="width:10px;height:10px;border-radius:50%;background:#d98a1c"></span><span class="mbn">Личный<div class="mba">anna.k@mail.example</div></span><span class="muted">${ic("chev", 16)}</span></div>` : ""}
+  // 3.4 и итог: общая страница «Ящики»
+  const boxList = (cur) => `<p class="muted" style="font-size:13px;margin:4px 0 10px;max-width:680px">Порядок ящиков в сайдбаре и в общих списках.</p>
+    ${BOXES.map((b, i) => `<div class="mbrow${i === cur ? " cur" : ""}"><span class="arrows">↑<br>↓</span><span style="width:10px;height:10px;border-radius:50%;background:${b[0]}"></span><span class="mbn">${b[1]}<div class="mba">${b[2]}</div></span><span class="muted">${ic("chev", 16)}</span></div>`).join("")}
     <div style="margin-top:10px"><span class="btn">${ic("plus", 14)} Добавить ящик</span></div>`;
-  put("v34a", win({ menu: MENU_NEW, active: "Ящики", title: "Ящики", w: WF, h: 420, body: boxA(false, true) }));
-  put("v34b", win({ menu: MENU_NEW, active: "Ящики", title: "Ящики", w: WF, h: 420,
-    body: `<p class="muted" style="font-size:13px;margin:4px 0 10px">Порядок и названия ящиков в сайдбаре и в общих списках; цвет — на странице ящика.</p>
-    <div class="mbrow"><span style="width:10px;height:10px;border-radius:50%;background:#3f7fca"></span><span class="mbn"><span class="input full">Работа</span><div class="mba">anna@example.org</div></span><span class="muted">${ic("gear", 16)}</span></div>
-    <div style="margin-top:10px"><span class="btn">${ic("plus", 14)} Добавить ящик</span></div>` }));
+  put("v34a", win({ menu: MENU_NEW, active: "Ящики", title: "Ящики", w: WF, h: 680, body: boxList(1) }));
+  put("v34b", win({ menu: MENU_NEW, active: "Ящики", kid: "Личный", title: "Личный", sub: "anna.k@mail.example", w: WF, h: 680, contentCls: "flush",
+    body: `${atoc(TOC_NEW)}<div class="abody">${mbGeneral(null, "Личный", 2)}<p class="muted" style="font-size:12px">Курсор меню на подпункте «Личный»: <kbd>Alt</kbd>+<kbd>↑</kbd> ставит его выше «Работы».</p></div>` }));
+
+  /* страницы плагинов (6.3 Б: включение — в общем списке) */
+  const plugAbout = { "Шаблоны ответов": "Готовые тексты для типовых писем; вставляются из окна письма.", "Ждут ответа": "При отправке можно попросить напомнить; напоминание снимется само, когда придёт ответ.", "Отложить": "Убрать письмо до нужного времени; оно вернётся во входящие непрочитанным.", "Цвет ящика в заголовке письма": "Отмечать заголовок окна письма цветом выбранного ящика." };
+  const aboutP = (n) => `<p class="muted" style="font-size:13px;margin:4px 0 14px;max-width:680px">${plugAbout[n]}</p>`;
+  const plugTemplates = `${aboutP("Шаблоны ответов")}<section class="g"><h4>Шаблоны</h4>
+      <p class="muted" style="font-size:12px;margin:6px 0">Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.</p>
+      ${mrow("Счёт получен", '<span class="u">Добрый день! Счёт получили, оплатим до пятницы.</span>')}
+      ${mrow("Договор на подпись", '<span class="u">Направляем договор на подпись…</span>')}
+      <div style="padding:6px 0"><span class="btn">${ic("plus", 14)} Добавить шаблон</span></div></section>`;
+  const plugFollow = `${aboutP("Ждут ответа")}<section class="g"><h4>Напоминания</h4>
+      <p class="muted" style="font-size:12px;margin:6px 0">Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются здесь или через «Настроить…» при написании письма.</p>
+      ${mrow("Через неделю в 10:00", '<span class="u">каждый раз</span>')}
+      <div style="padding:6px 0"><span class="btn">${ic("plus", 14)} Добавить вариант</span></div>
+      ${mrow("Хранить закрытые ожидания", C.val("90", "дней"))}</section>`;
+  const plugBare = (n) => `${aboutP(n)}<p class="muted" style="font-size:13px">Своих настроек у плагина нет.</p>`;
+  const plugList = (withSw) => `<section class="g"><h4>Встроенные плагины</h4>
+      <p class="muted" style="font-size:12px;margin:6px 0">Всё, что сверх основы, — плагины. Выключите ненужное: вместе с плагином пропадут его кнопки, клавиши, разделы и проверки.</p>
+      ${PLUGS8.map(([n, off]) => mrow(n, withSw ? C.sw(!off) : `<span class="lnk">${off ? "выключен" : "включён"} ›</span>`)).join("")}</section>
+      <section class="g"><h4>Сторонние плагины</h4><p class="muted" style="font-size:13px">Сторонних плагинов пока нет.</p><span class="btn">Установить из папки…</span></section>`;
 
   // 1.1 А / Б / В
   put("v11a", win({ menu: MENU_NEW, active: "Чтение", title: "Чтение", body: groups(PG_READING), w: WF, h: 680 }));
-  const tocB = { "Чтение": "", };
-  put("v11b", win({ menu: [{ h: "Почта", i: [["book", "Чтение"], ["pen", "Написание"], ["clock", "Отложить и ждать"], ["drive", "Хранение"]] }, { h: "Программа", i: [["palette", "Вид и язык"], ["bell", "Фон и уведомления"], ["refresh", "Обновления"]] }, { h: null, i: [["keyboard", "Клавиши"], ["inbox", "Ящики"], ["puzzle", "Плагины"]] }], active: "Написание", title: "Общие настройки", w: WF, h: 680,
+  put("v11b", win({ menu: [{ h: "Почта", i: [["book", "Чтение"], ["pen", "Написание"], ["clock", "Отложить и ждать"], ["drive", "Хранение"]] }, { h: "Программа", i: [["palette", "Вид и язык"], ["bell", "Фон и уведомления"], ["refresh", "Обновления"]] }, { h: null, i: [["keyboard", "Клавиши"], ["inbox", "Ящики", null, "boxes"], ["puzzle", "Плагины", null, "plugins"]] }], active: "Написание", title: "Общие настройки", w: WF, h: 680,
     body: `<section class="g"><h4>Чтение</h4>${rows(["letter_view", "layer_view", "attachments_dir"])}</section><section class="g"><h4>Написание</h4>${rows(["compose_format", "layer_format", "default_account", "image_max_px", "undo_send"])}</section><section class="g"><h4>Отложить и ждать</h4>${rows(["day_start"])}</section>` }));
-  const topTabs = ["Чтение", "Написание", "Отложить", "Хранение", "Вид", "Фон", "Обновления", "Клавиши", "Ящики", "Плагины"];
-  put("v11c", `<div class="theme"><div class="win col" style="width:${WF}px;height:680px"><span class="closex">${ic("x", 18)}</span>
-    <div style="padding:16px 56px 0 24px;display:flex;gap:14px;align-items:center"><h3 style="margin:0;font-size:15px">Настройки</h3><div class="psearch" style="margin:0;width:220px">${ic("search", 14)}<span class="ph">Найти настройку</span></div></div>
-    <nav class="atoc" style="padding-top:10px">${topTabs.map((t, i) => `<a class="${i === 0 ? "on" : ""}">${t}</a>`).join("")}</nav>
-    <div class="content" style="padding-top:14px">${groups(PG_READING)}</div></div></div>`);
 
   // 2.1 А / Б
   put("v21a", win({ menu: MENU_NEW, active: "Фон и уведомления", title: "Фон и уведомления", w: WF, h: 720,
@@ -798,10 +900,27 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 
   // Экран 7: итог
   put("fin-main", win({ menu: MENU_NEW, active: "Чтение", title: "Чтение", w: WF, h: 620, body: groups(PG_READING, { cur: "letter_view" }) }));
-  put("fin-mailbox", win({ menu: MENU_NEW, active: "Ящики", title: "Работа", sub: "anna@example.org", w: WF, h: 760, contentCls: "flush",
+  put("fin-mailbox", win({ menu: MENU_NEW, active: "Ящики", kid: "Работа", title: "Работа", sub: "anna@example.org", w: WF, h: 760, contentCls: "flush",
     body: `${atoc(TOC_NEW, 2)}<div class="abody">${mbConn(true, true)}${mbStorage}</div>` }));
   put("fin-search", win({ menu: MENU_NEW, active: "", noActive: true, q: "вложен", title: "Найти настройку", w: WF, h: 560, body: liveHits("offline_attachments") }));
-  put("fin-boxes", win({ menu: MENU_NEW, active: "Ящики", title: "Ящики", w: WF, h: 340, body: boxA(true, true) }));
+  put("fin-boxes", win({ menu: MENU_NEW, active: "Ящики", title: "Ящики", w: WF, h: 680, body: boxList(0) }));
+  put("fin-plugins", win({ menu: MENU_NEW, active: "Плагины", plugs: PLUGS8, title: "Плагины", w: WF, h: 900, body: plugList(true) }));
+  put("fin-plugin", win({ menu: MENU_NEW, active: "Плагины", kid: "Шаблоны ответов", plugs: PLUGS8, title: "Шаблоны ответов", sub: "встроенный плагин", w: WF, h: 900, body: plugTemplates }));
+
+  // Экран 7: меню с ящиками и плагинами, обе темы
+  put("m-light", win({ tcls: "light", menu: MENU_NEW, active: "Ящики", kid: "Работа", open: ["Плагины"], title: "Работа", sub: "anna@example.org", w: WF, h: 720, contentCls: "flush",
+    body: `${atoc(TOC_NEW)}<div class="abody">${mbGeneral()}${mbLetters}</div>` }));
+  put("m-dark", win({ tcls: "dark", menu: MENU_NEW, active: "Плагины", kid: "Ждут ответа", open: ["Ящики"], title: "Ждут ответа", sub: "встроенный плагин", w: WF, h: 720, body: plugFollow }));
+  // 6.1
+  put("v61a", win({ menu: MENU_NEW, active: "Плагины", kid: "Отложить", plugs: PLUGS8, title: "Отложить", sub: "встроенный плагин", w: WF, h: 860, body: plugBare("Отложить") }));
+  put("v61b", win({ menu: MENU_NEW, active: "Плагины", plugs: PLUGS2, title: "Плагины", w: WF, h: 860, body: plugList(true) }));
+  // 6.2
+  put("v62a", win({ menu: MENU_NEW, active: "Чтение", title: "Чтение", w: WF, h: 780, body: groups(PG_READING) }));
+  put("v62b", win({ menu: MENU_NEW, active: "Чтение", open: ["Ящики", "Плагины"], title: "Чтение", w: WF, h: 780, body: groups(PG_READING) }));
+  // 6.3
+  put("v63a", win({ menu: MENU_NEW, active: "Плагины", kid: "Отложить", plugs: PLUGS8, title: "Отложить", sub: "встроенный плагин", w: WF, h: 860,
+    body: `${aboutP("Отложить")}<section class="g nohead">${mrow("Плагин включён", C.sw(1), "Вместе с плагином пропадут его кнопки, клавиши, разделы и проверки.")}</section><p class="muted" style="font-size:12px">На общей странице «Плагины» у строки только состояние: «включён ›».</p>` }));
+  put("v63b", win({ menu: MENU_NEW, active: "Плагины", plugs: PLUGS8, title: "Плагины", w: WF, h: 860, body: plugList(true) }));
 
   // окна вариантов уменьшаются до ширины своей колонки
   function fit() {
