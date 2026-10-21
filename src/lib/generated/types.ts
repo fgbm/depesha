@@ -715,7 +715,11 @@ export type OpenedMessage = { row: MessageRow, view: MessageView, trusted_sender
  * The From address is on the trusted list, but the receiving server does not vouch
  * that this letter is really from it: its pictures stay hidden.
  */
-sender_unverified: boolean, };
+sender_unverified: boolean, 
+/**
+ * Why `sender_unverified`; `Checking` asks the window to call `message_check_sender`.
+ */
+why_unverified: Unverified | null, };
 
 export type OutboxItem = { id: number, account_id: string, draft: Draft, attempts: number, next_attempt: number, last_error: string | null, 
 /**
@@ -1098,6 +1102,8 @@ foreign: boolean, };
 export type UnsubscribeWay = { "kind": "one-click", host: string, } | { "kind": "mail", to: string, subject: string, text: string, } | { "kind": "link", url: string, };
 
 export type Unsubscribed = { "kind": "done" } | { "kind": "mail-sent", to: string, } | { "kind": "confirm", plan: UnsubscribePlan, reason: string, };
+
+export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked";
 
 export type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
 

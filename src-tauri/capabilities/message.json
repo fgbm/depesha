@@ -21,6 +21,7 @@
     "allow-extensions",
     "allow-messages-by-id",
     "allow-message-open",
+    "allow-message-check-sender",
     "allow-thread",
     "allow-set-flag",
     "allow-set-label",

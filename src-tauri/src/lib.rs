@@ -221,6 +221,7 @@ pub fn run() {
                 label_strip: Default::default(),
                 resend_requested: Default::default(),
                 connect_timeout_streak: Default::default(),
+                signatures: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();
@@ -314,6 +315,7 @@ pub fn run() {
             commands::search_totals,
             commands::server_search,
             commands::message_open,
+            commands::message_check_sender,
             commands::set_flag,
             commands::set_label,
             commands::labels,

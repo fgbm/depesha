@@ -99,6 +99,7 @@ export const api = {
   serverSearch: (text: string, accountId?: string) =>
     call<MessageRow[]>("server_search", { text, accountId: accountId ?? null }),
   open: (id: number, allowRemote: boolean, seq?: number) => call<OpenedMessage>("message_open", { id, allowRemote, seq }),
+  checkSender: (id: number) => call<boolean>("message_check_sender", { id }),
   setFlag: (ids: number[], change: FlagChange) => call<void>("set_flag", { ids, change }),
   /** Puts one label on rows or takes it off, by the label's name. */
   setLabel: (ids: number[], name: string, value: boolean) => call<void>("set_label", { ids, name, value }),

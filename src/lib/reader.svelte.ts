@@ -4,11 +4,11 @@
 import type { MailboxController } from "./mailboxes.svelte";
 import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
-import { t } from "./i18n.svelte";
+import { t, type Key } from "./i18n.svelte";
 import { debounce } from "./debounce";
 import { extensions } from "./extensions.svelte";
 import type { ListController } from "./list.svelte";
-import type { CmdError, MessageRow, OpenedMessage } from "./types";
+import type { CmdError, MessageRow, OpenedMessage, Unverified } from "./types";
 
 /** A letter counts as read once it was shown this long; flitting through the list does not. */
 const SEEN_MS = 1000;
@@ -86,6 +86,7 @@ export class Reader {
       if (wasUnread) list.mark(id, list.messages.find((m) => m.id === id) ?? { ...msg.row, flags: { ...msg.row.flags, seen: false } });
       this.loadConversation(id, seq, epoch, msg.row.folder, wasUnread);
       extensions.messageOpen(msg, this.host.mailboxes.account(msg.row.account_id)?.email ?? "");
+      if (msg.why_unverified === "checking") void this.checkSender(id, seq);
     } catch (e) {
       if (seq === this.openSeq) {
         this.opened = null;
@@ -97,6 +98,26 @@ export class Reader {
         this.openingRow = null;
       }
     }
+  }
+
+  /**
+   * The mailbox's server said nothing about a trusted sender: the app checks the letter's
+   * signature in the background (#167), and the letter is read again for the answer. Its
+   * pictures and the line about them change; nothing else of the open is repeated.
+   */
+  private async checkSender(id: number, seq: number) {
+    // A failed check is no confirmation: the line below says the signature was not checked.
+    await api.checkSender(id).catch(() => false);
+    if (seq !== this.openSeq) return;
+    // The letter stays shown as it was opened; the line then says the check got no answer.
+    const fresh = await api.open(id, this.allowRemote).catch(() => null);
+    const opened = this.opened;
+    if (seq !== this.openSeq || opened?.row.id !== id) return;
+    if (!fresh) {
+      this.opened = { ...opened, why_unverified: "unchecked" };
+      return;
+    }
+    this.opened = { ...opened, view: fresh.view, trusted_sender: fresh.trusted_sender, sender_unverified: fresh.sender_unverified, why_unverified: fresh.why_unverified === "checking" ? "unchecked" : fresh.why_unverified };
   }
 
   private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
@@ -215,6 +236,22 @@ export class Reader {
       this.opened = null;
       this.openError = { kind: "not-found", message: t("window.gone") };
     }
+  }
+}
+
+/** The line about a trusted sender who is not confirmed, by why (#167). */
+export function unverifiedKey(why: Unverified | null): Key {
+  switch (why) {
+    case "checking":
+      return "reader.checkingSender";
+    case "unsigned":
+      return "reader.unsignedSender";
+    case "signature":
+      return "reader.badSignature";
+    case "unchecked":
+      return "reader.uncheckedSender";
+    default:
+      return "reader.unverifiedSender";
   }
 }
 

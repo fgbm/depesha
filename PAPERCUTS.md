@@ -60,3 +60,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-18 — deepseek-v4.1-flash
 
 Вызов OpenChamber knowledge/render с `action: "save"` и `action: "render"` → отказ «Expected "knowledge.save" / "render.page"», хотя в описании инструмента и в подсказке каталога действие названо коротко. Передавай полное имя с точкой (`knowledge.save`, `knowledge.show`, `render.page`), короткое имя валит вызов ещё до выполнения.
+
+## 2026-10-21 13:45 — claude-opus-5-5
+
+`scripts/check.sh --changed` в worktree q-167-dkim → vitest падал на каждом файле с `ENOENT … /tmp/<случайное>/ssr/<хеш>`, хотя код ни при чём: кто-то из соседних сессий чистит каталоги vite в `/tmp` (tmpfs занят на 81 %). С `TMPDIR=$PWD/target/tmp` прогон зелёный. Вероятно, стоит ставить `TMPDIR` внутри worktree в самом `check.sh`.

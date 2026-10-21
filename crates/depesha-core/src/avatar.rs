@@ -637,6 +637,16 @@ impl SenderCheck {
     pub fn passed(&self) -> bool {
         matches!(self, Self::Passed | Self::AlignedWithoutDmarc { .. })
     }
+
+    /// The mailbox's server gave no verdict on the sender: no header of its own, or no DMARC
+    /// check in it. The app may then check the DKIM signature itself ([`crate::dkim`]); a `no`
+    /// of the server (`dmarc=fail`, another organization) stays a `no`.
+    pub fn no_verdict(&self) -> bool {
+        matches!(
+            self,
+            Self::NoOwnHeader { .. } | Self::NoDmarc | Self::NotAlignedWithoutDmarc
+        )
+    }
 }
 
 impl std::fmt::Display for SenderCheck {
@@ -678,7 +688,8 @@ impl std::fmt::Display for SenderCheck {
 /// `auth_results`: every `Authentication-Results`, topmost first. Only a header
 /// written by the account's own server counts (others are skipped, wherever they
 /// stand); the topmost of them decides, with or without a DMARC result. The verdict must name the
-/// sender's domain in `header.from`, exactly: without it, it may be about another domain.
+/// sender's organization in `header.from` (relaxed alignment): without it, it may be about another
+/// domain.
 pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
     check_sender(auth_results, from_domain, receiver).passed()
 }
@@ -718,7 +729,7 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
         return match r.dmarc {
             None => without_dmarc(&r, from_domain),
             Some((word, _)) if word != "pass" => SenderCheck::DmarcNot(word),
-            Some((_, header_from)) if header_from.as_deref().is_some_and(|d| same_domain(d, from_domain)) => {
+            Some((_, header_from)) if header_from.as_deref().is_some_and(|d| aligned(d, from_domain)) => {
                 SenderCheck::Passed
             }
             Some((_, header_from)) => SenderCheck::NotAligned {
@@ -735,19 +746,18 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
 }
 
 /// For a server that writes no `dmarc=` result at all (Yandex): the sender is believed when a
-/// passed DKIM signature or SPF check is about exactly the From domain. Decision (#167): this
-/// is not a DMARC verdict (the server did not check DMARC, the sender's `adkim`/`aspf` and
-/// policy are unknown), so only the exact domain counts, never a subdomain of the same
-/// organization (relaxed alignment would need the `_dmarc` record, a network lookup the
-/// opening of a letter does not make). An explicit `dmarc=none`/`fail` never gets here.
+/// passed DKIM signature is about the From domain's organization (relaxed alignment, the
+/// default of DMARC; #167), or a passed SPF check about exactly the From domain. Not a DMARC
+/// verdict: the sender's `adkim`/`aspf` and policy are unknown. An explicit
+/// `dmarc=none`/`fail` never gets here.
 fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
-    let aligned = |list: &[(String, Option<String>)]| {
+    let passed_for = |list: &[(String, Option<String>)], same: fn(&str, &str) -> bool| {
         list.iter()
-            .any(|(word, d)| word == "pass" && d.as_deref().is_some_and(|d| same_domain(d, from_domain)))
+            .any(|(word, d)| word == "pass" && d.as_deref().is_some_and(|d| same(d, from_domain)))
     };
-    if aligned(&r.dkim) {
+    if passed_for(&r.dkim, aligned) {
         SenderCheck::AlignedWithoutDmarc { via: "dkim" }
-    } else if aligned(&r.spf) {
+    } else if passed_for(&r.spf, same_domain) {
         SenderCheck::AlignedWithoutDmarc { via: "spf" }
     } else if r.dkim.iter().chain(&r.spf).any(|(word, _)| word == "pass") {
         SenderCheck::NotAlignedWithoutDmarc
@@ -756,13 +766,28 @@ fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
     }
 }
 
-/// `header.from` is the From domain as it stands: the server already did the aligning
-/// (RFC 7489) and wrote the domain it judged, so a subdomain or a look-alike is another
-/// domain here. Case, a trailing dot and IDN spelling are not differences.
-fn same_domain(header_from: &str, from_domain: &str) -> bool {
+/// The same domain name: case, a trailing dot and IDN spelling are not differences.
+pub(crate) fn same_domain(header_from: &str, from_domain: &str) -> bool {
     let ascii = |d: &str| idna::domain_to_ascii(d.trim().trim_end_matches('.')).ok();
     match (ascii(header_from), ascii(from_domain)) {
         (Some(a), Some(b)) => !a.is_empty() && a == b,
+        _ => false,
+    }
+}
+
+/// Relaxed alignment of DMARC (RFC 7489 §3.1.1): the same name, or the same registrable
+/// domain by the public suffix list (#167: `openai.com` signs for `email.openai.com`). Under a
+/// public or private suffix (`co.uk`, `github.io`) only the same name: everyone rents a name
+/// there, and a neighbour is another organization.
+pub(crate) fn aligned(a: &str, b: &str) -> bool {
+    let ascii = |d: &str| {
+        idna::domain_to_ascii(d.trim().trim_end_matches('.'))
+            .ok()
+            .map(|d| d.to_ascii_lowercase())
+    };
+    match (ascii(a), ascii(b)) {
+        (Some(a), Some(b)) if !a.is_empty() && a == b => true,
+        (Some(a), Some(b)) => registrable(&a).is_some_and(|org| registrable(&b).as_ref() == Some(&org)),
         _ => false,
     }
 }
@@ -961,8 +986,8 @@ mod tests {
                 "{name}"
             );
             assert!(
-                !verified(&receiver, received, auth, "notifications@mail.github.com"),
-                "{name}: header.from is the From domain as it stands"
+                verified(&receiver, received, auth, "notifications@mail.github.com"),
+                "{name}: relaxed alignment, the same organization"
             );
             assert!(
                 !verified(&receiver, received, auth, "notifications@github.example"),
@@ -998,7 +1023,7 @@ mod tests {
             plain,
             "notifications@evilgithub.com"
         ));
-        assert!(!verified(
+        assert!(verified(
             &yandex_box,
             YANDEX_RECEIVED,
             plain,
@@ -1328,12 +1353,23 @@ mod tests {
         // Both about a foreign domain.
         let evil = "mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass smtp.mail=x@evil.example; dkim=pass header.i=@evil.example";
         assert_eq!(check(evil.into(), "github.com"), SenderCheck::NotAlignedWithoutDmarc);
-        // Without `dmarc=` the sender's alignment mode is unknown: the domain must be the same.
+        // A signature of the same organization is aligned (relaxed, #167); SPF stays exact.
         let sub = "mx.yandex.net; dkim=pass header.d=em.bank.ru";
-        assert!(!dmarc_passed(&[sub.into()], "bank.ru", &yandex));
-        assert!(!dmarc_passed(
+        assert!(dmarc_passed(&[sub.into()], "bank.ru", &yandex));
+        assert!(dmarc_passed(
             &["mx.yandex.net; dkim=pass header.i=@mail.github.com".into()],
             "github.com",
+            &yandex
+        ));
+        assert!(!dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.d=bank.ru.evil.example".into()],
+            "bank.ru",
+            &yandex
+        ));
+        // Under a private suffix everyone rents a name: only the same name is aligned.
+        assert!(!dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.d=evil.github.io".into()],
+            "bank.github.io",
             &yandex
         ));
         assert!(!dmarc_passed(
@@ -1491,17 +1527,27 @@ mod tests {
     }
 
     #[test]
-    fn header_from_is_the_from_domain_exactly() {
+    fn header_from_is_aligned_with_the_from_domain_by_organization() {
         let gmail = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         let one = |from: &str| vec![format!("mx.google.com; dmarc=pass header.from={from}")];
+        // The operator's letter (#167): Gmail judged `openai.com` for From `email.openai.com`.
         assert_eq!(
-            check_sender(&one("github.com"), "mail.github.com", &gmail),
+            check_sender(&one("openai.com"), "email.openai.com", &gmail),
+            SenderCheck::Passed
+        );
+        assert!(dmarc_passed(&one("mail.github.com"), "github.com", &gmail));
+        assert_eq!(
+            check_sender(&one("openai.com"), "openai.com.evil.example", &gmail),
             SenderCheck::NotAligned {
-                header_from_domain: Some("github.com".into()),
-                from_domain: "mail.github.com".into()
+                header_from_domain: Some("openai.com".into()),
+                from_domain: "openai.com.evil.example".into()
             }
         );
-        assert!(!dmarc_passed(&one("mail.github.com"), "github.com", &gmail));
+        assert!(!dmarc_passed(&one("evilopenai.com"), "openai.com", &gmail));
+        // A public suffix is no organization: `co.uk` does not align `a.co.uk` and `b.co.uk`.
+        assert!(!dmarc_passed(&one("a.co.uk"), "b.co.uk", &gmail));
+        assert!(!dmarc_passed(&one("co.uk"), "b.co.uk", &gmail));
+        assert!(!dmarc_passed(&one("evil.github.io"), "bank.github.io", &gmail));
         // Case and a trailing dot are no difference.
         assert!(dmarc_passed(&one("GitHub.com."), "github.COM", &gmail));
         // Nor is the spelling of an IDN.

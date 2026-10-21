@@ -263,6 +263,7 @@ export type OpenedMessage = {
     view: MessageView;
     trusted_sender: boolean;
     sender_unverified: boolean;
+    why_unverified: Unverified | null;
 };
 
 export interface Placed {
@@ -693,6 +694,8 @@ type Unsubscribe = {
     http: string | null;
     mailto: string | null;
 };
+
+type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked";
 
 type Voice = {
     from: Addr;

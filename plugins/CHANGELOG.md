@@ -2,6 +2,10 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
+## 0.8.12
+
+- `OpenedMessage` has `why_unverified` (#167): why a trusted sender is not confirmed (`server`, `checking`, `unsigned`, `signature`, `unchecked`), `null` when `sender_unverified` is false. `checking` means the app checks the letter's DKIM signature in the background; the open letter is updated when the answer comes. A plugin that only reads the message is unaffected; one that builds it (a test fixture) must give the field.
+
 ## 0.8.3
 
 - `ListFilter` has an optional `count` (#182): extra conditions for a count over the list's own scope, so a filter option can show how many letters it would show (e.g. unread newsletters in the open list). The core shows the number beside the option; a plugin that gives none is unaffected.

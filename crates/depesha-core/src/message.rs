@@ -1184,8 +1184,8 @@ From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
         };
         let ok = |raw: String| authenticity(raw.as_bytes(), &gmail).verified();
         assert!(ok(gmail_letter("notifications@github.com", GMAIL_OWN_PASS)));
-        // `header.from` is the From domain as it stands: a subdomain sender is another domain.
-        assert!(!ok(gmail_letter("notifications@mail.github.com", GMAIL_OWN_PASS)));
+        // A subdomain of the same organization is aligned (relaxed, #167).
+        assert!(ok(gmail_letter("notifications@mail.github.com", GMAIL_OWN_PASS)));
         // A failed verdict, another domain, a name nobody gave to the box: no.
         assert!(!ok(gmail_letter(
             "notifications@github.com",

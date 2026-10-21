@@ -31,6 +31,7 @@
     "allow-search-totals",
     "allow-server-search",
     "allow-message-open",
+    "allow-message-check-sender",
     "allow-set-flag",
     "allow-set-label",
     "allow-labels",

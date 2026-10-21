@@ -18,6 +18,7 @@ const COMMANDS: &[&str] = &[
     "search_totals",
     "server_search",
     "message_open",
+    "message_check_sender",
     "set_flag",
     "set_label",
     "labels",

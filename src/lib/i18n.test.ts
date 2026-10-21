@@ -25,6 +25,7 @@ function msg(): OpenedMessage {
     view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, authenticated: false, attachments: [], send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], },
     trusted_sender: false,
     sender_unverified: false,
+    why_unverified: null,
   };
 }
 

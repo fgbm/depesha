@@ -8,6 +8,7 @@ pub mod avatar;
 mod best_effort;
 mod blocking;
 pub mod clear;
+pub mod dkim;
 pub mod domain;
 pub(crate) mod error;
 pub mod ews;

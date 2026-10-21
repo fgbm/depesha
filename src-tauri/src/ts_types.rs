@@ -99,6 +99,7 @@ fn all(cfg: &Config) -> Decls {
     decl::<crate::commands::EwsDetectionView>(cfg, &mut out);
     decl::<crate::commands::OAuthProviderView>(cfg, &mut out);
     decl::<crate::commands::OpenedMessage>(cfg, &mut out);
+    decl::<crate::commands::Unverified>(cfg, &mut out);
     decl::<crate::commands::Moved>(cfg, &mut out);
     decl::<crate::commands::LabelCount>(cfg, &mut out);
     decl::<crate::commands::Counters>(cfg, &mut out);

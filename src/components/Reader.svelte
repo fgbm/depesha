@@ -7,6 +7,7 @@
   import { layout } from "../lib/layout.svelte";
   import { viewTitle } from "../lib/titles";
   import { app } from "../lib/store.svelte";
+  import { unverifiedKey } from "../lib/reader.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
@@ -210,7 +211,7 @@
             <span aria-hidden="true">·</span>
             {#if msg.sender_unverified}
               <!-- Anyone can write a trusted address into From: the trust waits for a confirmed sender. -->
-              <span>{t("reader.unverifiedSender", { email: msg.view.summary.from.email })}</span>
+              <span>{t(unverifiedKey(msg.why_unverified), { email: msg.view.summary.from.email })}</span>
             {:else}
               <button class="link" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
             {/if}

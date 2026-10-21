@@ -27,7 +27,7 @@ use depesha_core::store::{
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::waiting;
-use depesha_core::{Error, avatar, mail, oauth};
+use depesha_core::{Error, avatar, dkim, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -674,6 +674,58 @@ pub struct OpenedMessage {
     /// The From address is on the trusted list, but the receiving server does not vouch
     /// that this letter is really from it: its pictures stay hidden.
     sender_unverified: bool,
+    /// Why `sender_unverified`; `Checking` asks the window to call `message_check_sender`.
+    why_unverified: Option<Unverified>,
+}
+
+/// Why a trusted sender is not confirmed (#167).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Unverified {
+    /// The mailbox's server checked the sender, and its answer is no.
+    Server,
+    /// The server gave no verdict; the app checks the DKIM signature now.
+    Checking,
+    /// The server gave no verdict, and the letter carries no signature.
+    Unsigned,
+    /// The server gave no verdict, and the signature does not confirm the From address.
+    Signature,
+    /// The server gave no verdict, and DNS did not answer for the signature's key.
+    Unchecked,
+}
+
+impl From<dkim::Signature> for Unverified {
+    fn from(s: dkim::Signature) -> Self {
+        match s {
+            dkim::Signature::Unsigned => Self::Unsigned,
+            dkim::Signature::Unchecked => Self::Unchecked,
+            dkim::Signature::Aligned | dkim::Signature::NotAligned | dkim::Signature::Invalid => Self::Signature,
+        }
+    }
+}
+
+/// Whether a trusted sender is confirmed, and why not: the server's verdict, else the app's
+/// own DKIM check of this letter if one was made, else whether one can be made.
+fn sender_verdict(
+    state: &AppState,
+    id: i64,
+    raw: &[u8],
+    auth: &message::Authenticity,
+    from_domain: &str,
+) -> Option<Unverified> {
+    if auth.verified() {
+        return None;
+    }
+    if !auth.check.as_ref().is_some_and(avatar::SenderCheck::no_verdict) {
+        return Some(Unverified::Server);
+    }
+    match state.signatures.known(id, raw, from_domain) {
+        Some(s) if s.passed() => None,
+        Some(s) => Some(s.into()),
+        None if dkim::signed(raw) => Some(Unverified::Checking),
+        None => Some(Unverified::Unsigned),
+    }
 }
 
 async fn raw_of(state: &AppState, row: &MessageRow, gate: Option<(String, u64)>) -> CmdResult<Vec<u8>> {
@@ -738,10 +790,13 @@ pub async fn message_open(
     // Anyone can write a trusted address into From: the trust holds only for a sender
     // the receiving server vouches for.
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
-    let trusted_sender = listed && auth.verified();
+    let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
+    let why_unverified = listed
+        .then(|| sender_verdict(&state, row.id, &raw, &auth, &from_domain))
+        .flatten();
+    let trusted_sender = listed && why_unverified.is_none();
     // Why a sender is or is not believed (#167): ids, domains and result words, no address.
     let kind = box_kind(&state.account(&row.account_id)?);
-    let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
     match &auth.check {
         Some(check) => tracing::debug!(
             id = row.id, kind, folder = %row.folder, %from_domain, listed, internal = auth.internal,
@@ -750,6 +805,9 @@ pub async fn message_open(
         None => tracing::debug!(
             id = row.id, kind, folder = %row.folder, listed, "sender check: the letter has no readable From"
         ),
+    }
+    if listed && auth.check.as_ref().is_some_and(avatar::SenderCheck::no_verdict) {
+        tracing::debug!(id = row.id, ?why_unverified, "sender check: own DKIM check");
     }
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
@@ -788,7 +846,26 @@ pub async fn message_open(
         view,
         trusted_sender,
         sender_unverified: listed && !trusted_sender,
+        why_unverified,
     })
+}
+
+/// The app's own DKIM check of a letter from a trusted sender whose mailbox server gave no
+/// verdict (#167); `true` when it confirms the sender. The window opens the letter again to
+/// show the answer. Asking DNS for the key tells the signer the letter was read, so only a
+/// trusted sender is checked: its pictures would tell the same.
+#[tauri::command]
+pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
+    let row = row(&state, id)?;
+    let sender = row.from.as_ref().map(|a| a.email.clone()).unwrap_or_default();
+    if sender.is_empty() || !state.store.is_trusted_sender(&sender)? {
+        return Ok(false);
+    }
+    let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
+    let raw = raw_of(&state, &row, None).await?;
+    let verdict = state.signatures.check_letter(row.id, &raw, &from_domain).await;
+    tracing::debug!(id = row.id, ?verdict, "sender check: own DKIM check done");
+    Ok(verdict.passed())
 }
 
 /// Message rows by (account, folder, UIDVALIDITY) for server operations: the worker

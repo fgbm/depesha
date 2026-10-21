@@ -210,3 +210,42 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     expect(s.ui.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
   });
 });
+
+describe("a trusted sender the mailbox's server said nothing about (#167)", () => {
+  it("checks the signature in the background and shows the answer without opening again", async () => {
+    api.messages.mockResolvedValue(rows(1, 1));
+    const unconfirmed = () => ({ ...opened(row(1)), sender_unverified: true, why_unverified: "checking" as const });
+    api.open.mockResolvedValueOnce(unconfirmed()).mockResolvedValueOnce({ ...opened(row(1)), trusted_sender: true });
+    api.thread.mockResolvedValue([]);
+    let confirm!: (v: boolean) => void;
+    api.checkSender.mockReturnValue(new Promise<boolean>((r) => (confirm = r)));
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    await s.reader.open(1);
+    // The letter is shown at once; the line says the check is under way.
+    expect(s.reader.opened?.why_unverified).toBe("checking");
+    expect(api.checkSender).toHaveBeenCalledWith(1);
+    confirm(true);
+    await flush();
+    expect(s.reader.opened?.trusted_sender).toBe(true);
+    expect(s.reader.opened?.why_unverified).toBeNull();
+    // Only the view is read again: the read mark and the conversation are not repeated.
+    expect(api.thread).toHaveBeenCalledTimes(1);
+  });
+
+  it("a check without an answer never stays «checking»", async () => {
+    api.messages.mockResolvedValue(rows(1, 1));
+    const unconfirmed = () => ({ ...opened(row(1)), sender_unverified: true, why_unverified: "checking" as const });
+    api.open.mockResolvedValue(unconfirmed());
+    api.thread.mockResolvedValue([]);
+    api.checkSender.mockRejectedValue(new Error("offline"));
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    await s.reader.open(1);
+    await flush();
+    expect(s.reader.opened?.trusted_sender).toBe(false);
+    expect(s.reader.opened?.why_unverified).toBe("unchecked");
+  });
+});

@@ -92,6 +92,8 @@ pub struct AppState {
     /// of failure, or none at all, resets it. Used to tell the user a network is blocking the
     /// port only once it has actually repeated, not on the first try (#173).
     pub connect_timeout_streak: Mutex<HashMap<i64, u32>>,
+    /// The app's own DKIM check of trusted senders, with its DNS answers (#167).
+    pub signatures: depesha_core::dkim::Verifier,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
