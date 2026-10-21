@@ -190,6 +190,7 @@ fn weigh(evidence: &Evidence) -> Verdict {
             crate::dkim::Signature::Unsigned => no(Reason::Unsigned),
             crate::dkim::Signature::Unchecked => no(Reason::Unchecked),
             crate::dkim::Signature::NotAligned | crate::dkim::Signature::Invalid => no(Reason::Signature),
+            crate::dkim::Signature::Failed(_) => no(Reason::Signature),
         };
     }
     // The original headers of the letter, without its body: the signature covers the From, the
@@ -204,7 +205,7 @@ fn weigh(evidence: &Evidence) -> Verdict {
             },
             crate::dkim::Headers::Unsigned => no(Reason::Unsigned),
             crate::dkim::Headers::Unchecked => no(Reason::Unchecked),
-            crate::dkim::Headers::Rejected => no(Reason::Signature),
+            crate::dkim::Headers::Rejected(_) => no(Reason::Signature),
         };
     }
     // The app's own check is still to be made: the window asks for it.

@@ -716,6 +716,7 @@ impl From<dkim::Signature> for Unverified {
             dkim::Signature::Unsigned => Self::Unsigned,
             dkim::Signature::Unchecked => Self::Unchecked,
             dkim::Signature::Aligned | dkim::Signature::NotAligned | dkim::Signature::Invalid => Self::Signature,
+            dkim::Signature::Failed(_) => Self::Signature,
         }
     }
 }
@@ -725,7 +726,7 @@ impl From<dkim::Headers> for Unverified {
         match s {
             dkim::Headers::Unsigned => Self::Unsigned,
             dkim::Headers::Unchecked => Self::Unchecked,
-            dkim::Headers::Rejected => Self::Signature,
+            dkim::Headers::Rejected(_) => Self::Signature,
             dkim::Headers::Valid => Self::Checking,
         }
     }
@@ -911,6 +912,7 @@ fn signature_outcome(signature: dkim::Signature) -> &'static str {
         dkim::Signature::NotAligned => "from_mismatch",
         dkim::Signature::Invalid => "bad_signature",
         dkim::Signature::Unchecked => "no_key",
+        dkim::Signature::Failed(reason) => reason.code(),
     }
 }
 
@@ -920,7 +922,7 @@ fn headers_outcome(headers: dkim::Headers) -> &'static str {
     match headers {
         dkim::Headers::Valid => "pass",
         dkim::Headers::Unsigned => "unsigned",
-        dkim::Headers::Rejected => "bad_signature",
+        dkim::Headers::Rejected(reason) => reason.code(),
         dkim::Headers::Unchecked => "no_key",
     }
 }
@@ -1126,7 +1128,7 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
                     .check_headers_remembered(row.id, bytes, &sender, recipient)
                     .await
             }
-            _ => dkim::Headers::Rejected,
+            _ => dkim::Headers::Rejected(dkim::Reason::Replay),
         };
         tracing::debug!(
             id = row.id,

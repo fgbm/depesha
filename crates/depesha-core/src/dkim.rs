@@ -56,11 +56,73 @@ pub enum Signature {
     Invalid,
     /// No answer from DNS: nothing is known, which is no confirmation.
     Unchecked,
+    /// The check failed, and this is why (0.8.13, 7.1 Б): the log names the reason.
+    Failed(Reason),
+}
+
+/// Why the app's own check of a signature failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reason {
+    /// The body of the letter is not the one the signature covers: the hash did not match.
+    BodyHash,
+    /// The signature does not match the headers it covers.
+    BadSignature,
+    /// The signature does not stand any more: the time in its `x=` tag has passed.
+    Expired,
+    /// The key of the signature was not found, or DNS did not answer.
+    NoKey,
+    /// The key is in testing mode (`t=y`): such a signature is no signature.
+    TestingKey,
+    /// The `i=` of the signature is of another domain than the `d=`.
+    Auid,
+    /// The signature uses SHA-1, which signs nothing any longer (RFC 8301).
+    Sha1,
+    /// The signature does not cover the `From`.
+    NoFromInH,
+    /// The signature names a length of the body (`l=`): the text below it would pass unsigned.
+    LRefused,
+    /// The signature names more headers than a real one does.
+    TooManyH,
+    /// The signature is of another organization than the From.
+    FromMismatch,
+    /// The sender's policy asks for the exact name in `d=` (`adkim=s`).
+    StrictPolicy,
+    /// The letter is of another time than the letter that was received.
+    Replay,
+}
+
+impl Reason {
+    /// The reason as the log names it.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::BodyHash => "body_hash",
+            Self::BadSignature => "bad_signature",
+            Self::Expired => "expired",
+            Self::NoKey => "no_key",
+            Self::TestingKey => "testing_key",
+            Self::Auid => "auid",
+            Self::Sha1 => "sha1",
+            Self::NoFromInH => "no_from_in_h",
+            Self::LRefused => "l_refused",
+            Self::TooManyH => "too_many_h",
+            Self::FromMismatch => "from_mismatch",
+            Self::StrictPolicy => "strict_policy",
+            Self::Replay => "replay",
+        }
+    }
 }
 
 impl Signature {
     pub fn passed(self) -> bool {
         self == Self::Aligned
+    }
+
+    /// Why the check failed, when it failed: `None` when it passed or when nothing is known.
+    pub fn reason(self) -> Option<Reason> {
+        match self {
+            Self::Failed(reason) => Some(reason),
+            _ => None,
+        }
     }
 }
 
@@ -78,7 +140,7 @@ pub enum Headers {
     Unsigned,
     /// The signature does not match the headers, the key is gone or in testing, or the letter
     /// has no single From that is the given address.
-    Rejected,
+    Rejected(Reason),
     /// DNS did not answer for the key: nothing is known, which is no confirmation.
     Unchecked,
 }
@@ -86,6 +148,14 @@ pub enum Headers {
 impl Headers {
     pub fn passed(self) -> bool {
         self == Self::Valid
+    }
+
+    /// Why the check failed, when it failed.
+    pub fn reason(self) -> Option<Reason> {
+        match self {
+            Self::Rejected(reason) => Some(reason),
+            _ => None,
+        }
     }
 }
 
@@ -120,6 +190,11 @@ fn candidates_for<'x>(
     if message.dkim_headers.is_empty() && !message.has_dkim_errors {
         return Err(Signature::Unsigned);
     }
+    // A signature with a length of the body (`l=`) is refused by `mail-auth` before the app
+    // sees it: the text below that length would pass unsigned.
+    if message.dkim_headers.is_empty() && message.has_dkim_errors {
+        return Err(Signature::Failed(Reason::LRefused));
+    }
     // One From, the trusted address, read alike by the reader and by the check: a second From
     // is how a signed letter shows another sender (RFC 7489 §6.6.1).
     let address = address.trim().to_lowercase();
@@ -138,17 +213,34 @@ fn candidates_for<'x>(
         });
     }
     // SHA-1 signs nothing any longer (RFC 8301 §3.1): a collision makes a second letter.
+    let mut refused: Option<Reason> = None;
     message.dkim_headers.retain(|h| {
         let s = &h.header;
-        ours(s)
-            && s.a != Algorithm::RsaSha1
-            && s.h.len() <= MAX_SIGNED
-            && must_cover
-                .iter()
-                .all(|want| s.h.iter().any(|name| name.trim().eq_ignore_ascii_case(want)))
+        if !ours(s) {
+            return false;
+        }
+        if s.a == Algorithm::RsaSha1 {
+            refused.get_or_insert(Reason::Sha1);
+            return false;
+        }
+        if s.h.len() > MAX_SIGNED {
+            refused.get_or_insert(Reason::TooManyH);
+            return false;
+        }
+        if !must_cover
+            .iter()
+            .all(|want| s.h.iter().any(|name| name.trim().eq_ignore_ascii_case(want)))
+        {
+            refused.get_or_insert(Reason::NoFromInH);
+            return false;
+        }
+        true
     });
     if message.dkim_headers.is_empty() {
-        return Err(Signature::Invalid);
+        return Err(match refused {
+            Some(reason) => Signature::Failed(reason),
+            None => Signature::Invalid,
+        });
     }
     message.dkim_headers.truncate(MAX_SIGNATURES);
     for header in &mut message.dkim_headers {
@@ -443,7 +535,7 @@ impl Verifier {
         if let Err(verdict) = candidates_for(headers, address, &[recipient]) {
             return match verdict {
                 Signature::Unsigned => Headers::Unsigned,
-                _ => Headers::Rejected,
+                _ => Headers::Rejected(Reason::BadSignature),
             };
         }
         let Some(auth) = self.authenticator() else {
@@ -485,12 +577,12 @@ async fn verify_headers(
         Err(verdict) => {
             return match verdict {
                 Signature::Unsigned => Headers::Unsigned,
-                _ => Headers::Rejected,
+                _ => Headers::Rejected(Reason::BadSignature),
             };
         }
     };
     let from_domain = address.trim().rsplit_once('@').map_or("", |(_, d)| d);
-    let mut verdict = Headers::Rejected;
+    let mut verdict = Headers::Rejected(Reason::BadSignature);
     for header in &message.dkim_headers {
         let signature = &header.header;
         match check_signature(auth, cache, &message, header, None).await {
@@ -501,7 +593,7 @@ async fn verify_headers(
                 Some(false) => {}
             },
             Check::Temp => verdict = Headers::Unchecked,
-            Check::Fail => {}
+            Check::Fail(reason) => verdict = Headers::Rejected(reason),
         }
     }
     verdict
@@ -526,7 +618,7 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
                 Some(false) => relaxed = true,
             },
             Check::Temp => verdict = Signature::Unchecked,
-            Check::Fail => {}
+            Check::Fail(reason) => verdict = Signature::Failed(reason),
         }
     }
     if !relaxed {
@@ -534,7 +626,7 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
     }
     match strict(auth, cache, from_domain).await {
         Some(false) => Signature::Aligned,
-        Some(true) => Signature::NotAligned,
+        Some(true) => Signature::Failed(Reason::StrictPolicy),
         None => Signature::Unchecked,
     }
 }
@@ -543,8 +635,8 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
 enum Check {
     /// The signature is good: the letter is the one the key holder signed.
     Pass,
-    /// The signature is bad: the letter is not the one the key holder signed.
-    Fail,
+    /// The signature is bad, and this is why.
+    Fail(Reason),
     /// DNS did not answer for the key: nothing is known.
     Temp,
 }
@@ -571,7 +663,7 @@ async fn check_signature(
     // An expired signature is no signature (RFC 6376 §3.5, the `x=` tag).
     let now = chrono::Utc::now().timestamp() as u64;
     if signature.x != 0 && signature.x < now {
-        return Check::Fail;
+        return Check::Fail(Reason::Expired);
     }
     let key = match key_of(auth, cache, signature).await {
         Some(key) => key,
@@ -579,13 +671,22 @@ async fn check_signature(
     };
     // The key of a domain in testing mode is no key (RFC 6376 §3.6.1).
     if key.has_flag(KEY_TESTING) {
-        return Check::Fail;
+        return Check::Fail(Reason::TestingKey);
+    }
+    // The `i=` of the signature must be of the same domain as the `d=` (RFC 6376 §3.5).
+    if !signature.i.is_empty()
+        && !signature
+            .i
+            .rsplit_once('@')
+            .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(&signature.d))
+    {
+        return Check::Fail(Reason::Auid);
     }
     // The body: hashed and compared with the `bh=` tag, when the body is at hand.
     if let Some(body) = body {
         let hash = HashAlgorithm::from(signature.a).hash(signature.cb.canonical_body(body, signature.l));
         if hash.as_ref() != signature.bh.as_slice() {
-            return Check::Fail;
+            return Check::Fail(Reason::BodyHash);
         }
     }
     // The signed data: the headers named in `h=`, the `DKIM-Signature` header with its `b=`
@@ -597,7 +698,7 @@ async fn check_signature(
     data.extend_from_slice(&signature.bh);
     match key.p.verify_bytes(&data, &signature.b, signature.a) {
         Ok(()) => Check::Pass,
-        Err(_) => Check::Fail,
+        Err(_) => Check::Fail(Reason::BadSignature),
     }
 }
 
@@ -949,7 +1050,7 @@ mod tests {
             let v = strict(at);
             assert_eq!(
                 v.check(signed.as_bytes(), "noreply@email.openai.com").await,
-                Signature::NotAligned,
+                Signature::Failed(Reason::StrictPolicy),
                 "{at}"
             );
         }
@@ -967,12 +1068,21 @@ mod tests {
         let signed = sign_rfc(key, "1c-bitrix.ru", LETTER);
         let v = verifier("1c-bitrix.ru", &record);
         let changed = signed.replace("logo.png", "track.png");
-        assert_eq!(v.check(changed.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(changed.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::BodyHash)
+        );
         let resent = signed.replace("Subject: Hi", "Subject: Pay now");
-        assert_eq!(v.check(resent.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(resent.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::BadSignature)
+        );
         // Signed with another key than the one DNS publishes.
         let forged = sign_rfc(keypair().0, "1c-bitrix.ru", LETTER);
-        assert_eq!(v.check(forged.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(forged.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::BadSignature)
+        );
     }
 
     #[tokio::test]
@@ -1035,7 +1145,10 @@ mod tests {
         );
         let changed = signed.replace("logo.png", "track.png");
         let v = verifier("1c-bitrix.ru", &record);
-        assert_eq!(v.check(changed.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(changed.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::BodyHash)
+        );
         assert!(!v.was_asked("_report._domainkey.1c-bitrix.ru."));
     }
 
@@ -1061,7 +1174,10 @@ mod tests {
         let longer = format!("{signed}<img src=\"https://track.example/p.png\">\r\n");
         let v = verifier("1c-bitrix.ru", &record);
         for raw in [&signed, &longer] {
-            assert_eq!(v.check(raw.as_bytes(), SENDER).await, Signature::Invalid);
+            assert_eq!(
+                v.check(raw.as_bytes(), SENDER).await,
+                Signature::Failed(Reason::LRefused)
+            );
         }
         assert_eq!(v.asked(), 0);
     }
@@ -1152,8 +1268,14 @@ mod tests {
         let signed = sign_rfc(k, "1c-bitrix.ru", LETTER).replacen("a=ed25519-sha256", "a=rsa-sha1", 1);
         assert!(signed.contains("a=rsa-sha1"), "{signed}");
         let v = verifier("1c-bitrix.ru", &record);
-        assert_eq!(offline_verdict(signed.as_bytes(), SENDER), Some(Signature::Invalid));
-        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            offline_verdict(signed.as_bytes(), SENDER),
+            Some(Signature::Failed(Reason::Sha1))
+        );
+        assert_eq!(
+            v.check(signed.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::Sha1)
+        );
         assert_eq!(v.asked(), 0);
     }
 
@@ -1164,7 +1286,10 @@ mod tests {
         let signed = sign_rfc(k, "1c-bitrix.ru", LETTER);
         let testing = record.replace("k=ed25519;", "k=ed25519; t=y;");
         let v = verifier("1c-bitrix.ru", &testing);
-        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(signed.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::TestingKey)
+        );
         let strict = record.replace("k=ed25519;", "k=ed25519; t=s;");
         let v = verifier("1c-bitrix.ru", &strict);
         assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
@@ -1196,7 +1321,11 @@ mod tests {
             let v = verifier("1c-bitrix.ru", &record);
             assert_eq!(
                 v.check(signed.as_bytes(), SENDER).await,
-                Signature::Invalid,
+                Signature::Failed(if headers[0] == "To" {
+                    Reason::NoFromInH
+                } else {
+                    Reason::TooManyH
+                }),
                 "{headers:?}"
             );
             assert_eq!(v.asked(), 0);
@@ -1223,7 +1352,10 @@ mod tests {
             answers.push((format!("x{i}._domainkey.1c-bitrix.ru."), txt));
         }
         let v = dns(answers);
-        assert_eq!(v.check(raw.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(
+            v.check(raw.as_bytes(), SENDER).await,
+            Signature::Failed(Reason::BadSignature)
+        );
         assert_eq!(v.asked(), MAX_SIGNATURES);
         assert!(!v.was_asked("s1._domainkey.1c-bitrix.ru."));
     }
@@ -1297,12 +1429,12 @@ mod tests {
         let changed = signed.replace("Subject: Hi", "Subject: Pay now");
         assert_eq!(
             v.check_headers(changed.as_bytes(), SENDER, "to").await,
-            Headers::Rejected
+            Headers::Rejected(Reason::BadSignature)
         );
         // Another address than the trusted one: the signature is not about it.
         assert_eq!(
             v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru", "to").await,
-            Headers::Rejected
+            Headers::Rejected(Reason::BadSignature)
         );
     }
 
@@ -1315,7 +1447,7 @@ mod tests {
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
             v.check_headers(signed.as_bytes(), SENDER, "to").await,
-            Headers::Rejected
+            Headers::Rejected(Reason::BadSignature)
         );
         // Covered: the letter stands.
         let (key, record) = keypair();
