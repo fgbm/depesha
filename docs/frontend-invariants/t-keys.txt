@@ -28,7 +28,6 @@ account.signatures.drag
 account.signatures.edit
 account.signatures.empty
 account.signatures.heavy
-account.signatures.hint
 account.signatures.isDefault
 account.signatures.makeDefault
 account.signatures.makeReplyDefault
@@ -628,7 +627,6 @@ status.online
 storage.cache
 storage.cacheNote
 storage.count
-storage.countNote
 storage.countedFetch
 storage.countedStatus
 storage.counting
@@ -645,7 +643,6 @@ storage.letters
 storage.limitInherit
 storage.limitOff
 storage.limitOwn
-storage.local
 storage.noQuota
 storage.noQuotaNote
 storage.notCounted

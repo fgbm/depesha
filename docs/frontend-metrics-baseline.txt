@@ -65,7 +65,7 @@ component	src/components/account/LettersSection.svelte	20	11	9	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
-component	src/components/account/StorageSection.svelte	443	79	164	200
+component	src/components/account/StorageSection.svelte	400	78	161	161
 component	src/components/account/WaitingField.svelte	50	20	24	6
 component	src/components/people/MergeDialog.svelte	244	65	93	86
 component	src/components/people/PeopleView.svelte	578	230	126	222
