@@ -99,6 +99,17 @@ pub fn offline_verdict(raw: &[u8], address: &str) -> Option<Signature> {
 /// third-party (`atps=`) requests are dropped: each is one more name asked of DNS. `Err` is the
 /// verdict when no signature is worth it.
 fn candidates<'x>(raw: &'x [u8], address: &str) -> Result<AuthenticatedMessage<'x>, Signature> {
+    candidates_for(raw, address, &["from"])
+}
+
+/// [`candidates`], with the headers the signature must cover besides `from`. A header the
+/// signature does not cover may be added by anyone: the check of the recipients (the protection
+/// against a replayed letter) is worth nothing without it (0.8.13, ступень 4).
+fn candidates_for<'x>(
+    raw: &'x [u8],
+    address: &str,
+    must_cover: &[&str],
+) -> Result<AuthenticatedMessage<'x>, Signature> {
     if signature_headers(raw) > MAX_HEADERS {
         return Err(Signature::Invalid);
     }
@@ -131,7 +142,9 @@ fn candidates<'x>(raw: &'x [u8], address: &str) -> Result<AuthenticatedMessage<'
         ours(s)
             && s.a != Algorithm::RsaSha1
             && s.h.len() <= MAX_SIGNED
-            && s.h.iter().any(|name| name.trim().eq_ignore_ascii_case("from"))
+            && must_cover
+                .iter()
+                .all(|want| s.h.iter().any(|name| name.trim().eq_ignore_ascii_case(want)))
     });
     if message.dkim_headers.is_empty() {
         return Err(Signature::Invalid);
@@ -339,8 +352,8 @@ impl Verifier {
     }
 
     /// [`Verifier::check_headers`], remembered for [`Verifier::known_headers`].
-    pub async fn check_headers_remembered(&self, id: i64, headers: &[u8], address: &str) -> Headers {
-        let verdict = self.check_headers(headers, address).await;
+    pub async fn check_headers_remembered(&self, id: i64, headers: &[u8], address: &str, recipient: &str) -> Headers {
+        let verdict = self.check_headers(headers, address, recipient).await;
         if let Ok(mut remembered) = self.headers.lock() {
             if remembered.len() >= LETTERS {
                 remembered.clear();
@@ -409,8 +422,8 @@ impl Verifier {
     /// Whether a block of original headers carries a valid DKIM signature of the organization of
     /// `address`, its only From (0.8.13, ступень 4). The body of the letter is not at hand and is
     /// not checked: the signature proves the headers, not what the letter says.
-    pub async fn check_headers(&self, headers: &[u8], address: &str) -> Headers {
-        if let Err(verdict) = candidates(headers, address) {
+    pub async fn check_headers(&self, headers: &[u8], address: &str, recipient: &str) -> Headers {
+        if let Err(verdict) = candidates_for(headers, address, &[recipient]) {
             return match verdict {
                 Signature::Unsigned => Headers::Unsigned,
                 _ => Headers::Rejected,
@@ -420,10 +433,11 @@ impl Verifier {
             return Headers::Unchecked;
         };
         let (headers, address, cache) = (headers.to_vec(), address.to_owned(), Arc::clone(&self.cache));
+        let recipient = recipient.to_owned();
         let (handle, limit) = (tokio::runtime::Handle::current(), self.limit);
         let task = tokio::task::spawn_blocking(move || {
             handle.block_on(async {
-                tokio::time::timeout(limit, verify_headers(&auth, &cache, &headers, &address))
+                tokio::time::timeout(limit, verify_headers(&auth, &cache, &headers, &address, &recipient))
                     .await
                     .unwrap_or(Headers::Unchecked)
             })
@@ -442,8 +456,14 @@ impl Verifier {
 }
 
 /// [`Verifier::check_headers`] itself, on a thread of its own.
-async fn verify_headers(auth: &MessageAuthenticator, cache: &TxtCache, headers: &[u8], address: &str) -> Headers {
-    let message = match candidates(headers, address) {
+async fn verify_headers(
+    auth: &MessageAuthenticator,
+    cache: &TxtCache,
+    headers: &[u8],
+    address: &str,
+    recipient: &str,
+) -> Headers {
+    let message = match candidates_for(headers, address, &[recipient]) {
         Ok(message) => message,
         Err(verdict) => {
             return match verdict {
@@ -575,23 +595,31 @@ pub const REPLAY_HOURS: i64 = 24;
 /// the address of the mailbox must stand in the signed `To` or `Cc`, and the time of the
 /// letter (`t=` or `Date`) must be close to the time it was received.
 pub fn not_a_replay(headers: &[u8], mailbox: &str, received: i64) -> bool {
-    let summary = crate::message::parse_summary(headers);
-    let mailbox = mailbox.trim().to_lowercase();
-    let addressed = summary
-        .to
-        .iter()
-        .chain(&summary.cc)
-        .any(|a| a.email.trim().to_lowercase() == mailbox);
-    if !addressed {
-        return false;
-    }
-    // The time of the signature, or the date of the letter.
-    let signed_at = signed_time(headers).or(summary.date);
-    let Some(signed_at) = signed_at else {
+    let Some(signed_at) = replay_time(headers, mailbox) else {
         return false;
     };
     let limit = REPLAY_HOURS * 3600;
-    (signed_at - received).abs() <= limit
+    (signed_at.1 - received).abs() <= limit
+}
+
+/// The header the address of the mailbox stands in and the time of the letter: `None` when the
+/// address is not among the recipients, or the time of the letter is not near the time it was
+/// received.
+///
+/// The header the address stands in matters twice over: the signature must cover it, or anyone
+/// may add the address to a letter of another time (0.8.13, ступень 4).
+pub fn replay_time(headers: &[u8], mailbox: &str) -> Option<(&'static str, i64)> {
+    let summary = crate::message::parse_summary(headers);
+    let mailbox = mailbox.trim().to_lowercase();
+    let stands_in = |list: &[crate::domain::Addr], name: &'static str| {
+        list.iter()
+            .any(|a| a.email.trim().to_lowercase() == mailbox)
+            .then_some(name)
+    };
+    let header = stands_in(&summary.to, "to").or_else(|| stands_in(&summary.cc, "cc"))?;
+    // The time of the signature, or the date of the letter.
+    let signed_at = signed_time(headers).or(summary.date)?;
+    Some((header, signed_at))
 }
 
 /// The time of the signature (`t=`), when it has one.
@@ -603,6 +631,31 @@ fn signed_time(headers: &[u8]) -> Option<i64> {
         .map(|h| h.header.t)
         .find(|t| *t > 0)
         .map(|t| t as i64)
+}
+
+/// What the signature of a letter says about itself, for the log: the domain and the selector
+/// of the key, the algorithm, whether the signature has expired, the length of the body it
+/// covers, and whether it covers the `From`. Domains and selectors only, never an address of a
+/// person (0.8.13, 7.1 Б).
+pub fn signature_about(raw: &[u8]) -> Option<String> {
+    let message = AuthenticatedMessage::parse(raw)?;
+    let header = message.dkim_headers.first()?;
+    let s = &header.header;
+    let now = chrono::Utc::now().timestamp() as u64;
+    let expired = s.x != 0 && s.x < now;
+    Some(format!(
+        "d={},s={},a={},x={},l={},from_in_h={}",
+        s.d,
+        s.s,
+        match s.a {
+            Algorithm::RsaSha256 => "rsa-sha256",
+            Algorithm::RsaSha1 => "rsa-sha1",
+            Algorithm::Ed25519Sha256 => "ed25519-sha256",
+        },
+        if expired { "expired" } else { "-" },
+        if s.l > 0 { s.l.to_string() } else { "-".into() },
+        s.h.iter().any(|name| name.trim().eq_ignore_ascii_case("from")),
+    ))
 }
 
 /// The public key of a signature, from DNS.
@@ -1219,24 +1272,48 @@ mod tests {
         let (key, record) = keypair();
         let signed = sign_rfc(key, "1c-bitrix.ru", LETTER);
         let v = verifier("1c-bitrix.ru", &record);
-        assert_eq!(v.check_headers(signed.as_bytes(), SENDER).await, Headers::Valid);
+        assert_eq!(v.check_headers(signed.as_bytes(), SENDER, "to").await, Headers::Valid);
         // The body of the letter does not matter here: the headers are what is signed.
         let changed = signed.replace("logo.png", "track.png");
-        assert_eq!(v.check_headers(changed.as_bytes(), SENDER).await, Headers::Valid);
+        assert_eq!(v.check_headers(changed.as_bytes(), SENDER, "to").await, Headers::Valid);
         // Changed headers: the signature does not stand.
         let changed = signed.replace("Subject: Hi", "Subject: Pay now");
-        assert_eq!(v.check_headers(changed.as_bytes(), SENDER).await, Headers::Rejected);
+        assert_eq!(
+            v.check_headers(changed.as_bytes(), SENDER, "to").await,
+            Headers::Rejected
+        );
         // Another address than the trusted one: the signature is not about it.
         assert_eq!(
-            v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru").await,
+            v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru", "to").await,
             Headers::Rejected
         );
     }
 
     #[tokio::test]
+    async fn a_signature_that_does_not_cover_the_recipients_confirms_nobody() {
+        // The address of the mailbox may be added to any letter: the signature must cover the
+        // header it stands in, or the check of the recipients is worth nothing.
+        let (key, record) = keypair();
+        let signed = sign_rfc_with(key, "1c-bitrix.ru", "s1", &["from", "subject"], &[], LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(
+            v.check_headers(signed.as_bytes(), SENDER, "to").await,
+            Headers::Rejected
+        );
+        // Covered: the letter stands.
+        let (key, record) = keypair();
+        let signed = sign_rfc_with(key, "1c-bitrix.ru", "s1", &["from", "to", "subject"], &[], LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check_headers(signed.as_bytes(), SENDER, "to").await, Headers::Valid);
+    }
+
+    #[tokio::test]
     async fn a_letter_without_a_signature_is_unsigned_in_its_headers_too() {
         let v = dns([]);
-        assert_eq!(v.check_headers(LETTER.as_bytes(), SENDER).await, Headers::Unsigned);
+        assert_eq!(
+            v.check_headers(LETTER.as_bytes(), SENDER, "to").await,
+            Headers::Unsigned
+        );
     }
 
     #[tokio::test]

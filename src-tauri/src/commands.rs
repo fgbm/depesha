@@ -860,8 +860,8 @@ fn evidence_of<'a>(
 /// the server said and what the app's own check found. Domains and selectors only, no address
 /// of a person.
 fn log_sender_check(
-    state: &AppState,
-    row: &MessageRow,
+    id: i64,
+    folder: &str,
     kind: &str,
     from_domain: &str,
     listed: bool,
@@ -878,19 +878,29 @@ fn log_sender_check(
         (None, None) if evidence.own_due => "due".to_owned(),
         _ => "none".to_owned(),
     };
+    let outcome = match (evidence.own_full, evidence.own_headers) {
+        (Some(s), _) => signature_outcome(s),
+        (None, Some(h)) => headers_outcome(h),
+        _ => "none",
+    };
+    // What the signature says about itself: the domain and the selector of the key, the
+    // algorithm, whether it has expired, the length of the body it covers, and whether it
+    // covers the `From`. Domains and selectors only, no address of a person.
+    let sig = dkim::signature_about(evidence.raw).unwrap_or_else(|| "-".to_owned());
     tracing::debug!(
-        id = row.id,
+        id,
         kind,
-        folder = %row.folder,
+        folder = %folder,
         %from_domain,
         listed,
         step = verdict.step.code(),
         verdict = if verdict.confirmed { "confirmed" } else { "unconfirmed" },
         %server,
         %own,
+        outcome,
+        %sig,
         "sender check"
     );
-    let _ = state;
 }
 
 /// The outcome of the app's own check of the whole letter, as the log names it.
@@ -995,7 +1005,7 @@ pub async fn message_open(
     let trusted_sender = listed && verdict.confirmed;
     // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
     let kind = box_kind(&account);
-    log_sender_check(&state, &row, &kind, &from_domain, listed, &evidence, &verdict);
+    log_sender_check(row.id, &row.folder, &kind, &from_domain, listed, &evidence, &verdict);
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
     let mark = draft_mark(&raw, in_drafts);
@@ -1107,10 +1117,16 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
     {
         let received = row.date;
         let bytes = headers.as_bytes();
-        let verdict = if dkim::not_a_replay(bytes, &account.email, received) {
-            state.signatures.check_headers_remembered(row.id, bytes, &sender).await
-        } else {
-            dkim::Headers::Rejected
+        // The signature must cover the header the address of the mailbox stands in, and the
+        // letter must be of this time: a letter of another time proves nothing (0.8.13, ступень 4).
+        let verdict = match dkim::replay_time(bytes, &account.email) {
+            Some((recipient, _)) if dkim::not_a_replay(bytes, &account.email, received) => {
+                state
+                    .signatures
+                    .check_headers_remembered(row.id, bytes, &sender, recipient)
+                    .await
+            }
+            _ => dkim::Headers::Rejected,
         };
         tracing::debug!(
             id = row.id,
@@ -5125,6 +5141,55 @@ mod tests {
         own_full: Option<dkim::Signature>,
     ) -> Evidence<'a> {
         Evidence::of(raw, auth, sender, own_full, None, false, false)
+    }
+
+    /// What the log says while `run` does its thing: the line the operator reads.
+    fn logged(run: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Sink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
+            type Writer = Sink;
+            fn make_writer(&'a self) -> Sink {
+                self.clone()
+            }
+        }
+        let sink = Sink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        tracing::subscriber::with_default(subscriber, run);
+        String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[test]
+    fn the_log_names_the_step_and_the_outcome_of_the_own_check() {
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let evidence = Evidence::of(&raw, &auth, sender, Some(dkim::Signature::Unsigned), None, false, false);
+        let verdict = sender_verdict(&evidence);
+        let line = logged(|| {
+            log_sender_check(7, "INBOX", "imap", "bank.ru", true, &evidence, &verdict);
+        });
+        // The step of the ladder, the outcome of the own check and what the signature says about
+        // itself (0.8.13, 7.1 Б).
+        assert!(line.contains("step=\"-\""), "{line}");
+        assert!(line.contains("verdict=\"unconfirmed\""), "{line}");
+        assert!(line.contains("own=full:unsigned"), "{line}");
+        assert!(line.contains("outcome=\"unsigned\""), "{line}");
+        // No address of a person in the line.
+        assert!(!line.contains("security@bank.ru"), "{line}");
     }
 
     #[test]

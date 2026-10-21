@@ -197,19 +197,21 @@
 
 | № | Ящик | Письмо | Ожидание: ступень | Ожидание: картинки | Ожидание: логотип | Что смотреть в журнале |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Gmail | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step=1 verdict=confirmed server=dmarc=pass` |
-| 2 | Яндекс | письмо доверенного отправителя | 2 (`dkim=pass` без `dmarc=`) | есть | есть, если у домена есть запись BIMI | `step=2 verdict=confirmed server=dkim:pass` |
-| 3 | Яндекс | подделка под доверенного отправителя без подписи | — | нет | нет | `step=- verdict=unconfirmed server=none` и своя проверка: `own=full:unsigned` |
-| 4 | Mail.ru | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step=1 verdict=confirmed` |
-| 5 | Exchange Online | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step=1 verdict=confirmed` |
-| 6 | Exchange в своей сети | письмо доверенного отправителя с подписью | 4 (подпись по исходным заголовкам) | есть | нет | `step=4 verdict=confirmed own=headers:pass` |
-| 7 | Exchange в своей сети | письмо коллеги по организации | внутренняя почта | есть | нет | `step=internal verdict=confirmed` |
-| 8 | Exchange в своей сети | подделка под доверенного отправителя без подписи | — | нет | нет | `step=- verdict=unconfirmed` и `own=full:unsigned` |
-| 9 | свой IMAP | письмо доверенного отправителя с подписью | 3 (своя полная проверка) | есть | есть | `step=3 verdict=confirmed own=full:pass` |
-| 10 | свой IMAP | письмо без подписи | — | нет | нет | `step=- verdict=unconfirmed own=full:unsigned` |
-| 11 | свой IMAP, переключатель «доверять по адресу» включён | письмо без подписи от доверенного адреса | по адресу | есть | нет | `step=address verdict=confirmed own=full:unsigned` |
-| 12 | свой IMAP, переключатель включён | подделка под доверенного адреса | по адресу | есть | нет | `step=address verdict=confirmed` |
-| 13 | любой, где сервер написал `dmarc=fail` | подделка под доверенного адреса | — | нет | нет | `step=- verdict=unconfirmed server=dmarc=fail`; переключатель «по адресу» не перебивает |
+| 1 | Gmail | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step="1" verdict="confirmed"` |
+| 2 | Яндекс | письмо доверенного отправителя | 2 (`dkim=pass` без `dmarc=`) | есть | есть, если у домена есть запись BIMI | `step="2" verdict="confirmed"` |
+| 3 | Яндекс | подделка под доверенного отправителя без подписи | — | нет | нет | `step="-" verdict="unconfirmed" outcome="unsigned"` |
+| 4 | Mail.ru | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step="1" verdict="confirmed"` |
+| 5 | Exchange Online | письмо доверенного отправителя | 1 (`dmarc=pass` сервера) | есть | есть | `step="1" verdict="confirmed"` |
+| 6 | Exchange в своей сети | письмо доверенного отправителя с подписью | 4 (подпись по исходным заголовкам) | есть | нет | `step="4" verdict="confirmed" own=headers:pass` |
+| 7 | Exchange в своей сети | письмо коллеги по организации | внутренняя почта | есть | нет | `step="internal" verdict="confirmed"` |
+| 8 | Exchange в своей сети | подделка под доверенного отправителя без подписи | — | нет | нет | `step="-" verdict="unconfirmed" outcome="unsigned"` |
+| 9 | свой IMAP | письмо доверенного отправителя с подписью | 3 (своя полная проверка) | есть | есть | `step="3" verdict="confirmed" own=full:pass` |
+| 10 | свой IMAP | письмо без подписи | — | нет | нет | `step="-" verdict="unconfirmed" outcome="unsigned"` |
+| 11 | свой IMAP, переключатель «доверять по адресу» включён | письмо без подписи от доверенного адреса | по адресу | есть | нет | `step="address" verdict="confirmed"` |
+| 12 | свой IMAP, переключатель включён | подделка под доверенного адреса | по адресу | есть | нет | `step="address" verdict="confirmed"` |
+| 13 | любой, где сервер написал `dmarc=fail` | подделка под доверенного адреса | — | нет | нет | `step="-" verdict="unconfirmed"` и `server=dmarc=fail`; переключатель «по адресу» не перебивает |
+
+Строка журнала выглядит так: `sender check id=… kind=… folder=… from_domain=… listed=… step="…" verdict="…" server=… own=… outcome="…" sig=d=…,s=…,a=…,x=…,l=…,from_in_h=…`. Адресов людей в ней нет: домены и селекторы можно.
 
 Строки 1–10 повторяют таблицу корпуса писем (`crates/depesha-core/tests/sender/table.json`): то, что автотест проверяет на обезличенных заголовках, оператор проверяет на своих живых письмах.
 
