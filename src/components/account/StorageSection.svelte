@@ -1,5 +1,4 @@
 <script lang="ts">
-  import FieldError from "./FieldError.svelte";
   // The mailbox's room on the server, as the server reports it (QUOTA) or as counted from
   // its folders, with the mailbox's own limit for the warnings; and, apart, what its mail
   // takes on this computer, which is never shown as the server's.
@@ -15,6 +14,9 @@
   import { gb, levelOf, levels, percent, roomOf, usedOf, wholePercent } from "../../lib/quota";
   import type { QuotaView } from "../../lib/types";
   import type { SectionProps } from "./sections";
+  import Select from "../Select.svelte";
+  import SettingsRow from "../prefs/SettingsRow.svelte";
+  import FieldError from "./FieldError.svelte";
 
   let { form, account }: SectionProps = $props();
 
@@ -48,14 +50,18 @@
     return app.mailboxes.folder(account.id, name)?.display_name ?? name;
   }
 
-  function useQuota() {
-    ownMode = false;
-    form.quotaLimitGb = "";
-  }
+  /** The list of the limit: as in the settings (the server's quota), an own one, or no warnings for the mailbox. */
+  const limitChoice = $derived(!form.quotaWarn ? "off" : ownMode ? "own" : "inherit");
 
-  function useOwn() {
-    ownMode = true;
-    queueMicrotask(() => ownInput?.focus());
+  function pickLimit(v: string) {
+    form.quotaWarn = v !== "off";
+    if (v === "inherit") {
+      ownMode = false;
+      form.quotaLimitGb = "";
+    } else if (v === "own") {
+      ownMode = true;
+      queueMicrotask(() => ownInput?.focus());
+    }
   }
 
   // Both close the settings: unsaved changes on the page are asked about first.
@@ -73,66 +79,61 @@
   }
 </script>
 
+<!-- The room and the own limit are rows of the page, as on the general pages (0.8.12, screen 8). -->
 {#if account.ews && !room}
-  <p class="muted line">{t("storage.exchange")}</p>
+  <SettingsRow id="acc-room" kind="field" label={t("storage.exchange")} />
 {:else}
   <div class="room" data-level={level} class:estimate={room?.estimate} class:stale={offline}>
     {#if room && room.exchange}
-      <div class="figures">
-        <b>≈ {t("storage.usedAlone", { used: gb(room.used) })}</b>
-        <span class="tag">{t("storage.estimateBadge")}</span>
-        {#if room.limit > 0}<span class="pct">{t("storage.ofOwn", { p: wholePercent(pct) })}</span>{/if}
-      </div>
-      {#if room.limit > 0}
-        <div class="bar hatched"><span style:width="{Math.min(100, pct)}%"></span></div>
-      {/if}
-      <p class="line muted">{t("storage.exchangeNote", { when: when(room.at) })} · <button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button></p>
+      <SettingsRow
+        id="acc-room"
+        kind="field"
+        label="≈ {t('storage.usedAlone', { used: gb(room.used) })}"
+        desc={room.limit > 0 ? `${t("storage.ofOwn", { p: wholePercent(pct) })} · ${t("storage.estimateBadge")}` : t("storage.estimateBadge")}
+        hint={t("storage.exchangeNote", { when: when(room.at) })}
+      >
+        {#if room.limit > 0}<div class="bar hatched"><span style:width="{Math.min(100, pct)}%"></span></div>{/if}
+        <button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button>
+      </SettingsRow>
     {:else if room && !room.estimate}
-      <div class="figures">
-        {#if ownFirst && room.own && room.quota}
-          <b>{t("storage.usedAlone", { used: gb(room.used) })}</b>
-          <span class="pct">{t("storage.ofOwn", { p: wholePercent(pct) })} · {t("storage.ofQuota", { p: wholePercent((room.used / room.quota) * 100) })}</span>
-        {:else}
-          {@const u = usedOf(room.used, room.limit)}
-          <b>{t("storage.used", { used: `${u.used}`, limit: u.limit })}</b>
-          <span class="pct">{wholePercent(pct)}%</span>
-        {/if}
-        <span class="tag">{t("storage.source")}</span>
-      </div>
-      <div class="bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={t("account.section.storage")}>
-        <span style:width="{Math.min(100, ownFirst && room.quota ? (room.used / room.quota) * 100 : pct)}%"></span>
-        {#if ownFirst && room.own && room.quota}<i class="own-mark" style:left="{(room.own / room.quota) * 100}%"></i>{/if}
-      </div>
-      {#if ownFirst && room.own && room.quota}
-        <div class="marks muted"><span style:left="{(room.own / room.quota) * 100}%">{t("storage.ownMark", { size: gb(room.own) })}</span><span class="end">{t("storage.quotaMark", { size: gb(room.quota) })}</span></div>
-      {/if}
-      {#if offline && quota}
-        <p class="line warn-text">{t("storage.offline", { when: when(quota.checked) })} <button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button></p>
-      {:else if quota}
-        <p class="line muted">
-          {ownFirst
-            ? t("storage.quotaFree", { quota: gb(quota.limit), free: gb(Math.max(0, quota.limit - quota.used)), when: when(quota.checked) })
-            : t("storage.free", { free: gb(Math.max(0, room.limit - room.used)), when: when(quota.checked) })}
-          · <button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button>
-        </p>
-      {/if}
-      {#if ownFirst && room.own}<p class="line muted">{t("storage.ownNote", { size: gb(room.own) })}</p>
-      {:else if quota?.root}<p class="line muted">{t("storage.root", { root: quota.root })}</p>{/if}
+      {@const u = usedOf(room.used, room.limit)}
+      <SettingsRow
+        id="acc-room"
+        kind="field"
+        label={ownFirst ? t("storage.usedAlone", { used: gb(room.used) }) : t("storage.used", { used: `${u.used}`, limit: u.limit })}
+        desc={ownFirst && room.quota
+          ? `${t("storage.ofOwn", { p: wholePercent(pct) })} · ${t("storage.ofQuota", { p: wholePercent((room.used / room.quota) * 100) })}`
+          : quota
+            ? t("storage.quotaLine", { p: wholePercent(pct), when: when(quota.checked) })
+            : `${wholePercent(pct)}%`}
+        hint={ownFirst && room.own ? t("storage.ownNote", { size: gb(room.own) }) : quota?.root ? t("storage.root", { root: quota.root }) : null}
+        warn={offline && quota ? t("storage.offline", { when: when(quota.checked) }) : null}
+      >
+        <div class="meter">
+          <div class="bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={t("account.section.storage")}>
+            <span style:width="{Math.min(100, ownFirst && room.quota ? (room.used / room.quota) * 100 : pct)}%"></span>
+            {#if ownFirst && room.own && room.quota}<i class="own-mark" style:left="{(room.own / room.quota) * 100}%"></i>{/if}
+          </div>
+          {#if ownFirst && room.own && room.quota}
+            <div class="marks muted"><span style:left="{(room.own / room.quota) * 100}%">{t("storage.ownMark", { size: gb(room.own) })}</span><span class="end">{t("storage.quotaMark", { size: gb(room.quota) })}</span></div>
+          {/if}
+        </div>
+        {#if offline && quota}<button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button>{/if}
+      </SettingsRow>
     {:else if room}
       {@const u = usedOf(room.used, room.limit)}
-      <div class="figures">
-        <b>≈ {t("storage.used", { used: u.used, limit: u.limit })}</b>
-        <span class="tag">{t("storage.estimateBadge")}</span>
-        <span class="pct">{t("storage.ofOwn", { p: wholePercent(pct) })}</span>
-      </div>
-      <div class="bar hatched"><span style:width="{Math.min(100, pct)}%"></span></div>
-      <p class="line muted">{t("storage.estimateNote", { when: when(room.at) })}</p>
-      {#if room.partial}
-        <p class="line warn-text">{t("storage.partial", { done: counted.length, total: counted.length + failed.length, names: failed.map((f) => `«${folderName(f.folder)}»`).join(", ") })}</p>
-      {/if}
+      <SettingsRow
+        id="acc-room"
+        kind="field"
+        label="≈ {t('storage.used', { used: u.used, limit: u.limit })}"
+        desc="{t('storage.ofOwn', { p: wholePercent(pct) })} · {t('storage.estimateBadge')}"
+        hint={t("storage.estimateNote", { when: when(room.at) })}
+        warn={room.partial ? t("storage.partial", { done: counted.length, total: counted.length + failed.length, names: failed.map((f) => `«${folderName(f.folder)}»`).join(", ") }) : null}
+      >
+        <div class="meter"><div class="bar hatched"><span style:width="{Math.min(100, pct)}%"></span></div></div>
+      </SettingsRow>
     {:else}
-      <p class="line"><b>{t("storage.noQuota")}</b></p>
-      <p class="line muted">{t("storage.noQuotaNote")}</p>
+      <SettingsRow id="acc-room" kind="field" label={t("storage.noQuota")} hint={t("storage.noQuotaNote")} />
     {/if}
 
     {#if level === 3}
@@ -147,43 +148,39 @@
   </div>
 {/if}
 
-<div class="block">
-  <h4>{t("storage.warnings")}</h4>
-  <label class="check"><input type="checkbox" bind:checked={form.quotaWarn} />{t("storage.warn")}</label>
-  <div class="choices" class:off={!form.quotaWarn}>
-    <label class="check">
-      <input type="radio" name="quota-limit-{account.id}" checked={!ownMode} disabled={!form.quotaWarn} onchange={useQuota} />
-      {quota ? t("storage.byQuota", { size: gb(quota.limit) }) : t("storage.byQuotaNone")}
-    </label>
-    <label class="check">
-      <input type="radio" name="quota-limit-{account.id}" checked={ownMode} disabled={!form.quotaWarn} onchange={useOwn} />
-      {t("storage.own")}
-      <input
-        class="input own"
-        class:bad={!!form.limitError}
-        aria-invalid={!!form.limitError}
-        bind:this={ownInput}
-        bind:value={form.quotaLimitGb}
-        inputmode="decimal"
-        placeholder="—"
-        disabled={!form.quotaWarn}
-        onfocus={() => (ownMode = true)}
-        aria-label={t("storage.own")}
-        onkeydown={(e) => {
-          // Esc puts the last good limit back and keeps the window.
-          if (e.key !== "Escape" || !form.limitError) return;
-          e.preventDefault();
-          e.stopPropagation();
-          form.revertLimit();
-        }}
-      />
-      {t("storage.gb")}
-    </label>
-    {#if form.limitError}<p class="field-error" role="alert">{form.limitError}</p>{/if}
-    <FieldError {form} keys={["quota_warn", "quota_limit_mb"]} />
-    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.ui.openSettings("storage")}>{t("storage.levelsLink")}</button></p>
-  </div>
-</div>
+<SettingsRow id="acc-limit" kind="field" label={t("storage.own")} error={form.limitError || null}>
+  <Select
+    class="quota-limit"
+    label={t("storage.own")}
+    bind:value={() => limitChoice, pickLimit}
+    options={[
+      { value: "inherit", label: t("storage.limitInherit") },
+      { value: "own", label: t("storage.limitOwn") },
+      { value: "off", label: t("storage.limitOff") },
+    ]}
+  />
+  {#if limitChoice === "own"}
+    <input
+      class="input own"
+      class:bad={!!form.limitError}
+      aria-invalid={!!form.limitError}
+      bind:this={ownInput}
+      bind:value={form.quotaLimitGb}
+      inputmode="decimal"
+      placeholder="—"
+      aria-label={t("storage.own")}
+      onkeydown={(e) => {
+        // Esc puts the last good limit back and keeps the window.
+        if (e.key !== "Escape" || !form.limitError) return;
+        e.preventDefault();
+        e.stopPropagation();
+        form.revertLimit();
+      }}
+    />
+    {t("storage.gb")}
+  {/if}
+</SettingsRow>
+<FieldError {form} keys={["quota_warn", "quota_limit_mb"]} />
 
 {#if !account.ews}
   <div class="block">
@@ -244,12 +241,6 @@
 </div>
 
 <style>
-  .field-error {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--warn);
-  }
-
   .own.bad {
     border-color: var(--warn);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 25%, transparent);
@@ -271,28 +262,6 @@
     --fill: var(--bad);
   }
 
-  .figures {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  .pct {
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 12.5px;
-  }
-
-  .room[data-level="1"] .pct,
-  .room[data-level="2"] .pct {
-    color: var(--warn);
-  }
-
-  .room[data-level="3"] .pct {
-    color: var(--bad);
-    font-weight: 600;
-  }
-
   .tag {
     padding: 0 6px;
     border: 1px solid var(--line);
@@ -302,8 +271,10 @@
     font-weight: 400;
   }
 
-  .figures .tag {
-    order: 3;
+  /* The bar keeps to the column of the controls, as in the mockup. */
+  .meter {
+    width: 180px;
+    max-width: 100%;
   }
 
   .bar {
@@ -395,21 +366,6 @@
     margin: 6px 0 6px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--muted);
-  }
-
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-  }
-
-  .choices {
-    padding-left: 24px;
-  }
-
-  .choices.off {
     color: var(--muted);
   }
 

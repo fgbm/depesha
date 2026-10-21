@@ -86,13 +86,13 @@
 <!-- A page of the settings window. -->
 <div class="plugins">
     <div class="content">
-      <!-- A plugin is switched on and off here, in the one list (0.8.12, 6.3 Б); its own page has its settings. -->
+      <!-- A plugin is switched on and off here, in the one list (0.8.12, 6.3 Б); its own page has its settings and says what it does (screen 8). -->
       <section>
         <h4>{t("ext.builtIn")}</h4>
         <p class="muted small">{t("ext.builtInNote")}</p>
         {#each host.plugins as p (p.manifest.id)}
           <div class="sw-row" data-plugin={p.manifest.id}>
-            <SettingsRow id="plugin-{p.manifest.id}" kind="toggle" label={say(p.manifest.name)} hint={say(p.manifest.description)}>
+            <SettingsRow id="plugin-{p.manifest.id}" kind="toggle" label={say(p.manifest.name)}>
               <Switch checked={host.enabled(p.manifest.id)} label={say(p.manifest.name)} onchange={(on) => host.setEnabled(p.manifest.id, on)} />
             </SettingsRow>
           </div>

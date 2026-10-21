@@ -280,7 +280,7 @@
 
   {#each groups as g (g.id)}
     <section class="grp" class:bare={!g.title} data-g={g.id} aria-labelledby={g.title ? `grp-${g.id}` : undefined}>
-      {#if g.title}<h4 id="grp-{g.id}">{g.title()}</h4>{/if}
+      {#if g.title}<h4 id="grp-{g.id}">{g.title()}{#if g.sub}<span class="sub">{g.sub}</span>{/if}</h4>{/if}
       <div class="gb">
         {#each dependentRuns(g.rows) as item (item.run ? `run:${item.rows[0].id}` : item.row.id)}
           {#if item.run}
@@ -315,6 +315,13 @@
     border-bottom: 1px solid var(--line);
     font-size: 15px;
     font-weight: 600;
+  }
+
+  .grp > h4 .sub {
+    margin-left: 6px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
   }
 
   /* The strip at the left is one line for the whole run of dependent rows. */

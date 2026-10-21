@@ -64,3 +64,11 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-21 13:45 — claude-opus-5-5
 
 `scripts/check.sh --changed` в worktree q-167-dkim → vitest падал на каждом файле с `ENOENT … /tmp/<случайное>/ssr/<хеш>`, хотя код ни при чём: кто-то из соседних сессий чистит каталоги vite в `/tmp` (tmpfs занят на 81 %). С `TMPDIR=$PWD/target/tmp` прогон зелёный. Вероятно, стоит ставить `TMPDIR` внутри worktree в самом `check.sh`.
+
+## 2026-10-21 15:05 — claude-opus-5-5
+
+Кадры настроек на своём Xvfb → `Xvfb` нет в `PATH` (лежит в `~/.local/depesha-testenv/root/usr/bin/`), а замок `/tmp/.X<n>-lock` он пишет только в `/tmp`, где кончилась квота пользователя («Превышена дисковая квота» даже на пустой файл). `unshare -Urm` с частным `/tmp` запрещён (uid_map). Помогло удалить устаревший кэш `/tmp/node-compile-cache/v24.16.0-*`. Главный потребитель квоты — `/tmp/node-compile-cache` текущей Node (2,3 ГБ): стоит задать `NODE_COMPILE_CACHE` в `~/.cache`.
+
+## 2026-10-21 14:55 — claude-opus-5-5
+
+`tauri build` в worktree → общий сервер sccache запущен чужой сессией с `TMPDIR=~/.cache/qs-vitest-tmp`, которого уже нет: каждый rustc падает «Failed to create temp dir». Собрал с `RUSTC_WRAPPER=` без sccache. Сервер sccache стоит перезапускать со стабильным `TMPDIR`.

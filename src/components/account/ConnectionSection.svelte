@@ -48,8 +48,8 @@
     <SettingsRow id="acc-login" kind="field" label={t("wizard.login")}>
       <input class="input text" bind:value={form.username} placeholder={t("wizard.loginPlaceholder")} aria-label={t("wizard.login")} />
     </SettingsRow>
-    <SettingsRow id="acc-password" kind="field" label={t("wizard.passwordKeep")}>
-      <input class="input text" type="password" bind:value={form.password} aria-label={t("wizard.passwordKeep")} />
+    <SettingsRow id="acc-password" kind="field" label={t("wizard.password")}>
+      <input class="input text" type="password" bind:value={form.password} placeholder={t("account.passwordKept")} aria-label={t("wizard.password")} />
     </SettingsRow>
   {/if}
 

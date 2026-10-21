@@ -20,7 +20,7 @@
   const options = $derived([{ value: "", label: t("account.waiting.folderNew") }, ...folders]);
 </script>
 
-<SettingsRow id="acc-waiting" kind="toggle" label={t("account.waiting.park")} hint={t("account.waiting.hint")}>
+<SettingsRow id="acc-waiting" kind="toggle" label={t("account.waiting.park")}>
   <Switch checked={waiting.park} label={t("account.waiting.park")} onchange={(on) => (waiting.park = on)} />
 </SettingsRow>
 {#if waiting.park}

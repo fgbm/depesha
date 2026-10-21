@@ -370,6 +370,13 @@ describe("the plugins' groups stand on the plugin's own page (0.8.12, 6.1 Б)", 
     expect(text).not.toContain("Шаблоны ответов body");
   });
 
+  it("lists the plugins by name alone: what one does is said on its own page (0.8.12, screen 8)", () => {
+    open("plugins");
+    const rows = target.querySelectorAll(".sw-row .rw");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.querySelector(".h")).toBeNull();
+  });
+
   it("does not show them on «Snooze and waiting» or «Writing»", () => {
     for (const page of ["later", "writing"]) {
       open(page);
@@ -526,7 +533,12 @@ describe("the search shows the rows found, alive (0.8.12, 4.1 Б, 4.2 А, 4.3 А
     open("reading", mailboxes);
     find("подпис");
     const hit = hitRow("Подписи");
-    expect(hit.closest("section")!.querySelector("h4")!.textContent).toBe("Работа");
+    // The group of a mailbox says its address beside its name, the row only its way (0.8.12, screen 8).
+    const head = hit.closest("section")!.querySelector("h4")!;
+    expect(head.firstChild!.textContent!.trim()).toBe("Работа");
+    expect(head.querySelector(".sub")?.textContent).toBe("anna@example.org");
+    expect(hit.querySelector(".h")).toBeNull();
+    expect(hit.querySelector(".lnk")!.textContent).toBe("Открыть у ящика ›");
     hit.querySelector<HTMLElement>(".lnk")!.click();
     await vi.waitFor(() => expect(target.querySelector(".account-page [data-settings='acc-signatures']")).not.toBeNull());
     expect(heading()).toBe("Работа");

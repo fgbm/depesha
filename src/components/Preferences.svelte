@@ -117,22 +117,28 @@
     return at && at.page.id === h.page ? { ...at.row, dep: false } : null;
   }
 
-  /** A hit with no row here: a way to its place, with what it is under. */
+  /** A hit with no row here: a way to its place, with what it is under; a mailbox's group says that itself. */
   const wayRow = (h: SearchHit, i: number): RowSpec => ({
     id: `hit:${i}`,
     kind: "go",
     label: () => h.label,
-    hint: () => h.section || null,
+    hint: () => (h.page.startsWith("account:") ? null : h.section || null),
     text: () => (h.page.startsWith("account:") ? t("settings.openAtMailbox") : t("settings.open")),
     open: () => void openHit(h),
   });
+
+  /** The address beside a mailbox's group of hits, when its name is not the address already. */
+  function addressOf(h: SearchHit): string | null {
+    const a = h.page.startsWith("account:") ? app.mailboxes.accounts.find((x) => `account:${x.id}` === h.page) : null;
+    return a && h.group === accountLabel(a) && a.email !== h.group ? a.email : null;
+  }
 
   /** The hits as a page of rows, grouped by the page they are on, in the order found. */
   const found = $derived.by((): PageSpec => {
     const groups: GroupSpec[] = [];
     hits.forEach((h, i) => {
       let g = groups.find((x) => x.id === `found:${h.group}`);
-      if (!g) groups.push((g = { id: `found:${h.group}`, title: () => h.group, rows: [] }));
+      if (!g) groups.push((g = { id: `found:${h.group}`, title: () => h.group, sub: addressOf(h), rows: [] }));
       g.rows.push(liveRow(h) ?? wayRow(h, i));
     });
     return { id: "search", title: () => t("settings.find"), icon: Search, groups };

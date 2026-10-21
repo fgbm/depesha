@@ -1,8 +1,8 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
   // that stays in sight and marks the section being read. What does not reach the server is saved
-  // as it is changed; the connection waits for its section's «Check and save». The page ends with
-  // the danger zone: the removal of the mailbox, apart from everything else (0.8.12, 3.3 А).
+  // as it is changed, and the toast with «Undo» says so; the connection waits for its section's
+  // «Check and save». The page ends with the danger zone: the removal of the mailbox, apart from everything else (0.8.12, 3.3 А).
   import { onMount, tick, untrack } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
@@ -107,9 +107,6 @@
         >{s.title()}{#if look}<span class="look" role="img" aria-label={t("account.attention")} title={t("account.attention")}></span>{/if}</a
       >
     {/each}
-    {#if own.auto.marks.account}
-      <span class="mark" class:undone={own.auto.marks.account === "undone"} role="status">{own.auto.marks.account === "saved" ? t("settings.saved") : t("settings.reverted")}</span>
-    {/if}
   </nav>
 
   <div class="scroller" bind:this={scroller} onscroll={track}>
@@ -261,17 +258,6 @@
   .btn.bad {
     border-color: var(--bad);
     color: var(--bad);
-  }
-
-  .mark {
-    margin-left: auto;
-    align-self: center;
-    font-size: 12px;
-    color: var(--ok);
-  }
-
-  .mark.undone {
-    color: var(--muted);
   }
 
   @media (max-width: 640px) {

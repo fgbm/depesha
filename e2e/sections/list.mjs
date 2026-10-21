@@ -1176,7 +1176,7 @@ export async function run() {
       const [saved] = await invoke("accounts");
       return saved.signatures?.length === 2 && saved.default_signature === saved.signatures[0].id;
     }, 20000);
-    await d.until("saved mark", async () => (await textOf(".account-page .toc .mark")).includes("Сохранено"));
+    await d.until("saved toast", async () => (await textOf(".toasts")).includes("Сохранено"));
     if ((await d.findAll(".account-page section[data-section='connection'] .btn.primary")).length) throw new Error("кнопка подключения видна, хотя подключение не менялось");
     await closeSettings();
     if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие страницы ящика о чём-то спросило");

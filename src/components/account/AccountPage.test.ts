@@ -98,7 +98,9 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
       flushSync();
       await vi.advanceTimersByTimeAsync(200);
       expect(stored.compose_format).toBe("markdown");
-      expect(target.querySelector(".account-page .mark")?.textContent).toContain("Сохранено");
+      // The toast with «Undo» says it, as on the general pages; the contents carry no mark (0.8.12, screen 8).
+      expect(app.ui.toasts.some((x) => x.text.includes("Формат писем"))).toBe(true);
+      expect(target.querySelector(".toc .mark")).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -145,6 +147,58 @@ describe("a mailbox's page laid out as the general pages (0.8.12)", () => {
       expect(target.querySelector(`.rw[data-settings='${id}']`), id).not.toBeNull();
     }
     expect(target.querySelector("input[disabled][value='jane@example.com']")).toBeNull();
+  });
+});
+
+describe("a mailbox's page as screen 8 draws it (0.8.12)", () => {
+  const rowOf = (id: string) => target.querySelector<HTMLElement>(`.rw[data-settings='${id}']`)!;
+
+  it("draws the storage as two rows, the room with its bar and the own limit as a list", () => {
+    open();
+    const storage = target.querySelector("section[data-section='storage']")!;
+    expect(rowOf("acc-room")).not.toBeNull();
+    expect(rowOf("acc-limit").querySelector(".select")?.textContent).toContain("Как в общих");
+    expect(storage.querySelector("input[type=checkbox], input[type=radio]")).toBeNull();
+  });
+
+  it("puts the signatures in the column of the controls, not under their name", () => {
+    open();
+    expect(rowOf("acc-signatures").classList.contains("block")).toBe(false);
+    expect(rowOf("acc-signatures").querySelector(".c .signatures")).not.toBeNull();
+  });
+
+  it("offers the folder of the attachments as a list that says what it follows", () => {
+    open();
+    expect(rowOf("acc-attachments").querySelector(".select")?.textContent).toContain("Как в общих — Спрашивать каждый раз");
+    expect(rowOf("acc-attachments").querySelector("input")).toBeNull();
+  });
+
+  it("picks the folder in the system dialog from the list's last item and saves it", async () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      api.pickFolder.mockResolvedValue("/home/jane/Files");
+      rowOf("acc-attachments").querySelector<HTMLElement>(".trigger")!.click();
+      flushSync();
+      [...document.querySelectorAll<HTMLElement>(".pop [role=option]")].find((o) => o.textContent?.includes("Выбрать папку…"))!.click();
+      flushSync();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(stored.attachments_dir).toBe("/home/jane/Files");
+      expect(rowOf("acc-attachments").querySelector(".trigger")?.textContent).toContain("/home/jane/Files");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the password «Password» and keeps the rest of it in the field", () => {
+    open();
+    expect(rowOf("acc-password").querySelector(".t")?.textContent?.trim()).toBe("Пароль");
+    expect(rowOf("acc-password").querySelector("input")?.placeholder).toBe("сохранён — оставьте пустым");
+  });
+
+  it("has no explanation under «Remove the letter from the inbox after an answer»", () => {
+    open();
+    expect(rowOf("acc-waiting").querySelector(".h")).toBeNull();
   });
 });
 

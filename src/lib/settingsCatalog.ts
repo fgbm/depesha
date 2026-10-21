@@ -101,6 +101,8 @@ export interface GroupSpec {
   id: string;
   /** None for a group of one row: its heading would only repeat the row (0.8.12, 2.2 А). */
   title: (() => string) | null;
+  /** Said beside the heading, quieter: a mailbox's address among the hits of the search (0.8.12, screen 8). */
+  sub?: string | null;
   rows: RowSpec[];
 }
 

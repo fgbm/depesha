@@ -162,8 +162,10 @@
 <style>
   .signatures {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
   }
 
   .label {

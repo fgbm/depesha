@@ -217,10 +217,10 @@ export async function run() {
     await d.click(await d.find(".account-page .toc a[data-toc='letters']"));
     const was = me.compose_format ?? "";
     const pick = was === "markdown" ? "html" : "markdown";
-    // The format does not reach the server: it is saved as it is picked, with the row's «Saved» and the toast.
+    // The format does not reach the server: it is saved as it is picked, and the toast says so (0.8.12, screen 8).
     await setSelect(".account-page .compose-format", pick);
     await d.until("format saved", async () => ((await invoke("accounts"))[0].compose_format ?? "") === pick, 20000);
-    await d.until("saved mark", async () => (await textOf(".account-page .toc .mark")).includes("Сохранено"));
+    await d.until("saved toast", async () => (await textOf(".toasts")).includes("Сохранено"));
     await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
     await screenshot("settings-account-autosave", { toasts: true });
     // The button waits for the connection: it is not there until a server, a port or a login changes (0.8.12, 3.2 А).
@@ -387,6 +387,7 @@ export async function run() {
     if (!sizes.includes("Входящие") && !sizes.includes("INBOX")) throw new Error(`нет «Входящих» в размерах: ${sizes}`);
     if (!sizes.includes("Итого")) throw new Error("нет итога");
     // An own limit makes the folder sizes an estimate to compare with: the sidebar shows it.
+    await setSelect(".account-page .quota-limit", "own");
     await setInput(".account-page input.own", "0,001");
     // A text is saved when its field is left or Enter is pressed (#102, 1.7 Б).
     await d.type(await d.find(".account-page input.own"), "\uE007");
