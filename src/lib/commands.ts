@@ -24,6 +24,8 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 /** What needs the main window's list, folders or settings: a letter's own window has none of them. */
 export const MAIN_ONLY = /^core\.(search|row-menu$|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
 
+const MOVE_SKIPS = new Set(["snoozed", "drafts", "sent"]);
+
 /** The open folder as the search takes it: by its readable name, not the server's (modified UTF-7). */
 function readableFolder(): string | null {
   const v = app.list.view;
@@ -51,8 +53,12 @@ export function coreCommands(): Command[] {
       { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.selection.flag("flagged", !msg.row.flags.flagged) },
       { id: "core.unread", title: () => t("act.markUnread"), run: () => app.selection.flag("seen", false) },
     );
-    const account = msg?.row.account_id ?? app.list.messages.find((m) => m.id === target[0])?.account_id;
-    for (const f of app.mailboxes.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
+    const first = msg?.row ?? app.list.messages.find((m) => m.id === target[0]);
+    // Snoozed by hand never comes back; drafts and sent mail are not moved into.
+    const moves = app.mailboxes.folders.filter(
+      (f) => f.account_id === first?.account_id && f.selectable && !f.hidden && f.name !== first?.folder && !MOVE_SKIPS.has(f.role ?? ""),
+    );
+    for (const f of moves) {
       const folder = f.role ? roleLabel(f.role) : f.display_name;
       list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.actions.moveTo(f.name) });
     }
