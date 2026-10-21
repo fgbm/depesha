@@ -4756,6 +4756,7 @@ mod tests {
     fn yandex() -> Receiver {
         Receiver {
             domains: vec!["yandex.ru".into(), "yandex.net".into()],
+            vouches: true,
             ..Receiver::default()
         }
     }
@@ -4822,7 +4823,8 @@ mod tests {
             }
         }
         // One From: the server's word holds.
-        let raw = letter(results, "From: Friend <friend@gmail.com>\r\n");
+        let dmarc = "Authentication-Results: mx.yandex.net; dmarc=pass header.from=gmail.com\r\n";
+        let raw = letter(dmarc, "From: Friend <friend@gmail.com>\r\n");
         let auth = message::authenticity(&raw, &yandex());
         assert_eq!(sender_verdict(&raw, &auth, "friend@gmail.com", None), None);
         assert_eq!(sender_verdict(&raw, &auth, "Friend@Gmail.com", None), None);
@@ -4830,6 +4832,58 @@ mod tests {
             sender_verdict(&raw, &auth, "other@gmail.com", None),
             Some(Unverified::AmbiguousFrom)
         );
+    }
+
+    #[test]
+    fn a_passed_signature_of_the_server_needs_the_own_check() {
+        // Yandex vouches for a signature of `bank.ru`; the From it read stands below a bare LF
+        // line, where the reader and the check see the body (#167).
+        let raw = "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\n"
+            .to_owned()
+            + SIGNATURE
+            + "From: Bank <noreply@bank.ru>\r\n\r\n<img src=\"https://bank.ru/p.png\">\r\n";
+        let raw = raw.as_bytes();
+        let sender = "security@bank.ru";
+        assert_eq!(message::sole_from(raw).as_deref(), Some(sender));
+        let auth = message::authenticity(raw, &yandex());
+        assert!(!auth.verified());
+        let verdict = sender_verdict(raw, &auth, sender, None);
+        assert!(verdict.is_some(), "{verdict:?}");
+        assert_eq!(
+            sender_verdict(raw, &auth, sender, Some(dkim::Signature::Invalid)),
+            Some(Unverified::Signature)
+        );
+        // The own check of a signature of the sender's organization confirms it.
+        let raw = letter(
+            "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\n",
+            "From: Bank <security@bank.ru>\r\n",
+        );
+        let auth = message::authenticity(&raw, &yandex());
+        assert_eq!(sender_verdict(&raw, &auth, sender, None), Some(Unverified::Checking));
+        assert!(own_check_due(true, &raw, &auth, sender, None));
+        assert_eq!(
+            sender_verdict(&raw, &auth, sender, Some(dkim::Signature::Aligned)),
+            None
+        );
+    }
+
+    #[test]
+    fn thousands_of_signatures_are_refused_quickly() {
+        // A whitespace-only line does not end the headers: the signatures below it count.
+        let dmarc = "Authentication-Results: mx.yandex.net; dmarc=pass header.from=bank.ru\r\nX-Pad: a\r\n \r\n";
+        let raw = letter(
+            &format!("{dmarc}{}", SIGNATURE.repeat(20_000)),
+            "From: Bank <security@bank.ru>\r\n",
+        );
+        let auth = message::authenticity(&raw, &yandex());
+        let start = std::time::Instant::now();
+        let verdict = sender_verdict(&raw, &auth, "security@bank.ru", None);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(verdict, Some(Unverified::AmbiguousFrom));
     }
 
     use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};

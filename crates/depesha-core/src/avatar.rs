@@ -374,16 +374,31 @@ const FAMILIES: [&[&str]; 3] = [
     &["mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru"],
 ];
 
+/// Mail systems of Microsoft 365 that serve EWS: the worldwide one (`outlook.office365.com`,
+/// `outlook.office.com`), US Government (`outlook.office365.us`) and the one 21Vianet runs in
+/// China (`partner.outlook.cn`).
+const EXCHANGE_ONLINE: [&str; 5] = [
+    "office365.com",
+    "outlook.com",
+    "office.com",
+    "office365.us",
+    "outlook.cn",
+];
+
 /// Who received a message: the servers whose `Authentication-Results` count.
 /// Anyone can write that header into a letter (RFC 8601 §5); the receiving server
 /// removes copies that claim its own name, so only its name is believed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Receiver {
-    /// Organizational domains of the mailbox's server and address.
+    /// Whose `authserv-id` counts: the organization of the mailbox's server, or its provider's
+    /// whole family. Not the address domain: no server strips a forged copy written under it.
     pub domains: Vec<String>,
-    /// The part of `domains` that comes from the server: the only part that may be written to
-    /// the log, the address domain being the operator's own.
-    pub servers: Vec<String>,
+    /// The mailbox's server writes its own `Authentication-Results` on top and strips copies
+    /// that claim its name: Gmail, Yandex and Mail.ru by IMAP, Exchange Online by EWS. Any
+    /// other server (Postfix and Dovecot without OpenDMARC, Exchange of the firm's own, Exchange
+    /// Online by IMAP) may hand a forged one over as it came, so none is believed there (#35):
+    /// the app checks the DKIM signature itself.
+    pub vouches: bool,
     /// The mail system that took the letter from the internet, from the letter's own `Received`
     /// headers ([`delivery_hops`]): a provider may sign its verdict with a name that is none of
     /// the configured ones (`mx.google.com` for `imap.gmail.com`), or with no domain at all.
@@ -404,38 +419,22 @@ impl Receiver {
             Some(ews) => crate::http::Url::parse(&ews.url).map(|u| u.host).unwrap_or_default(),
             None => account.imap.host.clone(),
         };
-        let address = account
-            .email
-            .rsplit_once('@')
-            .map(|(_, d)| d.to_owned())
-            .unwrap_or_default();
-        let mut domains = Vec::new();
-        let mut servers = Vec::new();
-        for (from_server, host) in [(true, server.as_str()), (false, address.as_str())] {
-            let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
-            // An IP address names no organization.
-            if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
-                continue;
-            }
-            let Some(org) = own_domain(&host) else {
-                continue;
-            };
-            let family = FAMILIES.iter().find(|f| f.contains(&org.as_str()));
-            for d in family.map_or_else(|| vec![org.clone()], |f| f.iter().map(|d| (*d).to_owned()).collect()) {
-                if from_server && !servers.contains(&d) {
-                    servers.push(d.clone());
-                }
-                if !domains.contains(&d) {
-                    domains.push(d);
-                }
-            }
-        }
-        let exchange_online = account.is_ews()
-            && ["office365.com", "outlook.com"]
-                .contains(&own_domain(&server.to_ascii_lowercase()).unwrap_or_default().as_str());
+        let host = server.trim().trim_end_matches('.').to_ascii_lowercase();
+        // An IP address names no organization.
+        let org = (!host.is_empty() && host.parse::<std::net::IpAddr>().is_err() && host.contains('.'))
+            .then(|| own_domain(&host))
+            .flatten();
+        let family = org
+            .as_deref()
+            .and_then(|org| FAMILIES.iter().find(|f| f.contains(&org)));
+        let domains = match (family, org.clone()) {
+            (Some(f), _) => f.iter().map(|d| (*d).to_owned()).collect(),
+            (None, org) => org.into_iter().collect(),
+        };
+        let exchange_online = account.is_ews() && org.is_some_and(|org| EXCHANGE_ONLINE.contains(&org.as_str()));
         Self {
             domains,
-            servers,
+            vouches: exchange_online || (!account.is_ews() && family.is_some()),
             delivery: None,
             exchange_online,
             exchange: account.is_ews(),
@@ -644,13 +643,24 @@ impl SenderCheck {
     }
 
     /// The mailbox's server gave no verdict on the sender: no header of its own, or no DMARC
-    /// check in it. The app may then check the DKIM signature itself ([`crate::dkim`]); a `no`
+    /// check in it (a passed signature alone is none, see [`SenderCheck::confirmed`]). The app may then check the DKIM signature itself ([`crate::dkim`]); a `no`
     /// of the server (`dmarc=fail`, another organization) stays a `no`.
     pub fn no_verdict(&self) -> bool {
         matches!(
             self,
-            Self::NoOwnHeader { .. } | Self::NoDmarc | Self::NotAlignedWithoutDmarc
+            Self::NoOwnHeader { .. }
+                | Self::NoDmarc
+                | Self::NotAlignedWithoutDmarc
+                | Self::AlignedWithoutDmarc { via: "dkim" }
         )
+    }
+
+    /// The server's word alone confirms the sender. A passed signature of the sender's
+    /// organization without a DMARC result does not: `header.d` names the signer, not the From
+    /// the server read, and a From the server and the app read differently passes there. The
+    /// app's own check of the signature against its own From decides then.
+    pub fn confirmed(&self) -> bool {
+        self.passed() && !self.no_verdict()
     }
 }
 
@@ -718,12 +728,10 @@ fn loggable(id: Option<&str>) -> String {
 /// [`dmarc_passed`] with the reason of the answer.
 pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> SenderCheck {
     let mut seen = Vec::new();
-    // An Exchange of the firm's own writes no `Authentication-Results`, and removes none that
-    // came with the letter: a sender writes one under the firm's name as easily (#35).
-    let believed = !receiver.exchange || receiver.exchange_online;
     for (i, header) in auth_results.iter().enumerate() {
         let r = results(header);
-        let ours = believed
+        // A server that may leave a forged copy in place vouches for nothing (#35).
+        let ours = receiver.vouches
             && match &r.authserv_id {
                 Some(id) => receiver.owns(id),
                 None => receiver.exchange_online && i == 0,
@@ -750,14 +758,15 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
     }
     SenderCheck::NoOwnHeader {
         seen,
-        receiver: receiver.servers.clone(),
+        receiver: receiver.domains.clone(),
         delivery: receiver.delivery.as_ref().map(|d| d.domain.clone()),
     }
 }
 
 /// For a server that writes no `dmarc=` result at all (Yandex): the sender is believed when a
-/// passed DKIM signature is about the From domain's organization (relaxed alignment, the
-/// default of DMARC; #167), or a passed SPF check about exactly the From domain. Not a DMARC
+/// passed SPF check is about exactly the From domain, or (once the app's own check of the
+/// signature agrees, [`SenderCheck::confirmed`]) a passed DKIM signature is about the From
+/// domain's organization (relaxed alignment, the default of DMARC; #167). Not a DMARC
 /// verdict: the sender's `adkim`/`aspf` and policy are unknown. An explicit
 /// `dmarc=none`/`fail` never gets here, and a failed signature of the sender's organization
 /// without a pass is a «no» the app's own check does not overrule.
@@ -766,10 +775,10 @@ fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
         list.iter()
             .any(|(word, d)| word == "pass" && d.as_deref().is_some_and(|d| same(d, from_domain)))
     };
-    if passed_for(&r.dkim, aligned) {
-        SenderCheck::AlignedWithoutDmarc { via: "dkim" }
-    } else if passed_for(&r.spf, same_domain) {
+    if passed_for(&r.spf, same_domain) {
         SenderCheck::AlignedWithoutDmarc { via: "spf" }
+    } else if passed_for(&r.dkim, aligned) {
+        SenderCheck::AlignedWithoutDmarc { via: "dkim" }
     } else if r.dkim.iter().any(|(word, d)| {
         matches!(word.as_str(), "fail" | "permerror") && d.as_deref().is_some_and(|d| aligned(d, from_domain))
     }) {
@@ -902,29 +911,26 @@ mod tests {
     }
 
     #[test]
-    fn a_box_under_a_public_suffix_trusts_only_its_own_registrable_domain() {
-        let ar = |id: &str| vec![format!("{id}; dmarc=pass header.from=bank.ru")];
+    fn a_box_under_a_public_suffix_owns_only_its_own_registrable_domain() {
         let kiev = imap("me@firm.kiev.ua", "imap.firm.kiev.ua");
-        assert!(dmarc_passed(&ar("mx.firm.kiev.ua"), "bank.ru", &kiev));
-        assert!(!dmarc_passed(&ar("mx.evil.kiev.ua"), "bank.ru", &kiev));
+        assert!(kiev.owns("mx.firm.kiev.ua"));
+        assert!(!kiev.owns("mx.evil.kiev.ua"));
         let nsk = imap("me@firm.nsk.ru", "imap.firm.nsk.ru");
-        assert!(dmarc_passed(&ar("mx.firm.nsk.ru"), "bank.ru", &nsk));
-        assert!(!dmarc_passed(&ar("mx.evil.nsk.ru"), "bank.ru", &nsk));
+        assert!(nsk.owns("mx.firm.nsk.ru"));
+        assert!(!nsk.owns("mx.evil.nsk.ru"));
         // Zones the list holds as private are no reason to leave a box without a receiver.
         for zone in ["msk.ru", "spb.ru", "com.ru", "net.ru", "org.ru", "pp.ru"] {
             let firm = imap(&format!("me@firm.{zone}"), &format!("imap.firm.{zone}"));
-            assert!(
-                dmarc_passed(&ar(&format!("mx.firm.{zone}")), "bank.ru", &firm),
-                "{zone}"
-            );
-            assert!(
-                !dmarc_passed(&ar(&format!("mx.evil.{zone}")), "bank.ru", &firm),
-                "{zone}"
-            );
+            assert!(firm.owns(&format!("mx.firm.{zone}")), "{zone}");
+            assert!(!firm.owns(&format!("mx.evil.{zone}")), "{zone}");
         }
-        // A box under a private suffix believes its own name only.
+        // A box under a private suffix owns its own name only.
         let pages = imap("me@x.github.io", "imap.x.github.io");
-        assert!(!dmarc_passed(&ar("mx.y.github.io"), "bank.ru", &pages));
+        assert!(!pages.owns("mx.y.github.io"));
+        // None of these servers is known to strip a forged copy: its own name is believed
+        // nowhere (#35). A provider's is.
+        let ar = |id: &str| vec![format!("{id}; dmarc=pass header.from=bank.ru")];
+        assert!(!dmarc_passed(&ar("mx.firm.kiev.ua"), "bank.ru", &kiev));
         let gmail = imap("me@gmail.com", "imap.gmail.com").with_delivery(delivery("google.com"));
         assert!(dmarc_passed(&ar("mx.google.com"), "bank.ru", &gmail));
     }
@@ -1038,7 +1044,8 @@ mod tests {
             plain,
             "notifications@evilgithub.com"
         ));
-        assert!(verified(
+        // A signature of the organization alone waits for the app's own check (#167).
+        assert!(!verified(
             &yandex_box,
             YANDEX_RECEIVED,
             plain,
@@ -1212,7 +1219,7 @@ mod tests {
         let github_ar = "Authentication-Results: mail-nwsmtp-mxfront-production-main-38.iva.yp-c.yandex.net; spf=pass (domain of github.com designates 192.0.2.1 as permitted sender) smtp.mail=noreply@github.com; dkim=pass header.i=@github.com\r\n";
         assert_eq!(
             check(&yandex, YANDEX_RECEIVED, github_ar, "notifications@github.com"),
-            Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+            Some(SenderCheck::AlignedWithoutDmarc { via: "spf" })
         );
         // The family stands in when no hop names Yandex: a letter of another MX or none at all.
         let other_hop: &[&str] = &[
@@ -1221,7 +1228,7 @@ mod tests {
         for received in [other_hop, &[]] {
             assert_eq!(
                 check(&yandex, received, github_ar, "notifications@github.com"),
-                Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+                Some(SenderCheck::AlignedWithoutDmarc { via: "spf" })
             );
         }
 
@@ -1229,20 +1236,20 @@ mod tests {
         let yandex360 = imap("me@corp.example", "imap.yandex.ru");
         assert_eq!(
             check(&yandex360, YANDEX_RECEIVED, github_ar, "notifications@github.com"),
-            Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" })
+            Some(SenderCheck::AlignedWithoutDmarc { via: "spf" })
         );
 
-        // A provider in no list: its MX names itself, which is the only way to know it.
+        // A provider in no list may leave a forged copy in place, even under its MX's own
+        // name: nothing it hands over is believed (#35).
         let unknown = imap("me@firm.kz", "imap.mailhost.kz");
         let unknown_received: &[&str] = &[
             "from mx.github.com (mx.github.com [192.0.2.1]) by mx3.example-mail.kz with ESMTPS id 7; Mon, 5 Oct 2026 20:00:00 +0600",
         ];
         let unknown_ar = "Authentication-Results: mx3.example-mail.kz; dkim=pass header.i=@github.com; dmarc=pass header.from=github.com\r\n";
-        assert_eq!(
+        assert!(matches!(
             check(&unknown, unknown_received, unknown_ar, "notifications@github.com"),
-            Some(SenderCheck::Passed)
-        );
-        // Without the letter's `Received` this box knows only `mailhost.kz` and `firm.kz`.
+            Some(SenderCheck::NoOwnHeader { delivery: Some(d), .. }) if d == "example-mail.kz"
+        ));
         assert!(matches!(
             check(&unknown, &[], unknown_ar, "notifications@github.com"),
             Some(SenderCheck::NoOwnHeader { delivery: None, .. })
@@ -1257,7 +1264,7 @@ mod tests {
         };
         let our_word = || SenderCheck::NoOwnHeader {
             seen: vec!["evil.example".into()],
-            receiver: yandex.servers.clone(),
+            receiver: yandex.domains.clone(),
             delivery: Some("yandex.net".into()),
         };
         let forged = "Authentication-Results: evil.example; dmarc=pass header.from=bank.ru\r\n";
@@ -1315,7 +1322,7 @@ mod tests {
         for before in 0..=2 {
             assert_eq!(
                 check(before, github, "notifications@github.com"),
-                Some(SenderCheck::AlignedWithoutDmarc { via: "dkim" }),
+                Some(SenderCheck::AlignedWithoutDmarc { via: "spf" }),
                 "{before}"
             );
             assert_eq!(
@@ -1362,7 +1369,7 @@ mod tests {
         // The real form of Yandex's own header.
         assert_eq!(
             check(yx(""), "github.com"),
-            SenderCheck::AlignedWithoutDmarc { via: "dkim" }
+            SenderCheck::AlignedWithoutDmarc { via: "spf" }
         );
         assert!(dmarc_passed(&[yx("")], "github.com", &yandex));
         // Both about a foreign domain.
@@ -1488,6 +1495,32 @@ mod tests {
             check_sender(&[h.into()], "github.com", &yandex),
             SenderCheck::DmarcNot("none".into())
         );
+    }
+
+    #[test]
+    fn a_passed_signature_alone_waits_for_the_apps_own_check() {
+        // `header.d` names the signer, not the From the server read (#167).
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
+        let dkim = check_sender(
+            &["mx.yandex.net; dkim=pass header.d=bank.ru".into()],
+            "bank.ru",
+            &yandex,
+        );
+        assert_eq!(dkim, SenderCheck::AlignedWithoutDmarc { via: "dkim" });
+        assert!(!dkim.confirmed() && dkim.no_verdict());
+        let spf = check_sender(
+            &["mx.yandex.net; spf=pass smtp.mailfrom=a@bank.ru; dkim=pass header.d=bank.ru".into()],
+            "bank.ru",
+            &yandex,
+        );
+        assert_eq!(spf, SenderCheck::AlignedWithoutDmarc { via: "spf" });
+        assert!(spf.confirmed() && !spf.no_verdict());
+        let raw = letter_with(
+            YANDEX_RECEIVED,
+            "Authentication-Results: mx.yandex.net; dkim=pass header.d=github.com\r\n",
+            "notifications@github.com",
+        );
+        assert!(!crate::message::authenticity(&raw, &yandex).verified());
     }
 
     #[test]
@@ -1627,7 +1660,8 @@ mod tests {
             assert!(!r.owns("mx.evil.example"), "{email}");
             assert!(!r.exchange && !r.exchange_online);
         }
-        assert!(oauth("me@firm.example").domains.contains(&"firm.example".to_owned()));
+        assert!(!oauth("me@firm.example").domains.contains(&"firm.example".to_owned()));
+        assert!(oauth("me@firm.example").vouches);
     }
 
     #[test]
@@ -1674,25 +1708,25 @@ mod tests {
 
     #[test]
     fn reads_the_result_not_the_comments() {
-        let r = imap("me@example.net", "imap.example.net");
+        let r = imap("me@gmail.com", "imap.gmail.com");
         let one = |v: &str| vec![v.to_owned()];
         assert!(!dmarc_passed(
-            &one("mx.example.net; dmarc=fail (policy said dmarc=pass) header.from=example.com"),
+            &one("mx.google.com; dmarc=fail (policy said dmarc=pass) header.from=example.com"),
             "example.com",
             &r
         ));
         assert!(!dmarc_passed(
-            &one("mx.example.net; spf=pass (dmarc=pass header.from=example.com) smtp.mailfrom=evil.example"),
+            &one("mx.google.com; spf=pass (dmarc=pass header.from=example.com) smtp.mailfrom=evil.example"),
             "example.com",
             &r
         ));
         assert!(dmarc_passed(
-            &one("mx.example.net 1; dmarc = pass (p=reject) header.from=\"example.com\""),
+            &one("mx.google.com 1; dmarc = pass (p=reject) header.from=\"example.com\""),
             "example.com",
             &r
         ));
         // Without header.from the verdict may be about another domain: not counted.
-        assert!(!dmarc_passed(&one("mx.example.net; dmarc=pass"), "example.com", &r));
+        assert!(!dmarc_passed(&one("mx.google.com; dmarc=pass"), "example.com", &r));
     }
 
     #[test]
@@ -1725,8 +1759,8 @@ mod tests {
             "bank.ru",
             &yandex
         ));
-        // A server of the mailbox's own domain counts even when the IMAP server is elsewhere.
-        assert!(dmarc_passed(
+        // A server of the mailbox's own domain is not the provider's, which strips no copy of it.
+        assert!(!dmarc_passed(
             &one("mx.company.example; dmarc=pass header.from=bank.ru"),
             "bank.ru",
             &yandex
@@ -1750,6 +1784,46 @@ mod tests {
             "security@bank.ru",
         );
         assert!(!crate::message::authenticity(&raw, &on_prem).dmarc);
+    }
+
+    #[test]
+    fn a_server_of_the_firms_own_believes_no_authentication_results() {
+        // Postfix and Dovecot without OpenDMARC hand over what came: a sender writes a pass under
+        // the firm's name as easily (#35).
+        let firm = imap("me@firm.example", "mail.firm.example");
+        assert!(!firm.vouches);
+        let forged = vec!["mail.firm.example; dmarc=pass header.from=bank.ru".to_owned()];
+        assert!(!dmarc_passed(&forged, "bank.ru", &firm));
+        assert!(check_sender(&forged, "bank.ru", &firm).no_verdict());
+        let raw = letter_with(
+            &["from mx.bank.ru by mail.firm.example with ESMTPS id 1; Mon"],
+            "Authentication-Results: mail.firm.example; dmarc=pass header.from=bank.ru\r\n",
+            "security@bank.ru",
+        );
+        assert!(!crate::message::authenticity(&raw, &firm).verified());
+        // Exchange Online by IMAP is no Exchange Online by EWS.
+        let m365_imap = imap("me@contoso.example", "outlook.office365.com");
+        assert!(!m365_imap.vouches && !m365_imap.exchange_online);
+    }
+
+    #[test]
+    fn every_exchange_online_of_microsoft_writes_its_own_verdict() {
+        for url in [
+            "https://outlook.office365.com/EWS/Exchange.asmx",
+            "https://outlook.office.com/EWS/Exchange.asmx",
+            "https://outlook.office365.us/EWS/Exchange.asmx",
+            "https://partner.outlook.cn/EWS/Exchange.asmx",
+        ] {
+            let r = ews("me@contoso.example", url);
+            assert!(r.exchange_online && r.vouches, "{url}");
+        }
+        assert!(
+            !ews(
+                "me@contoso.example",
+                "https://outlook.contoso.example/EWS/Exchange.asmx"
+            )
+            .exchange_online
+        );
     }
 
     #[test]

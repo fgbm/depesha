@@ -12,6 +12,8 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use mail_auth::common::crypto::Algorithm;
+use mail_auth::common::verify::DomainKey;
 use mail_auth::dmarc::{Alignment, Dmarc};
 use mail_auth::hickory_resolver::TokioResolver;
 use mail_auth::{AuthenticatedMessage, DkimResult, DnsError, MessageAuthenticator, Parameters, ResolverCache, Txt};
@@ -29,11 +31,14 @@ const LETTERS: usize = 1024;
 const RETRY: Duration = Duration::from_secs(30);
 /// `DKIM-Signature` headers a letter may carry at all: real mail has one to three. Thousands
 /// of them would keep the check busy for nothing.
-const MAX_HEADERS: usize = 32;
+pub(crate) const MAX_HEADERS: usize = 32;
 /// Signatures of the sender's organization looked up and verified.
 const MAX_SIGNATURES: usize = 5;
 /// Headers one signature may cover (`h=`): a real one names a dozen or two.
 const MAX_SIGNED: usize = 64;
+/// The `t=y` flag of a key record (RFC 6376 §3.6.1), as `mail-auth` keeps it in
+/// `DomainKey::f`: the domain is testing DKIM, and a signature with it counts as none.
+const KEY_TESTING: u64 = 0x10;
 
 /// What the app's own check of the signature found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,8 +50,8 @@ pub enum Signature {
     /// Signatures only of other organizations, or one the sender's DMARC policy (`adkim=s`)
     /// does not accept.
     NotAligned,
-    /// The signature does not match the letter, its key is gone, or the letter has no single
-    /// From that is the given address.
+    /// The signature does not match the letter, its key is gone or in testing (`t=y`), it
+    /// uses SHA-1, or the letter has no single From that is the given address.
     Invalid,
     /// No answer from DNS: nothing is known, which is no confirmation.
     Unchecked,
@@ -95,9 +100,13 @@ fn candidates<'x>(raw: &'x [u8], address: &str) -> Result<AuthenticatedMessage<'
             Signature::NotAligned
         });
     }
+    // SHA-1 signs nothing any longer (RFC 8301 §3.1): a collision makes a second letter.
     message.dkim_headers.retain(|h| {
         let s = &h.header;
-        ours(s) && s.h.len() <= MAX_SIGNED && s.h.iter().any(|name| name.trim().eq_ignore_ascii_case("from"))
+        ours(s)
+            && s.a != Algorithm::RsaSha1
+            && s.h.len() <= MAX_SIGNED
+            && s.h.iter().any(|name| name.trim().eq_ignore_ascii_case("from"))
     });
     if message.dkim_headers.is_empty() {
         return Err(Signature::Invalid);
@@ -111,14 +120,70 @@ fn candidates<'x>(raw: &'x [u8], address: &str) -> Result<AuthenticatedMessage<'
     Ok(message)
 }
 
-/// `DKIM-Signature` headers of `raw`, counted before any parsing: a line that starts with the
-/// name, up to the first empty line.
-fn signature_headers(raw: &[u8]) -> usize {
-    const NAME: &[u8] = b"dkim-signature";
-    raw.split(|&b| b == b'\n')
-        .take_while(|line| !line.trim_ascii().is_empty())
-        .filter(|line| line.len() > NAME.len() && line[..NAME.len()].eq_ignore_ascii_case(NAME))
+/// `DKIM-Signature` headers of `raw`, counted before any parsing, in the header block as
+/// [`header_end`] finds it.
+pub(crate) fn signature_headers(raw: &[u8]) -> usize {
+    header_fields(raw)
+        .0
+        .iter()
+        .filter(|name| name.eq_ignore_ascii_case(b"dkim-signature"))
         .count()
+}
+
+/// Where the headers of `raw` end, the empty line included, as `mail-auth` reads them: a
+/// line that starts with a space or a tab goes on with the header above it, a whitespace-only
+/// one too, and a line without a colon ends the headers when it ends in CRLF or is empty.
+pub(crate) fn header_end(raw: &[u8]) -> usize {
+    header_fields(raw).1
+}
+
+/// The names of the header fields of `raw` and where the headers end: the scan of
+/// `mail-auth` 0.13 (`common::headers::scan_field`), which is private to it.
+fn header_fields(raw: &[u8]) -> (Vec<&[u8]>, usize) {
+    let mut names = Vec::new();
+    let mut start = 0;
+    'fields: loop {
+        let mut cur = start;
+        loop {
+            let Some(offset) = raw[cur..].iter().position(|&b| b == b':' || b == b'\n') else {
+                return (names, raw.len());
+            };
+            let pos = cur + offset;
+            if raw[pos] == b':' {
+                // A value the letter ends in is no header to `mail-auth`.
+                let Some(end) = value_end(raw, pos) else {
+                    return (names, raw.len());
+                };
+                names.push(&raw[start..pos]);
+                start = end;
+                continue 'fields;
+            }
+            if (pos > cur && raw[pos - 1] == b'\r') || pos == start {
+                return (names, pos + 1);
+            }
+            match raw.get(pos + 1) {
+                Some(b' ' | b'\t') => cur = pos + 1,
+                _ => {
+                    // A line without a colon: a field of no name.
+                    start = pos + 1;
+                    continue 'fields;
+                }
+            }
+        }
+    }
+}
+
+/// The end of the header value after the colon at `colon`: past the line end that no space or
+/// tab follows. `None` when the letter ends first.
+fn value_end(raw: &[u8], colon: usize) -> Option<usize> {
+    let mut cur = colon + 1;
+    loop {
+        let pos = cur + raw[cur..].iter().position(|&b| b == b'\n')?;
+        match raw.get(pos + 1) {
+            Some(b' ' | b'\t') => cur = pos + 1,
+            _ => return Some(pos + 1),
+        }
+    }
 }
 
 /// TXT answers by name until their TTL runs out. Errors of the network are never put here
@@ -199,6 +264,8 @@ pub struct Verifier {
     /// `(digest of the letter, From address, verdict, when)` by letter id. The digest: a
     /// deleted letter's id may be given to a new one.
     letters: Mutex<HashMap<i64, Remembered>>,
+    /// [`LIMIT`]; shorter in a test of the path that runs out of time.
+    limit: Duration,
 }
 
 impl Default for Verifier {
@@ -208,6 +275,7 @@ impl Default for Verifier {
             build: system,
             cache: Arc::default(),
             letters: Mutex::default(),
+            limit: LIMIT,
         }
     }
 }
@@ -264,15 +332,15 @@ impl Verifier {
             return Signature::Unchecked;
         };
         let (raw, address, cache) = (raw.to_vec(), address.to_owned(), Arc::clone(&self.cache));
-        let handle = tokio::runtime::Handle::current();
+        let (handle, limit) = (tokio::runtime::Handle::current(), self.limit);
         let task = tokio::task::spawn_blocking(move || {
             handle.block_on(async {
-                tokio::time::timeout(LIMIT, verify(&auth, &cache, &raw, &address))
+                tokio::time::timeout(limit, verify(&auth, &cache, &raw, &address))
                     .await
                     .unwrap_or(Signature::Unchecked)
             })
         });
-        let verdict = match tokio::time::timeout(LIMIT, task).await {
+        let verdict = match tokio::time::timeout(self.limit, task).await {
             Ok(Ok(verdict)) => verdict,
             _ => Signature::Unchecked,
         };
@@ -297,8 +365,12 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
     for output in &outputs {
         let Some(signature) = output.signature() else { continue };
         match output.result() {
-            DkimResult::Pass if same_domain(&signature.d, from_domain) => return Signature::Aligned,
-            DkimResult::Pass => relaxed = true,
+            DkimResult::Pass => match testing(auth, cache, signature).await {
+                Some(true) => {}
+                None => verdict = Signature::Unchecked,
+                Some(false) if same_domain(&signature.d, from_domain) => return Signature::Aligned,
+                Some(false) => relaxed = true,
+            },
             DkimResult::TempError(_) => verdict = Signature::Unchecked,
             _ => {}
         }
@@ -311,6 +383,19 @@ async fn verify(auth: &MessageAuthenticator, cache: &TxtCache, raw: &[u8], addre
         Some(true) => Signature::NotAligned,
         None => Signature::Unchecked,
     }
+}
+
+/// Whether the key of a passed signature is in testing (`t=y`): a verifier must not treat such
+/// mail apart from unsigned mail (RFC 6376 §3.6.1). `mail-auth` just read the record, so the
+/// answer comes from the cache, or from the same name again. `None`: DNS did not answer.
+async fn testing(
+    auth: &MessageAuthenticator,
+    cache: &TxtCache,
+    signature: &mail_auth::dkim::Signature,
+) -> Option<bool> {
+    let name = format!("{}._domainkey.{}.", signature.s, signature.d);
+    let key = auth.txt_lookup::<DomainKey>(name, Some(cache)).await.ok()?;
+    Some(key.has_flag(KEY_TESTING))
 }
 
 /// Whether the sender's DMARC record asks for the exact name in `d=` (`adkim=s`): the record of
@@ -412,7 +497,8 @@ mod tests {
     impl Verifier {
         /// How many names the check asked DNS about.
         fn asked(&self) -> usize {
-            self.cache.asked.lock().unwrap().len()
+            let asked = self.cache.asked.lock().unwrap();
+            asked.iter().collect::<std::collections::HashSet<_>>().len()
         }
 
         fn was_asked(&self, name: &str) -> bool {
@@ -640,12 +726,170 @@ mod tests {
             LETTER,
         );
         let header = &one[..one.len() - LETTER.len()];
-        let raw = format!("{}{LETTER}", header.repeat(8000));
+        // A whitespace-only line goes on with the header above it: no end of the headers.
+        let raw = format!("X-Pad: a\r\n \r\n{}{LETTER}", header.repeat(8000));
+        assert_eq!(signature_headers(raw.as_bytes()), 8000);
         let v = verifier("1c-bitrix.ru", &record);
         let start = Instant::now();
         let verdict = v.check(raw.as_bytes(), SENDER).await;
         assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
         assert!(!verdict.passed());
+        let start = Instant::now();
+        assert_eq!(crate::message::sole_from(raw.as_bytes()), None);
+        assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
+        assert_eq!(v.asked(), 0);
+    }
+
+    #[test]
+    fn the_headers_end_where_mail_auth_ends_them() {
+        fn end(raw: &str) -> &str {
+            &raw[..header_end(raw.as_bytes())]
+        }
+        assert_eq!(end("A: 1\r\nB: 2\r\n\r\nbody"), "A: 1\r\nB: 2\r\n\r\n");
+        assert_eq!(end("A: 1\r\n \r\nB: 2\r\n\r\nbody"), "A: 1\r\n \r\nB: 2\r\n\r\n");
+        assert_eq!(end("A: 1\nB: 2\n\nbody"), "A: 1\nB: 2\n\n");
+        // A line without a colon ends them in CRLF, and is a field of no name in LF.
+        assert_eq!(end("A: 1\r\nX\r\nB: 2\r\n\r\n"), "A: 1\r\nX\r\n");
+        assert_eq!(end("A: 1\nX\nB: 2\n\n"), "A: 1\nX\nB: 2\n\n");
+        assert_eq!(end("A: 1"), "A: 1");
+        let raw =
+            "DKIM-Signature: 1\r\n\tmore\r\nDkim-signature: 2\r\n \r\nX-DKIM-Signature: 3\r\n\r\nDKIM-Signature: 4\r\n";
+        assert_eq!(signature_headers(raw.as_bytes()), 2);
+    }
+
+    #[tokio::test]
+    async fn a_sha1_signature_asks_no_dns() {
+        // RFC 8301 §3.1: `rsa-sha1` signs nothing any longer.
+        let (k, record) = keypair();
+        let signed = sign(k, "1c-bitrix.ru", LETTER).replacen("a=ed25519-sha256", "a=rsa-sha1", 1);
+        assert!(signed.contains("a=rsa-sha1"), "{signed}");
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(offline_verdict(signed.as_bytes(), SENDER), Some(Signature::Invalid));
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(v.asked(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_key_in_testing_confirms_nobody() {
+        // RFC 6376 §3.6.1: mail signed with a `t=y` key is mail without a signature.
+        let (k, record) = keypair();
+        let signed = sign(k, "1c-bitrix.ru", LETTER);
+        let testing = record.replace("k=ed25519;", "k=ed25519; t=y;");
+        let v = verifier("1c-bitrix.ru", &testing);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Invalid);
+        let strict = record.replace("k=ed25519;", "k=ed25519; t=s;");
+        let v = verifier("1c-bitrix.ru", &strict);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
+    }
+
+    #[tokio::test]
+    async fn a_third_party_request_asks_no_dns() {
+        let (k, record) = keypair();
+        let signed = sign_with(signer(k, "1c-bitrix.ru").atps("tracker.example"), LETTER);
+        assert!(signed.contains("atps=tracker.example"), "{signed}");
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
+        assert!(v.was_asked("s1._domainkey.1c-bitrix.ru."));
+        assert_eq!(v.asked(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_signature_without_from_or_with_too_many_headers_asks_no_dns() {
+        for headers in [vec!["To", "Subject"], vec!["From"; MAX_SIGNED + 1]] {
+            let (k, record) = keypair();
+            let signed = sign_with(
+                DkimSigner::from_key(k)
+                    .domain("1c-bitrix.ru")
+                    .selector("s1")
+                    .headers(headers.clone()),
+                LETTER,
+            );
+            let v = verifier("1c-bitrix.ru", &record);
+            assert_eq!(
+                v.check(signed.as_bytes(), SENDER).await,
+                Signature::Invalid,
+                "{headers:?}"
+            );
+            assert_eq!(v.asked(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_first_signatures_are_looked_up() {
+        // The sender's own valid signature stands below five of others' keys of its domain.
+        let (k, record) = keypair();
+        let mut raw = sign(k, "1c-bitrix.ru", LETTER);
+        let mut answers = vec![key("1c-bitrix.ru", &record)];
+        for i in 0..MAX_SIGNATURES {
+            raw = sign_with(
+                DkimSigner::from_key(keypair().0)
+                    .domain("1c-bitrix.ru")
+                    .selector(format!("x{i}"))
+                    .headers(["From", "To", "Subject"]),
+                &raw,
+            );
+            // DNS publishes another key for each of them.
+            let txt = Txt::from(DomainKey::parse(keypair().1.as_bytes()).unwrap());
+            answers.push((format!("x{i}._domainkey.1c-bitrix.ru."), txt));
+        }
+        let v = dns(answers);
+        assert_eq!(v.check(raw.as_bytes(), SENDER).await, Signature::Invalid);
+        assert_eq!(v.asked(), MAX_SIGNATURES);
+        assert!(!v.was_asked("s1._domainkey.1c-bitrix.ru."));
+    }
+
+    #[tokio::test]
+    async fn odd_from_headers_confirm_nobody() {
+        let own = "To: me@firm.example\r\nSubject: Hi\r\n";
+        let body = "\r\n<img src=\"https://track.example/p.png\">\r\n";
+        for from in [
+            "From: no-reply@1c-bitrix.ru\r\n:From: Friend <friend@1c-bitrix.ru>\r\n",
+            "From: no-reply@1c-bitrix.ru\r\n From: Friend <friend@1c-bitrix.ru>\r\n",
+            "From: Friends: no-reply@1c-bitrix.ru;\r\n",
+            "From: no-reply@1c-bitrix.ru, friend@1c-bitrix.ru\r\n",
+            "From: =?utf-8?q?friend=40gmail=2Ecom?= <no-reply@1c-bitrix.ru>\r\n",
+        ] {
+            let (k, record) = keypair();
+            let raw = sign(k, "1c-bitrix.ru", &format!("{from}{own}{body}"));
+            let v = verifier("1c-bitrix.ru", &record);
+            let reader = shown(&raw);
+            let signed = crate::message::sole_from(raw.as_bytes());
+            // The check confirms only the one From both readers see, and the reader shows it.
+            for address in [reader.as_str(), SENDER, "friend@1c-bitrix.ru", "friend@gmail.com"] {
+                let verdict = v.check(raw.as_bytes(), address).await;
+                let agreed = signed.as_deref() == Some(address) && reader == address;
+                assert!(!verdict.passed() || agreed, "{address}: {from}");
+            }
+        }
+        // An encoded display name is still the one address.
+        let (k, record) = keypair();
+        let from = "From: =?utf-8?b?0JHQsNC90Lo=?= <no-reply@1c-bitrix.ru>\r\n";
+        let raw = sign(k, "1c-bitrix.ru", &format!("{from}{own}{body}"));
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check(raw.as_bytes(), SENDER).await, Signature::Aligned);
+        // A group and two addresses are no single From.
+        for from in [
+            "From: Friends: no-reply@1c-bitrix.ru;\r\n",
+            "From: no-reply@1c-bitrix.ru, friend@1c-bitrix.ru\r\n",
+        ] {
+            let raw = format!("{from}{own}{body}");
+            assert_eq!(crate::message::sole_from(raw.as_bytes()), None, "{from}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_check_out_of_time_is_unchecked() {
+        let (k, record) = keypair();
+        // A long body: the hash takes longer than no time at all.
+        let letter = format!("{LETTER}{}", "x".repeat(4 << 20));
+        let signed = sign(k, "1c-bitrix.ru", &letter);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
+        let v = Verifier {
+            limit: Duration::ZERO,
+            ..verifier("1c-bitrix.ru", &record)
+        };
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Unchecked);
     }
 
     #[tokio::test]

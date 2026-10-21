@@ -537,7 +537,7 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
             .first()
             .is_some_and(|v| v.eq_ignore_ascii_case("Internal"));
     Authenticity {
-        dmarc: check.as_ref().is_some_and(crate::avatar::SenderCheck::passed),
+        dmarc: check.as_ref().is_some_and(crate::avatar::SenderCheck::confirmed),
         check,
         internal,
     }
@@ -547,9 +547,15 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
 /// (#167). `mail-parser` gives the address the reader shows and the trust list matches;
 /// `mail-auth` gives the From a DKIM signature covers. They part on odd headers: `mail-parser`
 /// takes the last From, reads `Fr om:` as From and skips a line without a colon, where
-/// `mail-auth` ends the headers. A letter they read differently confirms nobody.
+/// `mail-auth` ends the headers. A letter they read differently confirms nobody. Only the
+/// header block is read: `mail-auth` hashes the body for every signature it finds, and a letter
+/// with more signatures than [`crate::dkim`] checks confirms nobody either.
 pub fn sole_from(raw: &[u8]) -> Option<String> {
-    sole_from_in(raw, &mail_auth::AuthenticatedMessage::parse(raw)?)
+    let headers = &raw[..crate::dkim::header_end(raw)];
+    if crate::dkim::signature_headers(headers) > crate::dkim::MAX_HEADERS {
+        return None;
+    }
+    sole_from_in(raw, &mail_auth::AuthenticatedMessage::parse(headers)?)
 }
 
 /// [`sole_from`] with the letter `mail-auth` already read.
@@ -1172,6 +1178,7 @@ JVBERi0xLjQK\r\n\
     fn receiver(domain: &str) -> Receiver {
         Receiver {
             domains: vec![domain.into()],
+            vouches: true,
             ..Default::default()
         }
     }
@@ -1223,6 +1230,7 @@ From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
         // Google's MX names itself in the letter's `Received`, not in the box's settings.
         let gmail = Receiver {
             domains: vec!["gmail.com".into()],
+            vouches: true,
             ..Default::default()
         };
         let ok = |raw: String| authenticity(raw.as_bytes(), &gmail).verified();
