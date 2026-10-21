@@ -201,7 +201,7 @@ nav.side {
   /* The tree keeps its filled star: starred folders are gold at all times, the tree does
      not say what is a favourite otherwise. */
   .side .folder-row:not(.fav-row) .star.on {
-    color: #e0b040;
+    color: var(--side-warn);
   }
 
   .side .star:focus-visible {
@@ -393,11 +393,11 @@ nav.side {
   }
 
   .side .dot.error {
-    box-shadow: 0 0 0 2px #e0a030;
+    box-shadow: 0 0 0 2px var(--side-warn);
   }
 
   .side .dot.paused {
-    box-shadow: 0 0 0 2px var(--accent);
+    box-shadow: 0 0 0 2px var(--side-alert);
   }
 
   .side .problem {
@@ -406,7 +406,7 @@ nav.side {
     font-size: 12px;
     line-height: 1.35;
     color: var(--side-ink);
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    background: color-mix(in srgb, var(--side-alert) 22%, transparent);
     border: none;
     border-radius: 6px;
     text-align: left;
@@ -462,7 +462,7 @@ nav.side {
   }
 
   .side .foot-btn.on {
-    color: #e0a030;
+    color: var(--side-warn);
   }
 
   .side .dnd-wrap {

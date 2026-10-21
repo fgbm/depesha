@@ -884,10 +884,14 @@ updates: "auto" | "notify" | "off",
  */
 language: "auto" | "en" | "ru", 
 /**
- * `system` (light or dark as the system says, default), `paper`, `night`,
- * `snow` or `graphite`.
+ * `system` (light or dark as the system says, default), `light` or `dark`. The themes
+ * before 0.8.12 (`paper`, `night`, `snow`, `graphite`) are read by `src/lib/theme.ts`.
  */
-theme: "system" | "paper" | "night" | "snow" | "graphite", 
+theme: "system" | "light" | "dark", 
+/**
+ * The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt` or `paper`.
+ */
+look: "ink" | "pine" | "office" | "wax" | "salt" | "paper", 
 /**
  * Built-in plugins switched off, by id (`plugins/<id>`).
  */

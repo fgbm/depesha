@@ -697,7 +697,7 @@
     width: 10px;
     height: 10px;
     background: none;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .sr {
@@ -754,7 +754,7 @@
 
   /* The row a notification led to: a frame that fades in a moment. */
   .row.flash {
-    box-shadow: inset 0 0 0 2px var(--accent);
+    box-shadow: inset 0 0 0 2px var(--accent-text);
     animation: flash-out 1.5s ease-in forwards;
   }
 
@@ -850,7 +850,7 @@
   }
 
   .flag {
-    color: var(--accent);
+    color: var(--imp);
     display: inline-flex;
   }
 
@@ -896,7 +896,7 @@
   /* Gmail's red "Draft": an answer was started and waits. */
   .draft {
     font-size: 12px;
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
     white-space: nowrap;
   }
@@ -941,7 +941,7 @@
   }
 
   .tag.due {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
   }
 

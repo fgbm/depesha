@@ -32,7 +32,7 @@ const setLanguage = (value) => setSetting("language", value);
 /** Picks an appearance theme. */
 async function setTheme(value) {
   await setSetting("theme", value);
-  await d.until(`theme ${value}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === value, 10000);
+  await d.until(`theme ${value}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === `ink-${value}`, 10000);
   await sleep(300);
 }
 
@@ -50,7 +50,7 @@ try {
            ${now - 5400}, ${now + 172800}, ${now + 172800}, 'waiting', 0, '', '3 дня', 0),
           ('${account}', 'f-done@example.org', 'Проверка датчиков на складе', 'maria@example.org',
            ${now - 10 * 86400}, ${now - 2 * 86400}, ${now - 2 * 86400}, 'waiting', 0, '', '3 дня', 0);`);
-      await invoke("settings_set", { settings: { ...(await invoke("settings_get")), theme: "paper", language: "ru" } });
+      await invoke("settings_set", { settings: { ...(await invoke("settings_get")), theme: "light", look: "ink", language: "ru" } });
     },
   });
   console.log(`  ${await textOf(".list h2")}: ${await d.exec("return document.querySelector('.list').dataset.count")}`);
@@ -158,7 +158,7 @@ try {
   await settingsPage(kit, "settings", "reading");
 
   // 8. Dark theme, a conversation: the whole thread of three letters with its cards.
-  await setTheme("night");
+  await setTheme("dark");
   await d.button("Входящие");
   await openBySubject("Re: Смета на монтаж");
   await d.click(await d.find(".reader .thread"));
@@ -168,8 +168,8 @@ try {
   await press("Escape");
 
   // 9. Trusting a certificate by fingerprint: the wizard meets GreenMail's self-signed one.
-  //    The English README's main shot is light: the night theme goes back first.
-  await setTheme("snow");
+  //    The English README's main shot is light: the dark theme goes back first.
+  await setTheme("light");
   await setLanguage("en");
   await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
   await d.button("Inbox");

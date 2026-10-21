@@ -113,7 +113,7 @@
 
   .file.current {
     border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-text);
     background: color-mix(in srgb, var(--accent) 8%, var(--paper));
   }
 </style>

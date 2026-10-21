@@ -33,6 +33,7 @@ export class SettingsController {
     updates: "auto",
     language: "auto",
     theme: "system",
+    look: "ink",
     disabled_plugins: [],
     enabled_plugins: [],
     plugin_settings: {},
@@ -99,7 +100,7 @@ export class SettingsController {
       // A save made here while the answer was on its way: the answer is older than the memory.
       if (generation !== this.generation) return;
       this.settings = fresh;
-      applyTheme(this.settings.theme);
+      applyTheme(this.settings.theme, this.settings.look);
     } catch (e) {
       this.host.ui.fail(e);
     }
@@ -122,7 +123,7 @@ export class SettingsController {
     const threadsChanged = next.threads !== this.settings.threads;
     this.generation++;
     this.settings = next;
-    applyTheme(next.theme);
+    applyTheme(next.theme, next.look);
     try {
       await api.settingsPatch($state.snapshot(patch) as Record<string, unknown>);
     } catch (e) {

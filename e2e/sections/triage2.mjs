@@ -394,7 +394,7 @@ export async function run() {
   await step("9.3", "адресная книга (#104): открыть с клавиатуры, найти контакт, изменить настройку, объединить и вернуть; ссылка «Своё у …» из настроек; карточка письма клавишей, имя в карточке", async () => {
     const people = () => invoke("people", { query: "" });
     const byEmail = async (email) => (await people()).find((p) => p.emails.some((a) => a.email.toLowerCase() === email));
-    const night = (on) => d.exec("document.documentElement.dataset.theme = arguments[0]", on ? "night" : "paper");
+    const night = (on) => d.exec("document.documentElement.dataset.theme = arguments[0]", on ? "ink-dark" : "ink-light");
     const was = await d.exec("return document.documentElement.dataset.theme ?? ''");
     const focusList = () => d.exec("document.querySelector('.people [role=listbox]').focus()");
     const rowMark = (mark) => d.exec(`document.querySelector('.people [data-r="${mark}"]').focus()`);

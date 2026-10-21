@@ -248,7 +248,7 @@
   }
 
   .btn.danger {
-    color: var(--accent);
-    border-color: var(--accent);
+    color: var(--bad);
+    border-color: var(--bad);
   }
 </style>

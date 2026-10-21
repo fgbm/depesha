@@ -7,8 +7,9 @@ import { levels } from "./quota";
 import { t } from "./i18n.svelte";
 import { threshold } from "./largeMail";
 import type { SettingsAutosave } from "./settingsAutosave.svelte";
-import { THEME_LIST, type Option, type RowContext, type RowSpec } from "./settingsCatalog";
+import type { Option, RowContext, RowSpec } from "./settingsCatalog";
 import { parseWhole, stepChoice, stepClock, stepWhole } from "./settingsRows";
+import { LOOKS, themeOf, type Look } from "./theme";
 import { parseClock, formatClock } from "./workTime";
 import type { Settings } from "./types";
 
@@ -72,7 +73,7 @@ export class RowEditor {
       case "number":
         return `${v} ${spec.unit()}`;
       case "theme":
-        return t(`settings.theme.${v as "paper"}`);
+        return t(`settings.look.${v as Look}`);
       case "folder":
         return String(v || "") || t("settings.askEveryTime");
       case "days":
@@ -107,8 +108,8 @@ export class RowEditor {
     await this.write(spec, { [spec.key]: saved, ...extra }, spec.key, value);
   }
 
-  async setTheme(spec: Spec<"theme">, value: string): Promise<void> {
-    await this.write(spec, { theme: value }, "theme", value);
+  async setLook(spec: Spec<"theme">, value: string): Promise<void> {
+    await this.write(spec, { look: value }, "look", value);
   }
 
   /** A typed whole number; the message when it is not fit to be saved, else null. */
@@ -167,7 +168,7 @@ export class RowEditor {
         return;
       }
       case "theme":
-        await this.setTheme(spec, stepChoice<string>([...THEME_LIST], s.theme, dir));
+        await this.setLook(spec, stepChoice<string>([...LOOKS], themeOf(s.theme, s.look).look, dir));
         return;
       case "number":
         await this.setNumber(spec, String(stepWhole(s.image_max_px, dir, spec.spec, big)));

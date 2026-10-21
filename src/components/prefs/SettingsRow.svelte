@@ -111,7 +111,7 @@
   }
 
   .rw.flash {
-    box-shadow: 0 0 0 2px var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-text);
   }
 
   .t {

@@ -208,8 +208,8 @@ export async function run() {
 
     // Same window, night theme.
     const theme = (await invoke("settings_get")).theme;
-    await invoke("settings_patch", { patch: { theme: "night" } });
-    await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "night");
+    await invoke("settings_patch", { patch: { theme: "dark", look: "ink" } });
+    await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "ink-dark");
     await screenshot("compose-103-files-night");
     await invoke("settings_patch", { patch: { theme } });
 

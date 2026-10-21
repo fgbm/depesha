@@ -101,7 +101,8 @@ export async function run() {
     const theme = () => d.exec("return document.documentElement.dataset.theme ?? ''");
     const row = (id) => `.prefs [data-row='${id}']`;
     const tile = (name) =>
-      d.xpath(`//div[contains(@class,'prefs')]//div[@data-row='theme']//button[@role='radio'][normalize-space(.)='${name}']`);
+      d.xpath(`//div[contains(@class,'prefs')]//div[@data-row='look']//button[@role='radio'][normalize-space(.)='${name}']`);
+    const light = (name) => d.xpath(`//div[contains(@class,'prefs')]//div[@data-row='theme']//button[normalize-space(.)='${name}']`);
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await d.click(await d.find(".prefs .tab[data-page='reading']"));
@@ -171,19 +172,21 @@ export async function run() {
     await pressIn(".modal.prefs", "z", { ctrlKey: true });
     await d.until("second threshold back", async () => (await saved()).quota_levels[1] === levels[1]);
 
-    // The theme applies the moment its tile is clicked, and the page is photographed in both.
+    // The look applies the moment its tile is clicked, the light the moment its segment is, and
+    // the page is photographed in both lights.
     await d.click(await d.find(".prefs .tab[data-page='look']"));
     await d.until("look page", async () => (await textOf(".prefs .pane h2")) === "Вид и язык");
-    const was_theme = (await saved()).theme;
-    await d.click(await tile("Бумага"));
-    await d.until("light theme", async () => (await theme()) === "paper");
-    await screenshot("settings-look-paper");
-    await d.click(await tile("Ночь"));
-    await d.until("dark theme", async () => (await theme()) === "night");
-    await screenshot("settings-look-night");
-    const back = { system: "Как в системе", paper: "Бумага", night: "Ночь", snow: "Снег", graphite: "Графит" }[was_theme];
-    await d.click(await tile(back));
-    await d.until("theme as it was", async () => (await saved()).theme === was_theme);
+    const before = await saved();
+    await d.click(await light("Светлая"));
+    await d.click(await tile("Хвоя"));
+    await d.until("light pine", async () => (await theme()) === "pine-light");
+    await screenshot("settings-look-light");
+    await d.click(await tile("Чернила"));
+    await d.click(await light("Тёмная"));
+    await d.until("dark ink", async () => (await theme()) === "ink-dark");
+    await screenshot("settings-look-dark");
+    await invoke("settings_patch", { patch: { theme: before.theme, look: before.look } });
+    await d.until("theme as it was", async () => { const now = await saved(); return now.theme === before.theme && now.look === before.look; });
 
     // Closing asks nothing.
     await closeSettings();

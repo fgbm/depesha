@@ -113,7 +113,7 @@
   .ck {
     display: inline-flex;
     width: 14px;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   :global(.pop) .dim {

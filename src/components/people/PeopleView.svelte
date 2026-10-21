@@ -453,7 +453,7 @@
   }
 
   .pl-list:focus-visible {
-    box-shadow: 0 0 0 1.5px var(--accent);
+    box-shadow: 0 0 0 1.5px var(--accent-text);
   }
 
   .pr {
@@ -477,7 +477,7 @@
     flex: none;
     width: 14px;
     text-align: center;
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 700;
     font-size: 12px;
   }
@@ -546,7 +546,7 @@
 
   .input {
     width: 100%;
-    border: 1px solid var(--accent);
+    border: 1px solid var(--accent-text);
     border-radius: 6px;
     padding: 6px 9px;
     background: var(--paper);
@@ -558,7 +558,7 @@
 
   .problem {
     margin: 4px 2px 0;
-    color: var(--accent);
+    color: var(--bad);
     font-size: 12px;
   }
 

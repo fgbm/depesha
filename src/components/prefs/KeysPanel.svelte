@@ -268,8 +268,8 @@
 
   .q:focus-within,
   .q.focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: var(--accent-text);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-text) 18%, transparent);
   }
 
   .q input {
@@ -298,8 +298,8 @@
   }
 
   .btn.on {
-    border-color: var(--accent);
-    color: var(--accent);
+    border-color: var(--accent-text);
+    color: var(--accent-text);
   }
 
   .seg {
@@ -535,7 +535,7 @@
   }
 
   .combo.rec {
-    border: 1.5px dashed var(--accent);
+    border: 1.5px dashed var(--accent-text);
     background: color-mix(in srgb, var(--accent) 7%, var(--paper));
     min-width: 150px;
     justify-content: center;
@@ -554,7 +554,7 @@
 
   .wait {
     font-size: 12px;
-    color: var(--accent);
+    color: var(--accent-text);
     font-style: italic;
   }
 
@@ -624,12 +624,12 @@
   }
 
   .kconf.err {
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--paper));
-    background: color-mix(in srgb, var(--accent) 8%, var(--paper));
+    border-color: color-mix(in srgb, var(--bad) 40%, var(--paper));
+    background: color-mix(in srgb, var(--bad) 8%, var(--paper));
   }
 
   .kconf.err > :global(svg) {
-    color: var(--accent);
+    color: var(--bad);
   }
 
   .kconf.info {

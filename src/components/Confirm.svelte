@@ -122,7 +122,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--accent-text) 45%, transparent);
     outline-offset: 2px;
   }
 </style>

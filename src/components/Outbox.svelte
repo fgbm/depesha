@@ -73,7 +73,7 @@
   }
 
   .item.failed {
-    border-left: 4px solid var(--accent);
+    border-left: 4px solid var(--bad);
   }
 
   .main {

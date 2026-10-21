@@ -7,6 +7,7 @@
 #   DEPESHA_APP=… SHOTS_OUT=… scripts/release-shots.sh   an already built binary, no build
 #   SHOTS_SET=0.8.0 scripts/release-shots.sh      the set of 0.8.0 (default: 0.7.0)
 #   SHOTS_SET=audit scripts/release-shots.sh      every main screen for a UX review (e2e/scenes-audit.mjs)
+#   SHOTS_SET=audit SHOTS_LIGHT=dark …            the same in the dark; SHOTS_LOOK=pine and so on for another look
 #
 # Needs Xvfb on $E2E_DISPLAY (default :99), tauri-driver and WebKitWebDriver;
 # see e2e/README.md.

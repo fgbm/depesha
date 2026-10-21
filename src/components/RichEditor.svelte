@@ -424,7 +424,7 @@
 
   .rich :global(blockquote) {
     margin: 0 0 0 0.8ex;
-    border-left: 2px solid #d8cfbd;
+    border-left: 2px solid #d5dbe3;
     padding-left: 1ex;
     /* As the recipient sees it on white (MailFrame.svelte:45), not the theme's muted. */
     color: #55606c;
@@ -455,7 +455,7 @@
   .rich :global(.depesha-signature) {
     margin-top: 0.6em;
     padding-top: 0.6em;
-    border-top: 1px dashed #d8cfbd;
+    border-top: 1px dashed #d5dbe3;
   }
 
   .rich :global(.depesha-signature img) {
@@ -480,9 +480,9 @@
   .block-hover {
     position: absolute;
     border-radius: 4px;
-    outline: 1px solid #d8cfbd;
+    outline: 1px solid #d5dbe3;
     outline-offset: 3px;
-    background: color-mix(in srgb, #d8cfbd 45%, transparent);
+    background: color-mix(in srgb, #d5dbe3 45%, transparent);
   }
 
   .block-bar {
@@ -507,7 +507,7 @@
 
   .frame {
     position: absolute;
-    border: 2px solid var(--accent);
+    border: 2px solid var(--accent-text);
     pointer-events: none;
     margin: -2px 0 0 -2px;
     box-sizing: content-box;

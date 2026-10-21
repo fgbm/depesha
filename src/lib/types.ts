@@ -18,6 +18,5 @@ export interface ActionRight {
 
 export type FolderAction = "read" | "mark_seen" | "write" | "insert" | "delete" | "create_child" | "delete_folder" | "administer";
 
-export type Theme = Settings["theme"];
 export type LetterViewPref = Settings["letter_view"];
 export type ViewRule = NonNullable<Account["letter_view"]>;

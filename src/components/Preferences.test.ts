@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/event", () => import("../lib/testing").then((m) => m.ev
 vi.mock("@tauri-apps/api/window", () => import("../lib/testing").then((m) => m.windowModule));
 vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appModule));
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
-vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
+vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {}, lightOf: () => "light" }));
 
 import { flushSync, mount, tick, unmount } from "svelte";
 import Preferences from "./Preferences.svelte";

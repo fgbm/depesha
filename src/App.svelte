@@ -373,8 +373,8 @@
 
   .gutter:hover,
   .gutter:active {
-    background: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    background: var(--accent-text);
+    box-shadow: 0 0 0 1px var(--accent-text);
   }
 
   .wide {

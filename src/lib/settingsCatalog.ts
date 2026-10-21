@@ -17,6 +17,7 @@ import Puzzle from "@lucide/svelte/icons/puzzle";
 import SquarePen from "@lucide/svelte/icons/square-pen";
 import { accountLabel } from "./format";
 import { t, tn } from "./i18n.svelte";
+import { LOOKS, SCHEMES, themeOf } from "./theme";
 import type { NumberSpec, RowKind } from "./settingsRows";
 import type { AccountView, Settings } from "./types";
 
@@ -74,7 +75,7 @@ export type RowSpec = Base &
     | { kind: "clock"; key: "day_start" | "evening_start" }
     | { kind: "days"; key: "work_days" }
     | { kind: "folder"; key: "attachments_dir" }
-    | { kind: "theme"; key: "theme" }
+    | { kind: "theme"; key: "look" }
     | { kind: "numunit"; key: "large_mb" }
     | { kind: "pair"; key: "quota_levels" }
     /** A button with a status line: «Check now», or the consent that comes up from another row's value. */
@@ -117,9 +118,6 @@ const letterViews = (): Option[] => [
   { value: "text", label: () => t("settings.letterView.text"), desc: () => t("settings.letterView.textNote") },
 ];
 
-/** The themes in the order the tiles stand and ← / → go. */
-export const THEME_LIST = ["paper", "night", "snow", "graphite", "system"] as const;
-
 // ---- The rows ----
 
 /** The rows of the settings, by id; the groups below pick them. */
@@ -135,13 +133,22 @@ const R = {
       { value: "ru", label: () => "Русский" },
     ],
   },
+  look: {
+    id: "look",
+    kind: "theme",
+    key: "look",
+    label: () => t("settings.appearance"),
+    also: () => LOOKS.map((x) => t(`settings.look.${x}`)),
+  },
+  // The light apart from the look: a goal of its own (0.8.12).
   theme: {
     id: "theme",
-    kind: "theme",
+    kind: "choice",
     key: "theme",
-    label: () => t("settings.appearance"),
-    hint: (s) => (s.theme === "system" ? t("settings.theme.systemNote") : null),
-    also: () => THEME_LIST.map((x) => t(`settings.theme.${x}`)),
+    label: () => t("settings.theme.title"),
+    options: () => SCHEMES.map((x) => ({ value: x, label: () => t(`settings.theme.${x}`) })),
+    read: (s) => themeOf(s.theme, s.look).scheme,
+    hint: (s) => (themeOf(s.theme, s.look).scheme === "system" ? t("settings.theme.systemNote") : null),
   },
   hints: {
     id: "hints",
@@ -437,7 +444,7 @@ export const PAGES: PageSpec[] = [
     title: () => t("settings.page.look"),
     icon: Palette,
     groups: [
-      group("lang", () => t("settings.langLook"), [R.language, R.theme]),
+      group("lang", () => t("settings.langLook"), [R.language, R.look, R.theme]),
       group("hints", () => t("settings.hints"), [R.hints, R.markdown_parts_note, R.hints_list]),
     ],
   },

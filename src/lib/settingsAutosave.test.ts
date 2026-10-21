@@ -26,7 +26,7 @@ afterEach(() => vi.useRealTimers());
 
 describe("saving a setting at once (#102, 1.7 Б)", () => {
   it("writes only the keys that changed, marks the row «saved» and offers to undo", async () => {
-    const { state, auto } = fixture({ threads: true, theme: "paper" });
+    const { state, auto } = fixture({ threads: true, theme: "light" });
     await auto.commit("threads", { threads: false }, "Собирать переписку: вкл → выкл");
     expect(state.patches).toEqual([{ threads: false }]);
     expect(auto.marks.threads).toBe("saved");

@@ -191,7 +191,7 @@
   }
 
   .box.invalid input {
-    color: var(--accent);
+    color: var(--bad);
   }
 
   /* One line as high as the field: the name, the address in grey, the rest cut with «…». */

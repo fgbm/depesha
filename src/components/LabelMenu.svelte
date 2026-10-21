@@ -36,6 +36,6 @@
 
 <style>
   .mi.danger {
-    color: var(--accent);
+    color: var(--bad);
   }
 </style>

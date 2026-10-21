@@ -373,7 +373,7 @@
     display: inline-flex;
     width: 14px;
     margin-left: -18px;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .tb {
@@ -396,7 +396,7 @@
 
   .tb.on {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .link-form {

@@ -353,9 +353,9 @@
 
   .psearch:focus-within,
   .psearch.on {
-    border-color: var(--accent);
+    border-color: var(--accent-text);
     color: var(--ink);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-text) 22%, transparent);
   }
 
   .psearch :global(svg) {
@@ -428,7 +428,7 @@
   }
 
   .tab:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--accent-text);
     outline-offset: -2px;
   }
 
@@ -529,7 +529,7 @@
   }
 
   .hit:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--accent-text);
     outline-offset: -2px;
   }
 

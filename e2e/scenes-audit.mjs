@@ -1,6 +1,7 @@
 // The audit set of pictures (SHOTS_SET=audit in e2e/release-shots.mjs): every main screen of the
 // app as it is now, for a review of the interface. Over mail seeded with `demo-seed audit` (the
-// demo mail of 0.8.0), window 1440×900, the light theme «Бумага»; a few also in «Ночь». Each
+// demo mail of 0.8.0), window 1440×900, the look SHOTS_LOOK (default «Чернила») in the light
+// SHOTS_LIGHT (default light); a few also in the dark, and the main window in every look. Each
 // picture is written as <NN>-<what>.png and described in MANIFEST.md next to them. A screen
 // that cannot be shot is skipped with a line in the log, the run goes on. Fit to rerun: it
 // leaves the mail as it found it (archived letters are taken back, drafts are thrown away).
@@ -24,6 +25,10 @@ export async function seedAudit(kit, account, now) {
   await kit.invoke("account_patch_own", { id: account, patch: { signatures: [SIGNATURE], default_signature: SIGNATURE.id, reply_signature: SIGNATURE.id } });
 }
 
+const LOOK = process.env.SHOTS_LOOK ?? "ink";
+const BASE = process.env.SHOTS_LIGHT ?? "light";
+const LOOK_NAMES = { ink: "Чернила", pine: "Хвоя", office: "Канцелярия", wax: "Сургуч", salt: "Морская соль", paper: "Бумага" };
+
 export async function auditShots(kit, out) {
   const { d, sleep, textOf, shot, press, invoke, openFolder, openBySubject, rowBySubject, palette, setInput, closeSettings } = kit;
   const account = (await invoke("accounts"))[0].id;
@@ -32,7 +37,7 @@ export async function auditShots(kit, out) {
   /** Writes the picture and its line for MANIFEST.md. */
   const take = async (name, what, opts = {}) => {
     await shot(name, opts);
-    manifest.push(`- ${name}.png — ${what}`);
+    manifest.push(`- ${name}.png — ${BASE === "dark" ? what.replace("светлая тема", "тёмная тема") : what}`);
   };
   /** One scene: a failure skips it with the reason and the run goes on, from a clean state. */
   const scene = async (title, fn, { strict = false } = {}) => {
@@ -58,9 +63,9 @@ export async function auditShots(kit, out) {
     for (let i = 0; i < 3; i++) await d.pressKey("\uE00C").catch(() => {});
     await sleep(300);
   };
-  const theme = async (name) => {
-    await invoke("settings_patch", { patch: { theme: name } });
-    await d.exec("document.documentElement.dataset.theme = arguments[0]", name);
+  const theme = async (scheme, look = LOOK) => {
+    await invoke("settings_patch", { patch: { theme: scheme, look } });
+    await d.exec("document.documentElement.dataset.theme = arguments[0]", `${look}-${scheme}`);
     await sleep(500);
   };
   /** A click with Ctrl held on the list row with this subject, or on a letter of an unfolded thread by its number. */
@@ -88,7 +93,7 @@ export async function auditShots(kit, out) {
 
   await d.setRect(1440, 900);
   await sleep(800);
-  await theme("paper");
+  await theme(BASE);
   await inbox();
 
   // 01. The main window: the inbox, a letter in the reader.
@@ -96,9 +101,9 @@ export async function auditShots(kit, out) {
     await openBySubject("Отчёт за сентябрь");
     await sleep(1200);
     await take("01-main-light", "главное окно: список входящих, письмо «Отчёт за сентябрь» открыто в читалке; светлая тема");
-    await theme("night");
-    await take("01-main-dark", "то же главное окно; тёмная тема «Ночь»");
-    await theme("paper");
+    await theme("dark");
+    await take("01-main-dark", "то же главное окно; тёмная тема");
+    await theme(BASE);
   });
 
   // 02. The list with an unfolded thread, the cursor on a letter of it.
@@ -130,9 +135,9 @@ export async function auditShots(kit, out) {
     await d.until("conversation", async () => (await d.findAll(".reader article.letter")).length > 1, 15000);
     await sleep(1200);
     await take("04-reader-thread-light", "читалка: цепочка «Смета на монтаж», одно письмо раскрыто с шапкой, остальные свёрнуты; светлая тема");
-    await theme("night");
+    await theme("dark");
     await take("04-reader-thread-dark", "то же письмо с цепочкой; тёмная тема");
-    await theme("paper");
+    await theme(BASE);
   });
 
   // 05. A reply: the dots folded, then unfolded (the signature and the quote). Only a plain or
@@ -335,6 +340,22 @@ export async function auditShots(kit, out) {
     await invoke("settings_patch", { patch: { language: "ru" } });
     await sleep(1000);
   });
+
+  // 17. The main window in every other look, light and dark (0.8.12); once, in the light run.
+  if (BASE === "light") {
+    await scene("17 оформления", async () => {
+      await inbox();
+      await openBySubject("Отчёт за сентябрь");
+      await sleep(1000);
+      for (const look of Object.keys(LOOK_NAMES).filter((l) => l !== LOOK)) {
+        for (const scheme of ["light", "dark"]) {
+          await theme(scheme, look);
+          await take(`17-look-${look}-${scheme}`, `главное окно в оформлении «${LOOK_NAMES[look]}»; ${scheme === "light" ? "светлая" : "тёмная"} тема`);
+        }
+      }
+      await theme(BASE);
+    });
+  }
 
   // 14. Errors: a wrong password in the wizard, then a mailbox that cannot connect.
   await scene("14 ошибка входа", async () => {

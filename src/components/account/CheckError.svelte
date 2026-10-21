@@ -40,8 +40,8 @@
 
 <style>
   .error {
-    border-left: 4px solid var(--accent);
-    background: color-mix(in srgb, var(--accent) 7%, var(--paper));
+    border-left: 4px solid var(--bad);
+    background: color-mix(in srgb, var(--bad) 7%, var(--paper));
     padding: 10px 14px;
     border-radius: 6px;
     line-height: 1.45;

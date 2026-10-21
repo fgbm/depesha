@@ -43,3 +43,6 @@ function	src/components/SearchBox.svelte::onInput	11	оператор без з�
 function	src/lib/commands.ts::coreCommands	133	перенос без своей папки, «Отложенных», «Черновиков» и «Отправленных» (А8)
 function	src/lib/searchSuggest.ts::folderCompletions	20	папка с ролью — по имени из боковой панели, серверное имя в title, без повтора одинаковых подсказок (А11)
 function	src/lib/markdown/markdownEditor.ts::decorate	30	картинка в тексте письма (data:) — одно целое для каретки и Backspace, её base64 не показывается: decorate отдаёт рядом с украшениями и неделимые отрезки, кусок «atom» не украшается, «data» — значок вместо адреса
+component	src/components/prefs/RowControl.svelte	127	плитки оформления в выбранной светлоте: lightOf и themeOf (0.8.12)
+function	src/lib/testing.ts::settings	42	новое поле настроек look (0.8.12)
+function	src/lib/theme.ts::applyTheme	12	оформление отдельно от светлоты и «как в системе» вслед за системой (0.8.12)

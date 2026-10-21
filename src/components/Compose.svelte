@@ -867,7 +867,7 @@
   .tick {
     display: inline-flex;
     width: 14px;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .body-frame {
@@ -1047,7 +1047,7 @@
   .more {
     border: none;
     background: none;
-    color: var(--accent);
+    color: var(--accent-text);
     font: inherit;
     font-size: 13px;
     white-space: nowrap;
@@ -1075,7 +1075,7 @@
     padding: 0 3px;
     font: inherit;
     font-size: 12px;
-    color: var(--accent);
+    color: var(--accent-text);
     cursor: pointer;
     white-space: nowrap;
   }
@@ -1150,7 +1150,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    color: var(--accent);
+    color: var(--accent-text);
     font-size: 13px;
     white-space: nowrap;
   }

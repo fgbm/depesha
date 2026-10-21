@@ -1,27 +1,4 @@
 :root {
-  --paper: #faf7f1;
-  --paper-2: #f3eee4;
-  --ink: #1d232b;
-  --muted: #6b7480;
-  --line: #e4ddcf;
-  --hover: #f0e9dc;
-  --selected: #e6dbc6;
-  --accent: #b3261e;
-  --accent-ink: #fff8f0;
-  --link: #1f5fa8;
-  --side: #1f2a37;
-  --side-2: #263444;
-  --side-ink: #d5dde6;
-  --side-muted: #8c99a8;
-  /* A warning and an alarm readable on the sidebar (a mailbox filling up). */
-  --side-warn: #e3a63c;
-  --side-alert: #ff8a80;
-  --ok: #2e7d4f;
-  --warn: #b26a00;
-  /* «Marked important» (#72): the amber of --warn is 3.1–4.0:1 on the grounds of the light
-     themes, so the light ones take a deeper shade (4.7–6.4:1) and the dark ones --side-warn
-     (5.6–9:1). Red is taken by the flag, the cursor and «Send». */
-  --imp: #8a5200;
   --radius: 8px;
   /* The expanded letter is up to --win-max wide; the settings window (#68) has its own,
      wider limit in --prefs-max (0.7.1: 1280 px, the two columns of «People» did not fit).
@@ -34,29 +11,309 @@
   --column-max: 680px;
   --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+}
+
+/* The looks (Settings → Look and language, src/lib/theme.ts), each light and dark: data-theme
+   is `<look>-<light>`, data-palette paints one element in a look (the tiles of the setting).
+   Values from design/mockups/0.8.12/01-theme.html; palette.test.ts checks their contrast.
+   --accent fills, --accent-text is the accent as text and icons; --bad is an error and
+   «Delete», the only red besides the seal; --imp is the flag and «important». In the dark,
+   --selected is lighter than the mockup's: the cursor row is only a ground (#165). */
+/* «Ink» (Б), the default. */
+:root,
+:root[data-theme="ink-light"],
+[data-palette="ink-light"] {
+  --paper: #f6f8fb;
+  --paper-2: #edf1f6;
+  --ink: #141a23;
+  --muted: #5a6473;
+  --line: #dce2ea;
+  --hover: #e8eef6;
+  --selected: #d7e3f2;
+  --accent: #1c4f8f;
+  --accent-ink: #ffffff;
+  --accent-text: #1c4f8f;
+  --link: #1a5aa8;
+  --bad: #a62a24;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #17222e;
+  --side-2: #1e2b39;
+  --side-ink: #d3dde8;
+  --side-muted: #93a2b3;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
   color-scheme: light;
 }
 
-/* Themes (Settings → Appearance, src/lib/theme.ts). Without data-theme the system picks
-   between Paper above and Night. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    --paper: #171a1f;
-    --paper-2: #1d2128;
-    --ink: #e4e0d8;
-    --muted: #adb3bb;
-    --line: #2c323b;
-    --hover: #222831;
-    --selected: #3a4553;
-    --link: #7fb0ec;
-    --side: #11161c;
-    --side-2: #1a222b;
-    --imp: #e3a63c;
-    color-scheme: dark;
-  }
+:root[data-theme="ink-dark"],
+[data-palette="ink-dark"] {
+  --paper: #11151b;
+  --paper-2: #171c24;
+  --ink: #e2e8f0;
+  --muted: #a5b0be;
+  --line: #262e39;
+  --hover: #1c232c;
+  --selected: #32414d;
+  --accent: #2b62a6;
+  --accent-ink: #ffffff;
+  --accent-text: #8ab4ea;
+  --link: #8ab4ea;
+  --bad: #e8796f;
+  --ok: #5fb98a;
+  --warn: #e0a83c;
+  --imp: #e0a83c;
+  --side: #0d1218;
+  --side-2: #141b23;
+  --side-ink: #d3dde8;
+  --side-muted: #8fa0b2;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
 }
 
-:root[data-theme="night"] {
+/* «Pine» (В). */
+:root[data-theme="pine-light"],
+[data-palette="pine-light"] {
+  --paper: #f7f8f7;
+  --paper-2: #eef1ef;
+  --ink: #171b19;
+  --muted: #58625c;
+  --line: #dde3df;
+  --hover: #e9eeeb;
+  --selected: #d9e5dd;
+  --accent: #14624a;
+  --accent-ink: #ffffff;
+  --accent-text: #14624a;
+  --link: #1f5f9e;
+  --bad: #a62a24;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #15201b;
+  --side-2: #1c2923;
+  --side-ink: #d4ded7;
+  --side-muted: #8ea298;
+  --side-warn: #e2b25a;
+  --side-alert: #ff9c93;
+  color-scheme: light;
+}
+
+:root[data-theme="pine-dark"],
+[data-palette="pine-dark"] {
+  --paper: #121614;
+  --paper-2: #181d1a;
+  --ink: #e3e8e4;
+  --muted: #a6b0aa;
+  --line: #28302b;
+  --hover: #1e2420;
+  --selected: #34433b;
+  --accent: #1e7a5c;
+  --accent-ink: #ffffff;
+  --accent-text: #6fc79f;
+  --link: #8ab4ea;
+  --bad: #e8796f;
+  --ok: #63c08f;
+  --warn: #e2a94a;
+  --imp: #e2a94a;
+  --side: #0e1512;
+  --side-2: #151f1a;
+  --side-ink: #d4ded7;
+  --side-muted: #8ba095;
+  --side-warn: #e2b25a;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
+}
+
+/* «Office» (Г): a light sidebar. */
+:root[data-theme="office-light"],
+[data-palette="office-light"] {
+  --paper: #ffffff;
+  --paper-2: #f4f5f7;
+  --ink: #12161c;
+  --muted: #56606e;
+  --line: #e0e3e8;
+  --hover: #eef1f5;
+  --selected: #dde4ee;
+  --accent: #2b3442;
+  --accent-ink: #ffffff;
+  --accent-text: #2b3442;
+  --link: #1b56a4;
+  --bad: #a3231d;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #eef1f5;
+  --side-2: #e0e6ee;
+  --side-ink: #1b2330;
+  --side-muted: #5c6775;
+  --side-warn: #8a5300;
+  --side-alert: #a3231d;
+  color-scheme: light;
+}
+
+:root[data-theme="office-dark"],
+[data-palette="office-dark"] {
+  --paper: #101215;
+  --paper-2: #16191d;
+  --ink: #e6e8ec;
+  --muted: #a3aab6;
+  --line: #262b32;
+  --hover: #1b1f25;
+  --selected: #333d49;
+  --accent: #46536a;
+  --accent-ink: #ffffff;
+  --accent-text: #9fb0cc;
+  --link: #8ab4ea;
+  --bad: #e8796f;
+  --ok: #5fb98a;
+  --warn: #e0a83c;
+  --imp: #e0a83c;
+  --side: #0b0d10;
+  --side-2: #14171c;
+  --side-ink: #dfe3e9;
+  --side-muted: #8b929e;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
+}
+
+/* «Wax» (Д). */
+:root[data-theme="wax-light"],
+[data-palette="wax-light"] {
+  --paper: #f7f7f8;
+  --paper-2: #eeeef0;
+  --ink: #1a1a1d;
+  --muted: #5c5c64;
+  --line: #e0e0e4;
+  --hover: #ecebee;
+  --selected: #e6dde0;
+  --accent: #7a2130;
+  --accent-ink: #fff5f4;
+  --accent-text: #7a2130;
+  --link: #1d569e;
+  --bad: #a8231d;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #221a1d;
+  --side-2: #2b2226;
+  --side-ink: #e0d6d8;
+  --side-muted: #a29196;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
+  color-scheme: light;
+}
+
+:root[data-theme="wax-dark"],
+[data-palette="wax-dark"] {
+  --paper: #161315;
+  --paper-2: #1d181a;
+  --ink: #e9e2e3;
+  --muted: #b3a7aa;
+  --line: #2f2729;
+  --hover: #241d1f;
+  --selected: #49383b;
+  --accent: #a84452;
+  --accent-ink: #ffffff;
+  --accent-text: #e58a94;
+  --link: #8ab4ea;
+  --bad: #e8796f;
+  --ok: #64bd8d;
+  --warn: #e0a94a;
+  --imp: #e0a94a;
+  --side: #120e10;
+  --side-2: #1a1517;
+  --side-ink: #e0d6d8;
+  --side-muted: #a29196;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
+}
+
+/* «Sea salt» (Е). */
+:root[data-theme="salt-light"],
+[data-palette="salt-light"] {
+  --paper: #f5f8f8;
+  --paper-2: #eaf0f0;
+  --ink: #121a1b;
+  --muted: #546266;
+  --line: #d9e2e2;
+  --hover: #e5eeed;
+  --selected: #d3e5e3;
+  --accent: #0f5b62;
+  --accent-ink: #ffffff;
+  --accent-text: #0f5b62;
+  --link: #1a5f9e;
+  --bad: #a62a24;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #10262a;
+  --side-2: #17343a;
+  --side-ink: #d3e3e4;
+  --side-muted: #87a3a7;
+  --side-warn: #e3b45c;
+  --side-alert: #ff9c93;
+  color-scheme: light;
+}
+
+:root[data-theme="salt-dark"],
+[data-palette="salt-dark"] {
+  --paper: #0f1617;
+  --paper-2: #151e1f;
+  --ink: #e1eaea;
+  --muted: #a3b2b3;
+  --line: #253233;
+  --hover: #1a2425;
+  --selected: #2f4245;
+  --accent: #16737c;
+  --accent-ink: #ffffff;
+  --accent-text: #6fc3c9;
+  --link: #8ab4ea;
+  --bad: #e8796f;
+  --ok: #5fbd8e;
+  --warn: #e3aa4a;
+  --imp: #e3aa4a;
+  --side: #0a1113;
+  --side-2: #122122;
+  --side-ink: #d3e3e4;
+  --side-muted: #87a3a7;
+  --side-warn: #e3b45c;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
+}
+
+/* «Paper»: the palette of before 0.8.12, its contrast fixed. */
+:root[data-theme="paper-light"],
+[data-palette="paper-light"] {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #58616c;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --accent-text: #b3261e;
+  --link: #1f5fa8;
+  --bad: #b3261e;
+  --ok: #2e7d4f;
+  --warn: #8a5300;
+  --imp: #8a5200;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
+  color-scheme: light;
+}
+
+:root[data-theme="paper-dark"],
+[data-palette="paper-dark"] {
   --paper: #171a1f;
   --paper-2: #1d2128;
   --ink: #e4e0d8;
@@ -64,47 +321,20 @@
   --line: #2c323b;
   --hover: #222831;
   --selected: #3a4553;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --accent-text: #ff8a80;
   --link: #7fb0ec;
+  --bad: #ff8a80;
+  --ok: #5fb57f;
+  --warn: #e0a83c;
+  --imp: #e3a63c;
   --side: #11161c;
   --side-2: #1a222b;
-  --imp: #e3a63c;
-  color-scheme: dark;
-}
-
-:root[data-theme="snow"] {
-  --paper: #ffffff;
-  --paper-2: #f5f6f8;
-  --ink: #1b1f24;
-  --muted: #687180;
-  --line: #e3e6ea;
-  --hover: #f0f2f5;
-  --selected: #e3e8ef;
-  --accent: #c4302b;
-  --link: #1d5fbf;
-  --side: #f3f4f6;
-  --side-2: #e5e7eb;
-  --side-ink: #1f2937;
-  --side-muted: #6b7280;
-  --side-warn: #9a5c00;
-  --side-alert: #c4302b;
-  color-scheme: light;
-}
-
-:root[data-theme="graphite"] {
-  --paper: #1c1c1e;
-  --paper-2: #232325;
-  --ink: #e6e6e6;
-  --muted: #b5b5ba;
-  --line: #2e2e31;
-  --hover: #2a2a2d;
-  --selected: #45454d;
-  --accent: #d6463d;
-  --link: #8ab4f8;
-  --side: #26272b;
-  --side-2: #313237;
-  --side-ink: #dcdde0;
-  --side-muted: #8e9096;
-  --imp: #e3a63c;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
   color-scheme: dark;
 }
 
@@ -197,7 +427,7 @@ button {
 /* The ring of a check box, on every platform alike. Rows and menu items show the focus by
    their ground, not by a ring. */
 .btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--accent-text) 55%, transparent);
   outline-offset: 2px;
 }
 
@@ -251,8 +481,8 @@ select.input {
 }
 
 .input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-text) 18%, transparent);
 }
 
 .muted {
@@ -260,7 +490,7 @@ select.input {
 }
 
 .danger-text {
-  color: var(--accent);
+  color: var(--bad);
 }
 
 .selectable {
@@ -328,14 +558,14 @@ input[type="radio"] {
 
 input[type="checkbox"]:hover:not(:disabled),
 input[type="radio"]:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
-/* The tick is drawn in --accent-ink, which is close to white in every theme. */
+/* The tick is white, as --accent-ink is in every look. */
 input[type="checkbox"]:checked {
   border-color: var(--accent);
   background-color: var(--accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.5-5' fill='none' stroke='%23fff8f0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.5-5' fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* The dot is the paper showing through a thick inner ring. */
@@ -347,7 +577,7 @@ input[type="radio"]:checked {
 
 input[type="checkbox"]:focus-visible,
 input[type="radio"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--accent-text) 55%, transparent);
   outline-offset: 2px;
 }
 
@@ -409,7 +639,7 @@ kbd {
    over the window, outside the editor's own styles, so it is styled here. */
 .md-picture-frame {
   position: fixed;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--accent-text);
   box-sizing: content-box;
   margin: -2px 0 0 -2px;
   pointer-events: none;
@@ -466,7 +696,7 @@ kbd {
 }
 
 .md-picture-act.danger:hover {
-  color: var(--warn);
+  color: var(--bad);
 }
 
 .md-picture-alt {

@@ -168,8 +168,8 @@ export async function run() {
     }, 10000);
     if (tinted.bg === plain.bg) throw new Error("заголовок не изменил цвет");
     await screenshot("compose-103-tint-paper");
-    await invoke("settings_patch", { patch: { theme: "night" } });
-    await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "night");
+    await invoke("settings_patch", { patch: { theme: "dark", look: "ink" } });
+    await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "ink-dark");
     await screenshot("compose-103-tint-night");
     await invoke("settings_patch", { patch: { theme: settings.theme, enabled_plugins: settings.enabled_plugins ?? [] } });
     await d.until("bar as it was", async () => !(await bar()).tint);

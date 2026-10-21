@@ -157,7 +157,7 @@
     border: 1px solid transparent;
     border-radius: 6px;
     background: none;
-    color: var(--accent);
+    color: var(--accent-text);
     font: inherit;
     font-size: 13px;
     white-space: nowrap;
@@ -170,7 +170,7 @@
   }
 
   .more.current {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    border-color: var(--accent-text);
+    box-shadow: inset 0 0 0 1px var(--accent-text);
   }
 </style>

@@ -149,7 +149,7 @@
   }
 
   .trigger.filtered {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
   }
 

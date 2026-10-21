@@ -29,7 +29,7 @@
     gap: 16px;
     align-items: flex-start;
     border: 1px solid var(--line);
-    border-left: 4px solid var(--accent);
+    border-left: 4px solid var(--bad);
     border-radius: 8px;
     padding: 12px 14px;
     margin-top: 10px;

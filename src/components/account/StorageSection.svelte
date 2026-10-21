@@ -268,7 +268,7 @@
   }
 
   .room[data-level="3"] {
-    --fill: var(--accent);
+    --fill: var(--bad);
   }
 
   .figures {
@@ -289,7 +289,7 @@
   }
 
   .room[data-level="3"] .pct {
-    color: var(--accent);
+    color: var(--bad);
     font-weight: 600;
   }
 
@@ -368,7 +368,7 @@
     margin-top: 6px;
     padding: 10px 12px;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    background: color-mix(in srgb, var(--bad) 8%, transparent);
   }
 
   .actions,

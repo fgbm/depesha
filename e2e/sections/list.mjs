@@ -22,13 +22,13 @@ export async function run() {
     const settings = await invoke("settings_get");
     const theme = async (name) => {
       await invoke("settings_set", { settings: { ...settings, theme: name } });
-      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === `ink-${name}`, 10000);
     };
     // The same list in the light theme and in the dark one, then back: the run keeps its own.
-    await theme("paper");
-    await screenshot("list-avatars-paper");
-    await theme("night");
-    await screenshot("list-avatars-night");
+    await theme("light");
+    await screenshot("list-avatars-light");
+    await theme("dark");
+    await screenshot("list-avatars-dark");
     await invoke("settings_set", { settings });
     // Off, the list is as before the avatars: no circles, the text starts where it did.
     await invoke("settings_set", { settings: { ...settings, list_avatars: false } });
@@ -71,13 +71,13 @@ export async function run() {
     const state = (i) => d.exec(`const r = ${rowAt(i)}; return { pic: !!r.querySelector('.pic'), pick: !!r.querySelector('.pick'), selected: r.classList.contains('selected'), cursor: r.classList.contains('cursor') }`);
     const theme = async (name) => {
       await invoke("settings_set", { settings: { ...settings, theme: name, list_avatars: shotAvatars } });
-      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === `ink-${name}`, 10000);
     };
     let shotAvatars = true;
     for (const avatars of [true, false]) {
       shotAvatars = avatars;
       const tag = avatars ? "" : "-plain";
-      await theme("paper");
+      await theme("light");
       // The letter that is open: the circle stays, the bar stands at the left, no ground, no tick.
       await d.exec(`${rowAt(OPEN)}.click()`);
       await d.until("opened row", async () => (await state(OPEN)).cursor, 10000);
@@ -85,7 +85,7 @@ export async function run() {
       if (s.pick || s.selected) throw new Error(`открытое письмо показано как выбранное: ${JSON.stringify(s)}`);
       if (avatars && !s.pic) throw new Error("у открытого письма пропал круг");
       await screenshot(`row-cursor${tag}-paper`);
-      await theme("night");
+      await theme("dark");
       await screenshot(`row-cursor${tag}-night`);
       // Two chosen together: a tick and the ground on both; the open one keeps its bar too.
       await ctrlClick(OPEN + 1);
@@ -95,7 +95,7 @@ export async function run() {
         if (!s.pick || !s.selected || s.pic) throw new Error(`строка ${i} не показана как выбранная: ${JSON.stringify(s)}`);
       }
       await screenshot(`row-chosen${tag}-night`);
-      await theme("paper");
+      await theme("light");
       await screenshot(`row-chosen${tag}-paper`);
       // Back to one letter.
       await d.exec(`${rowAt(OPEN + 2)}.click()`);
@@ -364,7 +364,7 @@ export async function run() {
     const settings = await invoke("settings_get");
     const theme = async (name) => {
       await invoke("settings_set", { settings: { ...settings, theme: name } });
-      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === `ink-${name}`, 10000);
     };
     const rect = await d.rect();
     try {
@@ -373,12 +373,12 @@ export async function run() {
         return s.more ? s : null;
       }, 15000);
       check(wide, "широкая панель");
-      for (const name of ["paper", "night"]) {
+      for (const name of ["light", "dark"]) {
         await theme(name);
         await screenshot(`many-attach-wide-${name}`);
         await shotTo(`wide-${name}`);
       }
-      await theme("paper");
+      await theme("light");
 
       // The pane resized: the rows are counted again for its width.
       await d.setRect(960, rect.height);
@@ -388,12 +388,12 @@ export async function run() {
       }, 15000);
       check(narrow, "узкая панель");
       if (narrow.chips > wide.chips) throw new Error(`панель сузилась ${wide.width} → ${narrow.width}, а фишек стало больше: ${wide.chips} → ${narrow.chips}`);
-      for (const name of ["paper", "night"]) {
+      for (const name of ["light", "dark"]) {
         await theme(name);
         await screenshot(`many-attach-narrow-${name}`);
         await shotTo(`narrow-${name}`);
       }
-      await theme("paper");
+      await theme("light");
       await d.setRect(rect.width, rect.height);
       await d.until("wide again", async () => (await strip()).width === wide.width);
       check(await strip(), "широкая панель снова");
@@ -414,9 +414,9 @@ export async function run() {
       const top = await d.exec("return document.querySelector('.pop').scrollTop");
       if (top !== 0) throw new Error(`список открылся прокрученным на ${top} px`);
       await shotTo("list-paper");
-      await theme("night");
+      await theme("dark");
       await shotTo("list-night");
-      await theme("paper");
+      await theme("light");
       await d.pressKey(DOWN);
       if (!(await active(`a.dataset.att === '${folded + 1}'`))) throw new Error("↓ не на следующем файле");
       await d.pressKey(RIGHT);

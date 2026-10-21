@@ -230,7 +230,7 @@
     border-radius: 9px;
     white-space: nowrap;
     background: color-mix(in srgb, var(--accent) 12%, var(--paper));
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .preview {

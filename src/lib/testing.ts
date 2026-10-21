@@ -61,6 +61,7 @@ export const settings = (): Settings => ({
   updates: "auto",
   language: "auto",
   theme: "system",
+  look: "ink",
   disabled_plugins: [],
   enabled_plugins: [],
   plugin_settings: {},

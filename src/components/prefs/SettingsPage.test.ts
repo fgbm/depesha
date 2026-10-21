@@ -5,6 +5,8 @@ vi.mock("@tauri-apps/api/window", () => import("../../lib/testing").then((m) => 
 vi.mock("@tauri-apps/api/app", () => import("../../lib/testing").then((m) => m.appModule));
 vi.mock("../../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../../lib/testing")).api }));
 vi.mock("../../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
+// The system is light: there is no screen to ask in this test.
+vi.stubGlobal("matchMedia", () => ({ matches: false }));
 
 import { render } from "svelte/server";
 import SettingsPage from "./SettingsPage.svelte";
@@ -76,8 +78,9 @@ describe("a page of rows (#102)", () => {
   });
 
   it("says «system» of the theme only when the theme follows the system", () => {
-    expect(page("look", { theme: "system" })).toContain("вслед за светлым или тёмным режимом");
-    expect(page("look", { theme: "night" })).not.toContain("вслед за светлым или тёмным режимом");
+    expect(page("look", { theme: "system" })).toContain("вслед за режимом системы");
+    expect(page("look", { theme: "dark" })).not.toContain("вслед за режимом системы");
+    expect(page("look", { theme: "night" })).not.toContain("вслед за режимом системы");
   });
 
   it("draws no «Save» or «Cancel» on a page: nothing waits to be saved", () => {
@@ -86,5 +89,16 @@ describe("a page of rows (#102)", () => {
       expect(html).not.toContain(">Сохранить<");
       expect(html).not.toContain(">Отмена<");
     }
+  });
+});
+
+describe("the look and the theme (0.8.12)", () => {
+  it("draws the looks as tiles in the light chosen, and the light as a choice of its own", () => {
+    const html = page("look", { theme: "night", look: "salt" });
+    for (const name of ["Чернила", "Хвоя", "Канцелярия", "Сургуч", "Морская соль", "Бумага"]) expect(html).toContain(name);
+    expect(html).toContain('data-palette="ink-dark"');
+    expect(html).toMatch(/aria-checked="true"[^>]*>\s*<span class="swatch[^"]*" data-palette="salt-dark"/);
+    expect(html).toContain('data-row="theme"');
+    expect(html).toContain("Тёмная");
   });
 });

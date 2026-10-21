@@ -59,7 +59,7 @@
     border: none;
     background: none;
     padding: 0;
-    color: var(--accent);
+    color: var(--accent-text);
     font: inherit;
     cursor: pointer;
   }

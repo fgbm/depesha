@@ -182,9 +182,9 @@ describe("← and → on a row", () => {
     expect(state.commits[0].patch).toEqual({ day_start: "9:15" });
   });
 
-  it("go through the themes", async () => {
-    const { e, state } = editor({ theme: "paper" });
-    await e.step(row("theme", "theme"), 1, false);
-    expect(state.commits[0].patch).toEqual({ theme: "night" });
+  it("go through the looks, from a theme of before 0.8.12 too", async () => {
+    const { e, state } = editor({ theme: "paper" as Settings["theme"], look: "ink" });
+    await e.step(row("look", "theme"), 1, false);
+    expect(state.commits[0].patch).toEqual({ look: "pine" });
   });
 });

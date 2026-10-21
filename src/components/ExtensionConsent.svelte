@@ -140,8 +140,8 @@
   .badge {
     margin-left: 6px;
     font-size: 11px;
-    border: 1px solid var(--accent);
-    color: var(--accent);
+    border: 1px solid var(--bad);
+    color: var(--bad);
     border-radius: 10px;
     padding: 0 6px;
   }
@@ -152,15 +152,15 @@
     align-items: flex-start;
     padding: 8px 10px;
     border-radius: 6px;
-    border: 1px solid var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--paper));
+    border: 1px solid var(--bad);
+    background: color-mix(in srgb, var(--bad) 10%, var(--paper));
     line-height: 1.45;
   }
 
   .leak :global(svg) {
     flex: none;
     margin-top: 2px;
-    color: var(--accent);
+    color: var(--bad);
   }
 
   .buttons {
@@ -171,7 +171,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--accent-text) 45%, transparent);
     outline-offset: 2px;
   }
 </style>

@@ -531,7 +531,7 @@
   }
 
   .line:focus-visible {
-    box-shadow: inset 0 0 0 1.5px var(--accent);
+    box-shadow: inset 0 0 0 1.5px var(--accent-text);
   }
 
   .nm.line {
@@ -540,7 +540,7 @@
 
   .edit {
     width: 100%;
-    border: 1px solid var(--accent);
+    border: 1px solid var(--accent-text);
     border-radius: 6px;
     padding: 4px 8px;
     background: var(--paper);
@@ -654,7 +654,7 @@
 
   .problem {
     margin: 4px 6px 0;
-    color: var(--accent);
+    color: var(--bad);
     font-size: 12px;
   }
 
@@ -720,7 +720,7 @@
   .mail:focus-visible {
     background: var(--hover);
     outline: none;
-    box-shadow: inset 0 0 0 1.5px var(--accent);
+    box-shadow: inset 0 0 0 1.5px var(--accent-text);
   }
 
   .mail .s {
@@ -761,7 +761,7 @@
   }
 
   .link.danger {
-    color: var(--accent);
+    color: var(--bad);
   }
 
   .link:hover {

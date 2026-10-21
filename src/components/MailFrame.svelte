@@ -82,7 +82,7 @@ body{margin:18px 22px;font:14px/1.5 system-ui,"Segoe UI",Roboto,"Noto Sans",Aria
 img{max-width:100%;height:auto}
 table{max-width:100%}
 pre{white-space:pre-wrap}
-blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #d8cfbd;color:#55606c}
+blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #d5dbe3;color:#55606c}
 a{color:#1f5fa8}
 ${markdown ? markdownCss() : ""}
 ${themed ? themeCss() : ""}

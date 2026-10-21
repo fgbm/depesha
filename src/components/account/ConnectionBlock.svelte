@@ -53,7 +53,7 @@
   }
 
   .head:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--accent-text);
     outline-offset: -2px;
   }
 
@@ -108,7 +108,7 @@
   }
 
   .state.paused {
-    color: var(--accent);
+    color: var(--bad);
   }
 
   .body {

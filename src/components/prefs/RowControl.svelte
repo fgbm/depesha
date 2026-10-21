@@ -4,8 +4,9 @@
   // controls. A control only reports; saving is the editor's.
   import { t } from "../../lib/i18n.svelte";
   import { choiceMode } from "../../lib/settingsRows";
-  import { THEME_LIST, isEnabled, type RowSpec } from "../../lib/settingsCatalog";
+  import { isEnabled, type RowSpec } from "../../lib/settingsCatalog";
   import { largeParts, type RowEditor } from "../../lib/settingsEdit";
+  import { LOOKS, lightOf, themeOf } from "../../lib/theme";
   import type { Settings } from "../../lib/types";
   import Select from "../Select.svelte";
   import DaysField from "./controls/DaysField.svelte";
@@ -47,7 +48,7 @@
   const dis = $derived(!isEnabled(spec, s));
   const label = $derived(spec.label());
   const large = $derived(largeParts(s.large_mb));
-  const themes = $derived(THEME_LIST.map((v) => ({ value: v as string, label: t(`settings.theme.${v}`) })));
+  const looks = $derived(LOOKS.map((v) => ({ value: v as string, label: t(`settings.look.${v}`) })));
 </script>
 
 <div class="ctl" bind:this={box}>
@@ -71,7 +72,7 @@
     />
   {/if}
 {:else if spec.kind === "theme"}
-  <ThemeTiles {themes} value={s.theme} {label} disabled={dis} onpick={(v) => editor.setTheme(spec, v)} />
+  <ThemeTiles {looks} value={themeOf(s.theme, s.look).look} light={lightOf(s.theme)} {label} disabled={dis} onpick={(v) => editor.setLook(spec, v)} />
 {:else if spec.kind === "number"}
   <ValueField value={String(s[spec.key])} {label} width={72} disabled={dis} oncommit={(x) => editor.setNumber(spec, x)} {onerror} {onleave} />
   <span class="u">{spec.unit()}</span>

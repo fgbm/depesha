@@ -39,10 +39,13 @@ pub struct Settings {
     /// `auto` (from the system locale, default), `en` or `ru`.
     #[cfg_attr(test, ts(type = "\"auto\" | \"en\" | \"ru\""))]
     pub language: String,
-    /// `system` (light or dark as the system says, default), `paper`, `night`,
-    /// `snow` or `graphite`.
-    #[cfg_attr(test, ts(type = "\"system\" | \"paper\" | \"night\" | \"snow\" | \"graphite\""))]
+    /// `system` (light or dark as the system says, default), `light` or `dark`. The themes
+    /// before 0.8.12 (`paper`, `night`, `snow`, `graphite`) are read by `src/lib/theme.ts`.
+    #[cfg_attr(test, ts(type = "\"system\" | \"light\" | \"dark\""))]
     pub theme: String,
+    /// The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt` or `paper`.
+    #[cfg_attr(test, ts(type = "\"ink\" | \"pine\" | \"office\" | \"wax\" | \"salt\" | \"paper\""))]
+    pub look: String,
     /// Built-in plugins switched off, by id (`plugins/<id>`).
     #[serde(alias = "disabled_modules")]
     pub disabled_plugins: Vec<String>,
@@ -145,6 +148,7 @@ impl Default for Settings {
             updates: "auto".into(),
             language: "auto".into(),
             theme: "system".into(),
+            look: "ink".into(),
             disabled_plugins: Vec::new(),
             enabled_plugins: Vec::new(),
             plugin_settings: Default::default(),
