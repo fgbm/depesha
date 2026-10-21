@@ -84,3 +84,11 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-21 18:45 — minimax-m3.1-flash
 
 Выпуск 0.8.12: CI на коммите версии упал — задачи «Build macos-latest» и «Print a sheet (macOS)» отменились без раннера (`runner_name` пуст, шагов нет), при этом status.github.com показывал degraded Actions. Обход: `gh run rerun <id> --failed` — задачи взяли раннер и прошли. Отмена macOS-задач без раннера бывает и от сбоя платформы GitHub, а не от кода: смотреть `runner_name` в `gh api .../jobs` и лог задачи (у отменённой он недоступен).
+
+## 2026-10-21 19:10 — minimax-m3.1-flash
+
+Съёмка кадров (`scripts/release-shots.sh`) без Xvfb на `:99` → приложение падает с «Failed to initialize GTK», а `e2e/release-shots.mjs` висит: `d.start(app)` ждёт окна, которого не будет. Скрипт не поднимает Xvfb — в CI его стартует строка в `ci.yml`, локально его надо запустить самому (`~/.local/depesha-testenv/root/usr/bin/Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &`). Висящий прогон держит замок стенда, и следующий ждёт его час: снимать свой процесс (`pgrep -af release-shots`).
+
+## 2026-10-21 19:05 — minimax-m3.1-flash
+
+Проверка текстовой части письма в e2e → в письме она quoted-printable, и поиск «[Изображение: …]» по сырому источнику не находит («=D0=98=D0=B7=D0=BE…»). Помощнику `e2e/imap_helper.py` добавлена команда `plain`: текстовая часть, декодированная (`email.message_from_bytes` + `get_payload(decode=True)`).
