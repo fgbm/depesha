@@ -1,7 +1,7 @@
-// The pictures of the meeting card (0.8.13): an invitation, its cancellation, its update and the
-// same card in a narrow window, in the light and the dark «Чернила». The letters are delivered as
-// an Exchange invitation comes, and the update is compared with the invitation read before it
-// (7.1 А), so the earlier letter is opened first.
+// The pictures of the meeting card (0.8.13): an invitation, its cancellation, its update, the
+// same card in a narrow window and in a letter unfolded inside the chain, in the light and the
+// dark «Чернила». The letters are delivered as an Exchange invitation comes, and the update is
+// compared with the invitation read before it (7.1 А), so the earlier letter is opened first.
 //
 //   SHOTS_OUT=… DEPESHA_APP=… e2e/keyring.sh node e2e/meeting-shots.mjs
 //
@@ -107,6 +107,16 @@ try {
   await theme("dark");
   await shot("08-narrow-dark");
   await d.setRect(1280, 860);
+
+  // A letter of the chain, unfolded: the same card stands in it, and its `.ics` is no chip (1.1 А).
+  await theme("light");
+  await sleep(600);
+  await d.click(await d.find(".thread article.letter .head"));
+  await d.until("the card of the earlier letter", () => d.exec("return !!document.querySelector('.thread article.letter .cal')"), 20000);
+  await sleep(500);
+  await shot("09-thread-light");
+  await theme("dark");
+  await shot("10-thread-dark");
 } finally {
   await kit.finish();
 }
