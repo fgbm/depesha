@@ -38,8 +38,9 @@
     transition: left 0.12s;
   }
 
+  /* On in the accent, as a box that is ticked: the blue of a link is for links (А12). */
   .sw[aria-checked="true"] {
-    background: var(--link);
+    background: var(--accent);
   }
 
   .sw[aria-checked="true"]::after {

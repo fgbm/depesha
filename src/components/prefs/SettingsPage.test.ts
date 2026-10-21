@@ -32,7 +32,7 @@ describe("a page of rows (#102)", () => {
   it("draws every group of the page under its heading, and every row with the id the search scrolls to", () => {
     for (const spec of PAGES) {
       const html = page(spec.id);
-      for (const g of spec.groups) expect(html, `${spec.id}: ${g.id}`).toContain(g.title());
+      for (const g of spec.groups) if (g.title) expect(html, `${spec.id}: ${g.id}`).toContain(g.title());
       for (const row of spec.groups.flatMap((g) => g.rows)) {
         if (row.kind === "layer" || row.visible) continue;
         expect(html, `${spec.id}: ${row.id}`).toContain(`data-settings="${row.id}"`);

@@ -316,9 +316,8 @@ export async function composeClosed() {
 /** Closes the settings window without touching what it saves with its own button. */
 export async function closeSettings() {
   if ((await d.findAll(".prefs")).length === 0) return;
-  // A mailbox's page keeps its own footer and hides the shared one, so its «Cancel»
-  // would only go back to the list. Escape closes the window from anywhere inside it,
-  // and its handler sits on the window element: the event must start there.
+  // Escape closes the window from anywhere inside it, and its handler sits on the window
+  // element: the event must start there.
   await d.exec(
     "document.querySelector('.modal.prefs')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
   );
@@ -337,8 +336,8 @@ export async function openMailboxPage(id) {
   await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
   await d.click(await d.find(".prefs .tab[data-page='accounts']"));
   await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
-  const at = Math.max(0, (await invoke("accounts")).findIndex((a) => a.id === id));
-  await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[at]);
+  // A row of «Mailboxes» opens the mailbox's page, as its entry in the menu does (0.8.12, 3.4 А).
+  await d.click(await d.find(`.prefs .accounts .mbrow[data-account='${id}']`));
   await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
 }
 

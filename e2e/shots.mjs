@@ -87,8 +87,7 @@ try {
   await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
   await d.click(await d.find(".prefs .tab[data-page='accounts']"));
   await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
-  const at = Math.max(0, (await invoke("accounts")).findIndex((a) => a.id === me));
-  await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[at]);
+  await d.click(await d.find(`.prefs .accounts .mbrow[data-account='${me}']`));
   await d.until("account page", async () => (await d.findAll(".account-page")).length === 1);
   await d.click(await d.xpath("//nav[contains(@class,'toc')]//a[contains(., 'Письма и подписи')]"));
   await d.until("signature section", async () => (await textOf(".account-page .signatures")).includes("Добавить подпись"));

@@ -10,11 +10,13 @@ beforeEach(() => {
   i18n.lang = "ru";
 });
 
-describe("the menu (#102, 2.1 В)", () => {
-  it("has two axes, «Mail» and «App», then the mailboxes and the plugins", () => {
-    expect(MENU.map((g) => g.title())).toEqual(["Почта", "Программа", "Ящики", "Плагины"]);
+describe("the menu (#102, 2.1 В; 0.8.12, 2.1 А and 2.2 А)", () => {
+  it("has two axes, «Mail» and «App», then the mailboxes and the plugins, each one entry with no heading", () => {
+    expect(MENU.map((g) => g.title?.() ?? null)).toEqual(["Почта", "Программа", null, null]);
     expect(MENU[0].pages).toEqual(["reading", "writing", "later", "storage"]);
-    expect(MENU[1].pages).toEqual(["look", "notify", "start", "keys"]);
+    expect(MENU[1].pages).toEqual(["look", "notify", "updates", "keys"]);
+    expect(MENU[2].pages).toEqual(["accounts"]);
+    expect(MENU[3].pages).toEqual(["plugins"]);
   });
 
   it("names the notification choice «people» for people, not for the address book (#153)", () => {
@@ -37,28 +39,53 @@ describe("the menu (#102, 2.1 В)", () => {
 
   it("names the pages as the decision does", () => {
     expect(menuPages().map(pageTitle)).toEqual([
-      "Чтение и список",
+      "Чтение",
       "Написание",
       "Отложить и ждать",
       "Хранение",
       "Вид и язык",
-      "Уведомления и значок",
-      "Запуск и обновления",
+      "Фон и уведомления",
+      "Обновления",
       "Клавиши",
       "Ящики",
-      "Все плагины",
+      "Плагины",
     ]);
   });
 
-  it("reads the page ids of before 0.8 as the pages that have the matter now", () => {
+  it("reads the page ids of before 0.8.12 as the pages that have the matter now", () => {
     expect(resolvePage("general")).toBe("look");
     expect(resolvePage("mail")).toBe("reading");
     expect(resolvePage("notifications")).toBe("notify");
-    expect(resolvePage("background")).toBe("start");
+    expect(resolvePage("background")).toBe("notify");
+    expect(resolvePage("start")).toBe("notify");
     expect(resolvePage("offline")).toBe("storage");
-    expect(resolvePage("updates")).toBe("start");
+    expect(resolvePage("updates")).toBe("updates");
     expect(resolvePage("keys")).toBe("keys");
     expect(resolvePage("account:7")).toBe("account:7");
+  });
+});
+
+describe("every setting in its section, as the table of screen 3 has it (0.8.12, 2.1 А)", () => {
+  /** Page, group (null: a group of one row, with no heading) and the rows in it, in order. */
+  const MAP: [string, string | null, string[]][] = [
+    ["reading", "Список писем", ["threads", "list_avatars", "sender_logos"]],
+    ["reading", "Письмо", ["letter_view", "layer_view", "attachments_dir"]],
+    ["writing", "Новые письма", ["compose_format", "layer_format", "default_account", "image_max_px"]],
+    ["writing", null, ["undo_send"]],
+    ["later", "Время для отложенных писем", ["day_start", "evening_start", "work_days"]],
+    ["later", null, ["waiting"]],
+    ["storage", "Офлайн-доступ", ["offline", "offline_attachments"]],
+    ["storage", "Заполнение ящиков", ["quota_warn", "quota_levels", "quota_repeat", "quota_own", "large_mb"]],
+    ["look", "Язык и оформление", ["language", "look", "theme"]],
+    ["look", "Подсказки", ["hints", "markdown_parts_note", "hints_list"]],
+    ["notify", "Уведомления и значок", ["notify", "tray_count", "tray_always"]],
+    ["notify", "Фон и запуск", ["close_action", "tray_consent", "autostart"]],
+    ["updates", null, ["updates", "update_status"]],
+  ];
+
+  it("puts each row in its page and group, and nothing else in them", () => {
+    const got: [string, string | null, string[]][] = PAGES.flatMap((p) => p.groups.map((g): [string, string | null, string[]] => [p.id, g.title?.() ?? null, g.rows.map((r) => r.id)]));
+    expect(got).toEqual(MAP);
   });
 });
 
@@ -135,7 +162,7 @@ describe("dependent rows (#102, 1.6 А)", () => {
   const quota = () => pageSpec("storage")!.groups.find((g) => g.id === "space")!.rows;
 
   it("stand in one run under the switch they depend on", () => {
-    expect(quota().map((r) => !!r.dep)).toEqual([false, true, true, true]);
+    expect(quota().map((r) => !!r.dep)).toEqual([false, true, true, true, false]);
   });
 
   it("are dimmed where they stand while the switch is off", () => {

@@ -75,7 +75,7 @@ try {
     // 01. Settings: "Фон и запуск".
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await d.click(await d.find(".prefs .tab[data-page='start']"));
+    await d.click(await d.find(".prefs .tab[data-page='notify']"));
     await d.until("background page", async () => (await d.findAll(".prefs [data-settings='close_action']")).length === 1);
     await sleep(300);
     await shot("01-background");
@@ -88,7 +88,7 @@ try {
 
     // 06. Settings: the search over the pages.
     await d.type(await d.find(".prefs .psearch .q"), "формат");
-    await d.until("search results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
+    await d.until("search results", async () => (await d.findAll(".prefs .content.results .rw")).length > 0);
     await sleep(300);
     await shot("06-settings-search");
     await closeSettings();

@@ -3,22 +3,39 @@
   import type { Owned, SettingsSection } from "../../plugin-host/registry.svelte";
   import Plugins from "../Plugins.svelte";
 
-  // The plugins' page: the manager (`Plugins.svelte`), then the groups of all the plugins, built-in
-  // or not (#168). A group is drawn by the plugin's component; a search hit lights it by its owner.
-  let { sections, flash = null }: { sections: Owned<SettingsSection>[]; flash?: string | null } = $props();
+  // The page «Plugins» is the list of them all with their switches (0.8.12, 6.3 Б). A plugin with
+  // settings of its own has a page of its own under it in the menu (6.1 Б): what it does, then its
+  // groups, each drawn by the plugin's component; a search hit lights a group by its owner.
+  let {
+    owner = null,
+    about = null,
+    sections,
+    flash = null,
+  }: { owner?: string | null; about?: string | null; sections: Owned<SettingsSection>[]; flash?: string | null } = $props();
 </script>
 
-<Plugins />
-{#each sections as sec (sec)}
-  <section data-plugin={sec.owner} class:flash={flash === `plugin:${sec.owner}`}>
-    <h4>{sec.item.title()}<span class="tagp">{t("settings.pluginTag")}</span></h4>
-    <sec.item.component {...sec.item.props} />
-  </section>
-{/each}
+{#if owner === null}
+  <Plugins />
+{:else}
+  {#if about}<p class="muted about">{about}</p>{/if}
+  {#each sections.filter((s) => s.owner === owner) as sec (sec)}
+    <section data-plugin={sec.owner} data-g="plugin" class:flash={flash === `plugin:${sec.owner}`}>
+      <h4>{sec.item.title()}</h4>
+      <sec.item.component {...sec.item.props} />
+    </section>
+  {:else}
+    <p class="muted">{t("settings.pluginNoSettings")}</p>
+  {/each}
+{/if}
 
 <style>
+  .about {
+    margin: 4px 0 14px;
+    font-size: 13px;
+  }
+
   section {
-    margin-top: 22px;
+    margin-bottom: 22px;
   }
 
   section.flash {
@@ -32,17 +49,5 @@
     border-bottom: 1px solid var(--line);
     font-size: 15px;
     font-weight: 600;
-  }
-
-  .tagp {
-    margin-left: 8px;
-    padding: 0 5px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    background: var(--paper);
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--muted);
-    vertical-align: 1px;
   }
 </style>

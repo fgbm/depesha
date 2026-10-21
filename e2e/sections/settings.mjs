@@ -15,10 +15,12 @@ export async function run() {
     await d.click(await d.find(".prefs .tab[data-page='writing']"));
     await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
     await screenshot("settings-writing");
-    // The templates are a group of the plugin on the plugins' page, marked «плагин» (#168).
+    // The templates are the plugin's own page, under «Plugins» in the menu (0.8.12, 6.1 Б).
     if ((await d.findAll(".prefs .tpl")).length) throw new Error("шаблоны ответов остались на странице «Написание»");
     await d.click(await d.find(".prefs .tab[data-page='plugins']"));
     await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
+    await d.click(await d.until("templates entry", () => d.find(".prefs .tab[data-page='plugin:templates']")));
+    await d.until("templates page", async () => (await d.findAll(".prefs section[data-plugin='templates']")).length === 1);
     await d.button("Добавить шаблон");
     await setInput(".prefs .tpl input", "Получил");
     await setInput(".prefs .tpl textarea", "Спасибо, получил.");
@@ -39,36 +41,42 @@ export async function run() {
     await d.button("Входящие");
   });
 
-  await step("7.9", "все настройки в одном окне: Ctrl+, ящики и плагины разделами", async () => {
+  await step("7.9", "все настройки в одном окне: Ctrl+, ящики и плагины подпунктами меню", async () => {
     if (await d.exec("return !!document.querySelector('nav.side .foot-btn[aria-label=\"Плагины\"]')")) throw new Error("в сайдбаре остался отдельный вход в плагины");
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     const tabs = await textOf(".prefs .pages");
-    for (const want of ["Чтение и список", "Написание", "Ящики", "Все плагины"]) {
+    for (const want of ["Чтение", "Написание", "Фон и уведомления", "Обновления", "Ящики", "Плагины"]) {
       if (!tabs.includes(want)) throw new Error(`нет раздела «${want}»: ${tabs}`);
     }
-    // One entry for the mailboxes; they stand on its page, not in the menu (#102, 2.6 Б).
-    if ((await d.findAll(".prefs .tab[data-page^='account:']")).length) throw new Error("ящики снова пунктами меню");
+    // The mailboxes unfold under their entry while it or one of them is open (0.8.12, 6.2 А).
+    if ((await d.findAll(".prefs .tab[data-page^='account:']")).length) throw new Error("ящики раскрыты на чужой странице");
     await d.click(await d.find(".prefs .tab[data-page='accounts']"));
     await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
     if (!(await textOf(".prefs .accounts")).includes("carol@local.test")) throw new Error("на странице «Ящики» нет ящика");
-    await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[0]);
+    const kids = (await invoke("accounts")).length;
+    await d.until("mailboxes unfolded", async () => (await d.findAll(".prefs .tab.kid[data-page^='account:']")).length === kids);
+    await d.click((await d.findAll(".prefs .tab.kid[data-page^='account:']"))[0]);
     await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    // The removal of the mailbox closes the page, in the danger zone (0.8.12, 3.3 А).
+    const last = await d.exec("const s = [...document.querySelectorAll('.account-page .scroller > section')].at(-1); return s ? s.dataset.section + '|' + s.textContent : ''");
+    if (!last.startsWith("danger|") || !last.includes("Удалить ящик")) throw new Error(`последний раздел страницы ящика: ${last.slice(0, 120)}`);
     await d.click(await d.find(".prefs .tab[data-page='plugins']"));
     await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
     await screenshot("settings-plugins");
     await closeSettings();
   });
 
-  await step("7.21", "окно настроек: поиск находит настройку и открывает страницу на поле", async () => {
+  await step("7.21", "окно настроек: поиск показывает найденное живыми строками, находит поле ящика и команду «Клавиш»", async () => {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    // The settings window (#68) is wider than the letter since 0.7.1: up to 1280 px, but the
-    // test window (1280 px wide) is narrower than that plus the gaps, so it fills the width.
+    // The cursor is in the search when the window opens (0.8.12, 4.3 А).
+    await d.until("search has the focus", async () => (await d.exec("return document.activeElement?.matches('.prefs .psearch .q') ?? false")) === true);
+    // The settings window is as wide as the expanded letter since 0.8.12 (5.1 А): up to 1040 px.
     const box = await d.exec(
       "const r = document.querySelector('.prefs').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), inner: window.innerWidth, sym: Math.abs(r.left - (window.innerWidth - r.right)) < 1 };",
     );
-    const want = Math.min(1280, box.inner - 64);
+    const want = Math.min(1040, box.inner - 64);
     if (box.w !== want) throw new Error(`ширина окна настроек: ${box.w}, а не ${want}`);
     if (box.top !== 32) throw new Error(`отступ сверху: ${box.top}, а не 32`);
     if (box.h !== (await d.exec("return window.innerHeight")) - 64) throw new Error(`высота окна настроек: ${box.h}`);
@@ -78,23 +86,33 @@ export async function run() {
     await d.clear(await d.find(".prefs .psearch .q"));
     await d.type(await d.find(".prefs .psearch .q"), "markdown");
     injectFailure("7.21");
-    await d.until("results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
-    const found = await textOf(".prefs .content.results");
-    if (!found.includes("Формат новых писем")) throw new Error(`по «markdown» не нашёлся «Формат новых писем»: ${found}`);
-    // A click opens the page and scrolls to the field (#68, frame 4А).
-    await d.click(await d.xpath("//div[contains(@class,'prefs')]//button[contains(@class,'hit')][.//span[contains(@class,'lbl') and contains(., 'Формат новых писем')]]"));
-    await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
-    // The row is in view and has the focus: found, so the value can be changed from the keyboard (#102, 4.4 А).
+    const found = ".prefs .content.results [data-row='compose_format']";
+    await d.until("results", async () => (await d.findAll(found)).length === 1);
+    // The row found is alive: its value is changed where it is found (0.8.12, 4.1 Б).
+    const format = (await invoke("settings_get")).compose_format;
+    await pressIn(found, format === "markdown" ? "ArrowLeft" : "ArrowRight");
+    await d.until("format stepped", async () => (await invoke("settings_get")).compose_format !== format);
+    if ((await textOf(".prefs .pane h2")) !== "Найти настройку") throw new Error("значение изменилось не на месте");
+    await screenshot("settings-search");
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("format back", async () => (await invoke("settings_get")).compose_format === format);
+    // A field of a mailbox's page is found too, and its link opens the page at the field (4.2 А).
+    await d.clear(await d.find(".prefs .psearch .q"));
+    await d.type(await d.find(".prefs .psearch .q"), "подпис");
+    await d.click(await d.until("mailbox hit", () => d.xpath("//div[contains(@class,'results')]//div[@data-kind='go'][.//div[contains(@class,'t') and contains(., 'Подписи')]]//button[contains(@class,'lnk')]")));
     await d
-      .until("field in view", async () =>
-        await d.exec("const el = document.querySelector('.prefs [data-settings=\"compose_format\"]'); if (!el || document.activeElement !== el) return false; const r = el.getBoundingClientRect(); const c = document.querySelector('.prefs .content').getBoundingClientRect(); return r.top >= c.top - 4 && r.top < c.bottom;"),
+      .until("signatures in view", async () =>
+        await d.exec("const el = document.querySelector('.prefs .account-page [data-settings=\"acc-signatures\"]'); if (!el) return false; const r = el.getBoundingClientRect(); const c = document.querySelector('.prefs .account-page .scroller').getBoundingClientRect(); return r.top >= c.top - 4 && r.top < c.bottom;"),
       )
       .catch(async (e) => {
         throw new Error(`${e.message}: ${JSON.stringify(await focusInfo())}`);
       });
-    await screenshot("settings-search");
+    // And a command of «Keys».
+    await d.type(await d.find(".prefs .psearch .q"), "архив");
+    await d.click(await d.until("keys hit", () => d.xpath("//div[contains(@class,'results')]//div[@data-kind='go'][.//div[contains(@class,'t') and contains(., 'Готово: убрать в архив')]]//button[contains(@class,'lnk')]")));
+    await d.until("keys page at the command", async () => (await textOf(".prefs .pane h2")) === "Клавиши" && (await d.findAll(".prefs .kr[data-command='core.archive']")).length === 1);
     await closeSettings();
-  }, { retry: true });
+  });
 
   await step("7.23", "настройки: всё сохраняется сразу, «Отменить» и Ctrl+Z, неверное значение не сохраняется, тема в обеих темах", async () => {
     const saved = () => invoke("settings_get");
@@ -106,7 +124,7 @@ export async function run() {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await d.click(await d.find(".prefs .tab[data-page='reading']"));
-    await d.until("reading page", async () => (await textOf(".prefs .pane h2")) === "Чтение и список");
+    await d.until("reading page", async () => (await textOf(".prefs .pane h2")) === "Чтение");
     // Nothing waits to be saved: no «Save» and no «Cancel» anywhere in the window.
     if ((await d.findAll(".prefs footer .btn")).length) throw new Error("в окне настроек остались кнопки «Сохранить» и «Отмена»");
 
@@ -202,11 +220,11 @@ export async function run() {
     // The format does not reach the server: it is saved as it is picked, with the row's «Saved» and the toast.
     await setSelect(".account-page .compose-format", pick);
     await d.until("format saved", async () => ((await invoke("accounts"))[0].compose_format ?? "") === pick, 20000);
-    await d.until("saved mark", async () => (await textOf(".account-page footer")).includes("Сохранено"));
+    await d.until("saved mark", async () => (await textOf(".account-page .toc .mark")).includes("Сохранено"));
     await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
     await screenshot("settings-account-autosave", { toasts: true });
-    // The button waits for the connection: it is dim until a server, a port or a login changes.
-    if ((await d.findAll(".account-page footer .btn.primary:not([disabled])")).length) throw new Error("кнопка подключения горит без изменений подключения");
+    // The button waits for the connection: it is not there until a server, a port or a login changes (0.8.12, 3.2 А).
+    if ((await d.findAll(".account-page section[data-section='connection'] .btn.primary")).length) throw new Error("кнопка подключения видна без изменений подключения");
     // The key is pressed on the control the pick left the focus on, not on the window.
     await pressIn(".account-page .compose-format .trigger", "z", { ctrlKey: true });
     await d.until("format back", async () => ((await invoke("accounts"))[0].compose_format ?? "") === was, 20000);
@@ -218,17 +236,17 @@ export async function run() {
   await step("7.26", "страница ящика: название, набранное во время проверки подключения, сохраняется; уход с несохранённым подключением спрашивает", async () => {
     const me = (await invoke("accounts"))[0];
     await openMailboxPage(me.id);
-    await d.click(await d.find(".account-page button.head"));
     // A server nobody answers at: the check takes a while or fails at once, the end is the same.
-    const imapHost = ".account-page #account-connection fieldset:nth-of-type(1) .host input";
+    const imapHost = ".account-page [data-settings='acc-imap'] input.host";
+    const check = ".account-page section[data-section='connection'] .check .btn.primary";
     await setInput(imapHost, "192.0.2.1");
-    await d.until("button lit", async () => (await d.findAll(".account-page footer .btn.primary:not([disabled])")).length === 1);
-    await d.click(await d.find(".account-page footer .btn.primary"));
-    const name = ".account-page .grid input";
+    await d.until("button shown", async () => (await d.findAll(`${check}:not([disabled])`)).length === 1);
+    await d.click(await d.find(check));
+    const name = ".account-page [data-settings='acc-label'] input";
     await setInput(name, "Проверка 7.26");
     await d.type(await d.find(name), "\uE007");
     // The name waits for the check: while it is under way (the button says «Проверяем…») nothing is written.
-    const checking = async () => (await textOf(".account-page footer .btn.primary")).includes("Проверяем");
+    const checking = async () => (await textOf(check)).includes("Проверяем");
     // The check takes 3 s in the test build (DEPESHA_E2E_CHECK_DELAY_MS): it must still be under way here, or the step proves nothing.
     if (!(await checking())) throw new Error("проверка подключения уже закончилась: шаг ничего не доказывает");
     const written = (await invoke("accounts"))[0].label ?? "";
@@ -236,7 +254,7 @@ export async function run() {
     if (!(await checking())) throw new Error("проверка закончилась до чтения записанного названия");
     // The check ends with its error: the connection is not saved, the name is.
     await d.until("name saved", async () => (await invoke("accounts"))[0].label === "Проверка 7.26", 90000);
-    await d.until("check failed", async () => (await d.findAll(".account-page .outcome")).length === 1, 90000);
+    await d.until("check failed", async () => (await d.findAll(".account-page section[data-section='connection'] .error")).length === 1, 90000);
     if ((await invoke("accounts"))[0].imap.host !== me.imap.host) throw new Error("подключение сохранилось без проверки");
     // The connection is still changed and not saved: leaving asks, and «Вернуться» stays.
     await d.click(await d.find(".prefs .tab[data-page='plugins']"));
@@ -245,10 +263,10 @@ export async function run() {
     await d.until("question gone", async () => (await d.findAll(".modal.confirm")).length === 0);
     if (!(await d.findAll(".prefs .account-page")).length) throw new Error("страница ящика закрылась после «Вернуться»");
     // Back as it was, for the steps after this one.
-    await d.click(await d.xpath("//div[contains(@class,'account-page')]//footer//button[normalize-space(.)='Отмена']"));
+    await d.click(await d.xpath("//section[@data-section='connection']//div[contains(@class,'check')]//button[normalize-space(.)='Отмена']"));
     // Enter saves the text, as it does for the user: the focus stays in the field.
     if (me.label) await setInput(name, me.label);
-    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    else await d.exec(`const i = document.querySelector("${name}"); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));`);
     await d.type(await d.find(name), "\uE007");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
@@ -257,7 +275,7 @@ export async function run() {
   await step("7.27", "страница ящика: текст, набранный без ухода фокуса, не теряется при скрытии окна (#120)", async () => {
     const me = (await invoke("accounts"))[0];
     await openMailboxPage(me.id);
-    const name = ".account-page .grid input";
+    const name = ".account-page [data-settings='acc-label'] input";
     const typed = "Скрытие 7.27";
     // The text is typed and the focus stays in the field: neither Enter nor a click elsewhere.
     await setInput(name, typed);
@@ -270,7 +288,7 @@ export async function run() {
     await d.until("window back", async () => (await d.exec("return document.visibilityState")) === "visible");
     // Back as it was, for the steps after this one.
     if (me.label) await setInput(name, me.label);
-    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    else await d.exec(`const i = document.querySelector("${name}"); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));`);
     await d.type(await d.find(name), "\uE007");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
@@ -303,8 +321,8 @@ export async function run() {
     const before = await invoke("settings_get");
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await d.click(await d.find(".prefs .tab[data-page='start']"));
-    await d.until("start page", async () => (await textOf(".prefs .pane h2")) === "Запуск и обновления");
+    await d.click(await d.find(".prefs .tab[data-page='notify']"));
+    await d.until("background page", async () => (await textOf(".prefs .pane h2")) === "Фон и уведомления");
     const tray = await d.until("tray known", async () => {
       const t = (await invoke("background_status")).tray;
       return t === "checking" ? null : t;
@@ -443,7 +461,7 @@ export async function run() {
     await d.button("Входящие");
     await openModules();
     await screenshot("plugins");
-    await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
+    await d.click(await d.find(".prefs .plugins [data-plugin=snooze] .sw"));
     await closeModules();
     await openBySubject("Счёт за октябрь");
     await d.until("no snooze button", async () => !(await textOf(".unibar")).includes("Отложить"));
@@ -451,7 +469,7 @@ export async function run() {
     await new Promise((r) => setTimeout(r, 300));
     if ((await d.findAll(".unibar .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
     await openModules();
-    await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
+    await d.click(await d.find(".prefs .plugins [data-plugin=snooze] .sw"));
     await closeModules();
     await d.until("snooze back", async () => (await textOf(".unibar")).includes("Отложить"));
   });

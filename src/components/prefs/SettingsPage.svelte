@@ -49,7 +49,7 @@
   onMount(() => {
     void peopleBook.load();
     // Without the status the tray hint is not shown (noTray stays false).
-    if (page.id === "start") api.backgroundStatus().then((b) => (noTray = b.tray === "absent"), () => {});
+    if (page.id === "notify") api.backgroundStatus().then((b) => (noTray = b.tray === "absent"), () => {});
   });
 
   const exc = (layer: "format" | "view") => exceptions(layer, peopleBook.list, app.mailboxes.accounts);
@@ -159,7 +159,8 @@
   }
 
   function enterRow(spec: RowSpec) {
-    if (spec.kind === "link" || spec.kind === "layer") follow(spec);
+    if (spec.kind === "go") spec.open();
+    else if (spec.kind === "link" || spec.kind === "layer") follow(spec);
     else if (spec.kind === "action") runAction(spec);
     // The first press only puts the cursor on the first day: nothing is switched by a key that did not choose it.
     else if (spec.kind === "days") {
@@ -250,6 +251,8 @@
         {:else}
           <button type="button" class="btn" tabindex="-1" onclick={() => runAction(spec)}>{t("bg.noTray.keep")}</button>
         {/if}
+      {:else if spec.kind === "go"}
+        <button type="button" class="lnk" tabindex="-1" onclick={() => spec.open()}>{spec.text()}</button>
       {:else if spec.kind === "link" || spec.kind === "layer"}
         <div class="menu">
           <button type="button" class="lnk" tabindex="-1" disabled={!isEnabled(spec, s)} onclick={() => follow(spec)}>
@@ -276,8 +279,8 @@
   {/snippet}
 
   {#each groups as g (g.id)}
-    <section class="grp" data-g={g.id} aria-labelledby="grp-{g.id}">
-      <h4 id="grp-{g.id}">{g.title()}</h4>
+    <section class="grp" class:bare={!g.title} data-g={g.id} aria-labelledby={g.title ? `grp-${g.id}` : undefined}>
+      {#if g.title}<h4 id="grp-{g.id}">{g.title()}</h4>{/if}
       <div class="gb">
         {#each dependentRuns(g.rows) as item (item.run ? `run:${item.rows[0].id}` : item.row.id)}
           {#if item.run}
@@ -299,6 +302,11 @@
 
   .grp {
     margin: 0 0 22px;
+  }
+
+  /* A group of one row has no heading: it follows the group above without a line of its own (0.8.12, 2.2 А). */
+  .grp.bare {
+    padding-top: 4px;
   }
 
   .grp > h4 {

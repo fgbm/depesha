@@ -196,31 +196,31 @@ export async function run() {
     await d.exec("document.querySelector('nav.side .account .menu-btn').click()");
     await d.click(await d.until("manage item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Ящики…')]")));
     await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
-    await d.click((await d.findAll(".prefs .accounts .order .btn"))[1]);
+    await d.click((await d.findAll(".prefs .accounts .order .arrow"))[1]);
     await d.until("order changed", async () => (await names())[0] === before[1]);
-    // The colour of the mailbox now first, on its own page, and its name.
-    await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[0]);
+    // The colour and the name of the mailbox now first, on its own page (0.8.12, 3.4 А): the row opens it.
+    await d.click((await d.findAll(".prefs .accounts .mbrow"))[0]);
     await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
     await d.click(await d.find(".account-page .colors label[title='#d0658f']"));
     // The colour is no part of the connection: saved as it is picked, no button (#102, 1.7 Б).
     await d.until("dot coloured", async () =>
       (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)", 20000);
+    const name = ".account-page [data-settings='acc-label'] input";
+    const label = await d.exec(`return document.querySelector("${name}").value`);
+    await setInput(name, "Тестовый");
+    await d.type(await d.find(name), "\uE007");
+    await d.until("renamed", async () => (await names())[0] === "Тестовый", 20000);
+    // Back as it was, for the steps after this one.
+    await d.exec(
+      `const i = document.querySelector("${name}"); i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();`,
+      label,
+    );
+    await d.until("name back", async () => (await names())[0] === before[1], 20000);
     await d.click(await d.find(".prefs .tab[data-page='accounts']"));
     await d.until("back to the manager", async () => (await d.findAll(".prefs .accounts")).length === 1, 20000);
     if ((await d.findAll(".dialog, .confirm")).length) throw new Error("уход со страницы ящика о чём-то спросил");
-    const input = (await d.findAll(".prefs .accounts .name"))[0];
-    const label = await d.exec("return document.querySelector('.prefs .accounts .name').value");
-    await d.clear(input);
-    await d.type(input, "Тестовый\uE007");
-    await d.until("renamed", async () => (await names())[0] === "Тестовый");
     await screenshot("accounts");
-    // Back as it was, for the steps after this one.
-    await d.exec(
-      "const i = document.querySelector('.prefs .accounts .name'); i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();",
-      label,
-    );
-    await d.until("name back", async () => (await names())[0] === before[1]);
-    await d.click((await d.findAll(".prefs .accounts .order .btn"))[2]);
+    await d.click((await d.findAll(".prefs .accounts .order .arrow"))[2]);
     await d.until("order back", async () => JSON.stringify(await names()) === JSON.stringify(before));
     await closeSettings();
     // Folded: the next mailbox's name follows right under it.
@@ -707,7 +707,7 @@ export async function run() {
     });
     await openMailboxPage(me.id);
     const typed = "Выход 7.28";
-    await setInput(".account-page .grid input", typed);
+    await setInput(".account-page [data-settings='acc-label'] input", typed);
     await press("q", { ctrlKey: true });
     const file = join(profile, "config/ru.depesha.mail/accounts.json");
     await d.until("typed text saved on quit", async () => JSON.parse(readFileSync(file, "utf-8")).accounts[0].label === typed, 30000);

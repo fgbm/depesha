@@ -9,14 +9,12 @@
   let { value = $bindable("") }: { value: BodyFormat | "" } = $props();
 </script>
 
-<div class="field"><span>{t("wizard.composeFormat")}</span>
-  <Select
-    class="compose-format"
-    label={t("wizard.composeFormat")}
-    bind:value
-    options={[
-      { value: "" as const, label: t("wizard.composeFormatInherit", { format: t(`format.${app.settingsCtl.settings.compose_format ?? "plain"}`) }) },
-      ...(["plain", "html", "markdown"] as const).map((f) => ({ value: f, label: t(`format.${f}`) })),
-    ]}
-  />
-</div>
+<Select
+  class="compose-format"
+  label={t("wizard.composeFormat")}
+  bind:value
+  options={[
+    { value: "" as const, label: t("wizard.composeFormatInherit", { format: t(`format.${app.settingsCtl.settings.compose_format ?? "plain"}`) }) },
+    ...(["plain", "html", "markdown"] as const).map((f) => ({ value: f, label: t(`format.${f}`) })),
+  ]}
+/>

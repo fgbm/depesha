@@ -13,7 +13,8 @@
   import { addSignature, moveSignature, previewLine, removeSignature, type SignatureList } from "../../lib/signatures";
   import type { AccountForm } from "../../lib/accountForm.svelte";
 
-  let { form }: { form: AccountForm } = $props();
+  /** `bare`: the row around it names it (a mailbox's page). */
+  let { form, bare = false }: { form: AccountForm; bare?: boolean } = $props();
 
   /** The signature open in its editor. */
   let editing = $state<string | null>(null);
@@ -110,7 +111,7 @@
 </script>
 
 <div class="field signatures" bind:this={box}>
-  <span class="label">{t("account.signatures.title")}</span>
+  {#if !bare}<span class="label">{t("account.signatures.title")}</span>{/if}
   {#if form.signatures.length === 0}
     <p class="muted empty">{t("account.signatures.empty")}</p>
   {/if}

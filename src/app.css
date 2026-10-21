@@ -1,11 +1,11 @@
 :root {
   --radius: 8px;
-  /* The expanded letter is up to --win-max wide; the settings window (#68) has its own,
-     wider limit in --prefs-max (0.7.1: 1280 px, the two columns of «People» did not fit).
+  /* The expanded letter is up to --win-max wide; the settings window (#68) has its own limit in
+     --prefs-max, the letter's width since 0.8.12 (5.1 А; 0.7.1 had 1280 px for «People»).
      Both keep --win-gap from every edge; a page's fields keep to --column-max. Mirrored in
      src/lib/settingsWindow.ts, checked by settingsWindow.test.ts. */
   --win-max: 1040px;
-  --prefs-max: 1280px;
+  --prefs-max: 1040px;
   --win-gap: 32px;
   --menu-width: 220px;
   --column-max: 680px;

@@ -1,16 +1,21 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CloseButton from "./CloseButton.svelte";
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { app } from "../lib/store.svelte";
   import { bus } from "../lib/bus";
   import { registry } from "../plugin-host/registry.svelte";
-  import { t, tn } from "../lib/i18n.svelte";
-  import { accountLabel } from "../lib/format";
-  import { MENU, menuPages, pageIcon, pageSpec, pageTitle, resolvePage } from "../lib/settingsCatalog";
+  import { host } from "../plugin-host/host.svelte";
+  import { extensions, textOf } from "../lib/extensions.svelte";
+  import { i18n, t, tn } from "../lib/i18n.svelte";
+  import { accountColor, accountLabel } from "../lib/format";
+  import { shortcuts } from "../lib/shortcuts.svelte";
+  import { MENU, pageIcon, pageSpec, pageTitle, resolvePage, rowOf, type GroupSpec, type PageSpec, type RowSpec } from "../lib/settingsCatalog";
   import { SettingsAutosave } from "../lib/settingsAutosave.svelte";
-  import { buildSettingsIndex } from "../lib/settingsFields";
-  import { searchSettings } from "../lib/settingsSearch";
+  import { buildSettingsIndex, mailboxIndex } from "../lib/settingsFields";
+  import { searchSettings, type SearchHit } from "../lib/settingsSearch";
   import { isRowPage, widePage } from "../lib/settingsWindow";
   import SettingsPage from "./prefs/SettingsPage.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
@@ -31,18 +36,62 @@
   });
 
   const sections = $derived(registry.lists.settingsSections);
-  const pages = menuPages();
+
+  // ---- The menu: the entries, and under «Mailboxes» and «Plugins» one per mailbox and per plugin with settings (0.8.12, screen 7). ----
+
+  /** The plugins that have settings of their own, in the order their groups came (6.1 Б). */
+  const pluginOwners = $derived([...new Set(sections.map((s) => s.owner))]);
+  const kidsOf = (entry: string): string[] =>
+    entry === "accounts" ? app.mailboxes.accounts.map((a) => `account:${a.id}`) : entry === "plugins" ? pluginOwners.map((o) => `plugin:${o}`) : [];
+  const parentOf = (p: string): string | null => (p.startsWith("account:") ? "accounts" : p.startsWith("plugin:") ? "plugins" : null);
 
   let page = $state(resolvePage(app.ui.settingsPage));
   // A link inside the settings (a mailbox's «Storage» to «Hints») turns the page.
   $effect(() => bus.on("settings.open", (at) => void turn(resolvePage(at.page))));
-  // A page that went away (its mailbox) falls back to the first one.
   const pageAccount = $derived(page.startsWith("account:") ? (app.mailboxes.accounts.find((a) => `account:${a.id}` === page) ?? null) : null);
-  const current = $derived(pages.includes(page) || page === "account:new" || pageAccount ? page : pages[0]);
-  /** The menu entry that is lit: a mailbox's page belongs to «Mailboxes». */
-  const lit = $derived(current.startsWith("account:") ? "accounts" : current);
+  const pagePlugin = $derived(page.startsWith("plugin:") && pluginOwners.includes(page.slice(7)) ? page.slice(7) : null);
+  // A page that went away (its mailbox, its plugin) falls back to the first one.
+  const current = $derived(MENU.some((g) => g.pages.includes(page)) || page === "account:new" || pageAccount || pagePlugin ? page : MENU[0].pages[0]);
+  /** The entry that is lit: a mailbox's own page lights its sub-entry, a new mailbox «Mailboxes». */
+  const lit = $derived(current === "account:new" ? "accounts" : current);
+  /** The entry whose page or sub-entry's page is open: it is unfolded while so (6.2 А). */
+  const litParent = $derived(parentOf(lit) ?? lit);
+
+  /** Folded by ← though open, and unfolded by → though not: the hand's say over 6.2 А. */
+  let folded = $state<string[]>([]);
+  let unfolded = $state<string[]>([]);
+  const isOpen = (entry: string) => kidsOf(entry).length > 0 && ((litParent === entry && !folded.includes(entry)) || unfolded.includes(entry));
+  /** Every entry of the menu as it is drawn now, top to bottom: ↑/↓ and Ctrl+PgUp/PgDn walk it. */
+  const pages = $derived(MENU.flatMap((g) => g.pages.flatMap((p) => [p, ...(isOpen(p) ? kidsOf(p) : [])])));
+
   const spec = $derived(pageSpec(current));
-  const title = $derived(pageAccount ? accountLabel(pageAccount) : current === "account:new" ? t("cmd.addAccount") : pageTitle(current));
+  const pluginTitle = (owner: string): string => {
+    const p = host.plugins.find((x) => x.manifest.id === owner);
+    if (p) return i18n.lang === "ru" ? p.manifest.name.ru : p.manifest.name.en;
+    const ext = extensions.list.find((e) => e.id === owner);
+    return ext ? textOf(ext.name) : (sections.find((s) => s.owner === owner)?.item.title() ?? owner);
+  };
+  const pluginAbout = (owner: string): string | null => {
+    const p = host.plugins.find((x) => x.manifest.id === owner);
+    if (p) return i18n.lang === "ru" ? p.manifest.description.ru : p.manifest.description.en;
+    const ext = extensions.list.find((e) => e.id === owner);
+    return ext?.description ? textOf(ext.description) : null;
+  };
+  const entryTitle = (p: string): string => {
+    if (p.startsWith("account:")) {
+      const a = app.mailboxes.accounts.find((x) => `account:${x.id}` === p);
+      return a ? accountLabel(a) : "";
+    }
+    return p.startsWith("plugin:") ? pluginTitle(p.slice(7)) : pageTitle(p);
+  };
+  const title = $derived(current === "account:new" ? t("cmd.addAccount") : entryTitle(current));
+  const sub = $derived(
+    pageAccount
+      ? `${pageAccount.email}${pageAccount.ews ? " · Exchange" : ""}`
+      : pagePlugin
+        ? host.plugins.some((x) => x.manifest.id === pagePlugin) ? t("settings.pluginBuiltIn") : t("settings.pluginExternal")
+        : null,
+  );
 
   // ---- The search over the settings (#68): it looks in the declared catalog, not the drawn window. ----
   let query = $state("");
@@ -54,17 +103,50 @@
   const index = $derived([
     ...buildSettingsIndex(),
     ...app.mailboxes.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
-    ...sections.map((s) => ({ page: "plugins", group: pageTitle("plugins"), section: t("settings.pluginTag"), label: s.item.title(), anchor: `plugin:${s.owner}` })),
+    ...mailboxIndex(app.mailboxes.accounts),
+    ...sections.map((s) => ({ page: `plugin:${s.owner}`, group: pluginTitle(s.owner), section: "", label: s.item.title(), anchor: `plugin:${s.owner}` })),
+    // The commands of «Keys» (4.2 А): a hit opens the page at the command, lit.
+    ...shortcuts.commands().map((c) => ({ page: "keys", group: pageTitle("keys"), section: "", label: c.title(), anchor: `key:${c.id}` })),
   ]);
   const hits = $derived(query.trim() ? searchSettings(index, query) : []);
 
+  /** A hit on a row of a page of rows: the row itself, alive (4.1 Б). */
+  function liveRow(h: SearchHit): RowSpec | null {
+    const at = h.anchor ? rowOf(h.anchor) : null;
+    // The strip of a dependent row is its page's: alone among the hits it would mean nothing.
+    return at && at.page.id === h.page ? { ...at.row, dep: false } : null;
+  }
+
+  /** A hit with no row here: a way to its place, with what it is under. */
+  const wayRow = (h: SearchHit, i: number): RowSpec => ({
+    id: `hit:${i}`,
+    kind: "go",
+    label: () => h.label,
+    hint: () => h.section || null,
+    text: () => (h.page.startsWith("account:") ? t("settings.openAtMailbox") : t("settings.open")),
+    open: () => void openHit(h),
+  });
+
+  /** The hits as a page of rows, grouped by the page they are on, in the order found. */
+  const found = $derived.by((): PageSpec => {
+    const groups: GroupSpec[] = [];
+    hits.forEach((h, i) => {
+      let g = groups.find((x) => x.id === `found:${h.group}`);
+      if (!g) groups.push((g = { id: `found:${h.group}`, title: () => h.group, rows: [] }));
+      g.rows.push(liveRow(h) ?? wayRow(h, i));
+    });
+    return { id: "search", title: () => t("settings.find"), icon: Search, groups };
+  });
+
   /** Opens a hit: the page it is on, then the row, lit a moment and with the focus on it (#102, 4.4 А). */
-  async function openHit(hit: { page: string; anchor: string | null }) {
+  async function openHit(hit: { page: string; anchor: string | null; label: string }) {
     query = "";
     // What was a page of the settings is the book now (#104): a hit on a person's field leads there.
     if (hit.page === "people") return void (await go("people"));
+    // «Keys» finds and lights its command itself (#46).
+    if (hit.anchor?.startsWith("key:")) app.ui.settingsKeys = { id: hit.anchor.slice(4), title: hit.label };
     await turn(hit.page);
-    if (!hit.anchor) return;
+    if (!hit.anchor || hit.anchor.startsWith("key:")) return;
     await reveal(hit.anchor);
   }
 
@@ -78,13 +160,21 @@
   /** Scrolled to, lit a moment and given the focus: found, so the value can be changed from the keyboard (#102, 4.4 А). */
   async function reveal(id: string) {
     await tick();
-    // A page of its own (the people's) marks its fields with `data-settings` and has no rows.
+    // A page of its own (a mailbox's, a plugin's) marks its fields with `data-settings`.
     const el = rowEl(id) ?? contentEl?.querySelector<HTMLElement>(fieldSelector(id)) ?? null;
     if (!el) return;
     el.scrollIntoView({ block: "center" });
-    (el.matches(".rw") ? el : el.querySelector<HTMLElement>("input, button"))?.focus();
+    // A row of a mailbox's page is no stop of the keyboard: its field is.
+    const own = !!el.closest(".account-page");
+    const into = el.matches("input, button, select, textarea") ? el : el.querySelector<HTMLElement>("input:not([type=radio]), input:checked, button, select, textarea");
+    ((el.matches(".rw") && !own) || !into ? el : into).focus();
     flash = id;
-    setTimeout(() => flash === id && (flash = null), 1500);
+    // The rows of a mailbox's page are not the window's to light: the mark goes on the row itself.
+    if (own) el.classList.add("flash");
+    setTimeout(() => {
+      if (flash === id) flash = null;
+      if (own) el.classList.remove("flash");
+    }, 1500);
   }
 
   function close() {
@@ -108,6 +198,8 @@
     if (next === current) return true;
     await settle();
     if (!(await mayLeave())) return false;
+    // Another entry's page: what the hand folded comes back to the rule (6.2 А).
+    if ((parentOf(next) ?? next) !== litParent) folded = [];
     page = next;
     return true;
   }
@@ -150,6 +242,7 @@
     }
     if ((e.ctrlKey || e.metaKey) && (e.key === "PageDown" || e.key === "PageUp")) {
       e.preventDefault();
+      // The sub-entries of an open entry come in their turn.
       const i = pages.indexOf(lit) + (e.key === "PageDown" ? 1 : -1);
       turn(pages[(i + pages.length) % pages.length]).then(() => focusPage());
       return;
@@ -169,14 +262,16 @@
    */
   function undoKey(e: KeyboardEvent): boolean {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "z") return false;
-    const mailbox = current.startsWith("account:") && current !== "account:new";
-    if (!mailbox && !isRowPage(current)) return false;
+    const mailbox = !query.trim() && current.startsWith("account:") && current !== "account:new";
+    // The rows found are changed as the search's own page.
+    const at = query.trim() ? "search" : current;
+    if (!mailbox && !isRowPage(at)) return false;
     const el = e.target as HTMLElement;
     // A box or a button has no undo of its own: the key takes back the change it made.
     if (el.matches(TEXT_FIELD) || el.closest("[data-g='plugin']")) return true;
-    if (mailbox ? !app.ui.settingsUndo : !auto.canUndo(current)) return true;
+    if (mailbox ? !app.ui.settingsUndo : !auto.canUndo(at)) return true;
     e.preventDefault();
-    void (mailbox ? app.ui.settingsUndo?.() : auto.undo(current));
+    void (mailbox ? app.ui.settingsUndo?.() : auto.undo(at));
     return true;
   }
 
@@ -199,35 +294,67 @@
   }
 
   function focusMenu() {
-    document.querySelector<HTMLElement>(`.prefs .tab[data-page="${lit}"]`)?.focus();
+    document.querySelector<HTMLElement>(`.prefs .tab[data-page="${CSS.escape(lit)}"]`)?.focus();
   }
+
+  const focusTab = (p: string) => document.querySelector<HTMLElement>(`.prefs .tab[data-page="${CSS.escape(p)}"]`)?.focus();
 
   /** From the menu into the page: the first row of a page of rows, else the first thing in it that takes the focus. */
   async function focusPage() {
     await tick();
-    (spec ? rowEl(null) : contentEl?.querySelector<HTMLElement>("input, button, select, [tabindex='0']"))?.focus();
+    (spec ? rowEl(null) : contentEl?.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select, [tabindex='0']"))?.focus();
   }
 
-  /** ↑/↓ move between pages, as in any list of tabs; →/Enter go into the page. */
+  const fold = (entry: string) => {
+    if (!folded.includes(entry)) folded = [...folded, entry];
+    unfolded = unfolded.filter((x) => x !== entry);
+  };
+
+  /** The keys of the menu, by the table of screen 7 (0.8.12); → on a folded entry unfolds it, not 0.8.0's 4.3 А. */
   function onNavKey(e: KeyboardEvent) {
-    if (e.key === "ArrowRight" || e.key === "Enter") {
+    const at = (e.target as HTMLElement).closest<HTMLElement>(".tab")?.dataset.page ?? lit;
+    const parent = parentOf(at);
+    if (e.key === "ArrowRight") {
       e.preventDefault();
-      void focusPage();
+      if (kidsOf(at).length && !isOpen(at)) {
+        folded = folded.filter((x) => x !== at);
+        if (litParent !== at) unfolded = [...unfolded, at];
+      } else void focusPage();
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      const entry = parent ?? (isOpen(at) ? at : null);
+      if (!entry) return;
+      fold(entry);
+      if (parent) turn(parent).then(() => focusTab(parent));
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      turn(at).then((ok) => void (ok && focusPage()));
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
-    const i = pages.indexOf(lit) + (e.key === "ArrowDown" ? 1 : -1);
+    const i = pages.indexOf(at) + (e.key === "ArrowDown" ? 1 : -1);
     const next = pages[(i + pages.length) % pages.length];
-    turn(next).then(() => document.querySelector<HTMLElement>(`.prefs .tab[data-page="${next}"]`)?.focus());
+    turn(next).then(() => tick()).then(() => focusTab(next));
   }
 
   function onSearchKey(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" && query.trim()) {
-      e.preventDefault();
-      document.querySelector<HTMLElement>(".prefs .hit")?.focus();
-    }
+    // ↓ from the search: to the first row found, or to the first row of the page when nothing is asked (4.3 А).
+    if (e.key !== "ArrowDown") return;
+    e.preventDefault();
+    if (query.trim()) contentEl?.querySelector<HTMLElement>(".rw[data-row]")?.focus();
+    else void focusPage();
   }
+
+  // The cursor is in the search when the window opens (4.3 А); opened at a row, it is on the row.
+  const openedAtRow = !!(app.ui.settingsSection || app.ui.settingsKeys);
+  onMount(() => {
+    if (!openedAtRow) void tick().then(() => searchInput?.focus());
+  });
 </script>
 
 <svelte:window onkeydown={onWindowKey} />
@@ -251,12 +378,32 @@
       </div>
       <div role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={onNavKey}>
         {#each MENU as g (g.pages[0])}
-          <div class="group">{g.title()}</div>
+          <!-- A group of one entry has no heading, only the room above it (0.8.12, 2.2 А). -->
+          {#if g.title}<div class="group">{g.title()}</div>{:else}<div class="gap"></div>{/if}
           {#each g.pages as id (id)}
             {@const Icon = pageIcon(id)}
-            <button class="tab" role="tab" data-page={id} aria-selected={lit === id} tabindex={lit === id ? 0 : -1} onclick={() => turn(id)}>
+            {@const kids = kidsOf(id)}
+            {@const open = isOpen(id)}
+            <button
+              class="tab"
+              role="tab"
+              data-page={id}
+              aria-selected={lit === id}
+              aria-expanded={kids.length ? open : undefined}
+              tabindex={lit === id ? 0 : -1}
+              onclick={() => turn(id)}
+            >
               {#if Icon}<Icon size={16} />{/if}<span>{pageTitle(id)}</span>
+              {#if kids.length}<span class="chv">{#if open}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}</span>{/if}
             </button>
+            {#if open}
+              {#each kids as kid, i (kid)}
+                {@const acc = kid.startsWith("account:") ? app.mailboxes.accounts.find((a) => `account:${a.id}` === kid) : undefined}
+                <button class="tab kid" role="tab" data-page={kid} aria-selected={lit === kid} tabindex={lit === kid ? 0 : -1} onclick={() => turn(kid)}>
+                  {#if acc}<span class="kdot" style:background={accountColor(acc, i)}></span>{/if}<span>{entryTitle(kid)}</span>
+                </button>
+              {/each}
+            {/if}
           {/each}
         {/each}
       </div>
@@ -266,27 +413,20 @@
 
     <div class="pane">
       {#if query.trim()}
-        <!-- The results stand in place of the page; a click opens the page at the row (#68, frame 4А). -->
+        <!-- The rows found stand in place of the page, alive: a value is changed where it is found (0.8.12, 4.1 Б). -->
         <header>
           <h2>{t("settings.find")}</h2>
           <span class="muted sub">{hits.length ? tn("settings.found", hits.length, { q: query.trim() }) : t("settings.findNone")}</span>
         </header>
-        <div class="content results">
-          <ul class="rlist">
-            {#each hits as h, i (h.page + ":" + (h.anchor ?? "") + ":" + i)}
-              <li>
-                <button class="hit" onclick={() => openHit(h)}>
-                  <span class="grp">{h.group}{#if h.section}<span class="muted">&nbsp;·&nbsp;{h.section}</span>{/if}</span>
-                  <span class="lbl">{h.label}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
+        <div class="content results" bind:this={contentEl} role="tabpanel" aria-label={t("settings.find")}>
+          {#key "search"}
+            <SettingsPage page={found} {auto} flash={null} {go} />
+          {/key}
         </div>
       {:else}
         <header>
           <h2>{title}</h2>
-          {#if pageAccount}<span class="muted sub">{pageAccount.email}{pageAccount.ews ? " · Exchange" : ""}</span>{/if}
+          {#if sub}<span class="muted sub">{sub}</span>{/if}
         </header>
         <div class="content" class:flush={current.startsWith("account:")} class:wide={widePage(current)} bind:this={contentEl} role="tabpanel" aria-label={title}>
           {#if spec}
@@ -295,8 +435,10 @@
             {/key}
           {:else if current === "keys"}
             <KeysPanel draft={app.settingsCtl.settings} />
-          {:else if current === "plugins"}
-            <PluginsPanel {sections} {flash} />
+          {:else if current === "plugins" || pagePlugin}
+            {#key current}
+              <PluginsPanel owner={pagePlugin} about={pagePlugin ? pluginAbout(pagePlugin) : null} {sections} {flash} />
+            {/key}
           {:else}
             <AccountsPanel {current} {pageAccount} onOpen={backToList} />
           {/if}
@@ -307,9 +449,8 @@
 </div>
 
 <style>
-  /* One size for every page, its own limit (wider than the letter since 0.7.1): switching
-     pages never makes the window jump, and the window does not jump between the settings
-     and a letter (#68). */
+  /* One size for every page, the expanded letter's since 0.8.12 (5.1 А): switching pages never
+     makes the window jump, and the window does not jump between the settings and a letter (#68). */
   .prefs {
     width: min(var(--prefs-max), calc(100vw - 2 * var(--win-gap)));
     height: calc(100vh - 2 * var(--win-gap));
@@ -432,6 +573,30 @@
     outline-offset: -2px;
   }
 
+  /* The sub-entries: a mailbox with the dot of its colour, a plugin; the open one by the ground alone. */
+  .tab.kid {
+    gap: 8px;
+    padding: 6px 10px 6px 36px;
+    font-size: 12.5px;
+  }
+
+  .kdot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .chv {
+    display: flex;
+    margin-left: auto;
+    color: var(--muted);
+  }
+
+  .gap {
+    height: 14px;
+  }
+
   .group {
     margin: 14px 10px 4px;
     font-size: 11px;
@@ -501,47 +666,6 @@
     padding: 4px 24px 12px;
   }
 
-  .rlist {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .hit {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    max-width: var(--column-max);
-    padding: 8px 10px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--ink);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .hit:hover,
-  .hit:focus-visible {
-    background: var(--hover);
-  }
-
-  .hit:focus-visible {
-    outline: 2px solid var(--accent-text);
-    outline-offset: -2px;
-  }
-
-  .grp {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .lbl {
-    font-size: 13.5px;
-  }
-
   /* A narrow window: the pages become a row of tabs above the page. */
   @media (max-width: 640px) {
     .prefs {
@@ -566,7 +690,8 @@
       flex: none;
     }
 
-    .group {
+    .group,
+    .gap {
       display: none;
     }
   }

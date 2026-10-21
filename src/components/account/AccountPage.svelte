@@ -1,7 +1,8 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
   // that stays in sight and marks the section being read. What does not reach the server is saved
-  // as it is changed; the connection waits for the page's «Check and save».
+  // as it is changed; the connection waits for its section's «Check and save». The page ends with
+  // the danger zone: the removal of the mailbox, apart from everything else (0.8.12, 3.3 А).
   import { onMount, tick, untrack } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
@@ -11,7 +12,6 @@
   import { currentSection } from "../../lib/toc";
   import type { AccountView } from "../../lib/types";
   import { sectionsFor } from "./sections";
-  import CheckError from "./CheckError.svelte";
 
   let { account, onDone }: { account: AccountView; onDone: () => void } = $props();
 
@@ -107,41 +107,27 @@
         >{s.title()}{#if look}<span class="look" role="img" aria-label={t("account.attention")} title={t("account.attention")}></span>{/if}</a
       >
     {/each}
+    {#if own.auto.marks.account}
+      <span class="mark" class:undone={own.auto.marks.account === "undone"} role="status">{own.auto.marks.account === "saved" ? t("settings.saved") : t("settings.reverted")}</span>
+    {/if}
   </nav>
 
   <div class="scroller" bind:this={scroller} onscroll={track}>
     {#each sections as s (s.id)}
-      <section id="account-{s.id}" data-section={s.id} aria-labelledby="account-{s.id}-title">
-        <h3 id="account-{s.id}-title">{s.title()}</h3>
+      {@const mark = s.mark?.(account) ?? null}
+      <section id="account-{s.id}" data-section={s.id} data-settings="acc-{s.id}" class:wide={s.wide} aria-labelledby="account-{s.id}-title">
+        <h3 id="account-{s.id}-title">{s.title()}{#if mark}<span class="state {mark.state}">{mark.text}</span>{/if}</h3>
         <div class="body">
           <s.component {form} {account} />
         </div>
       </section>
     {/each}
+    <section class="danger" data-section="danger" aria-labelledby="account-danger-title">
+      <h3 id="account-danger-title">{t("account.danger")}</h3>
+      <p class="muted note">{t("account.dangerNote")}</p>
+      <button class="btn bad" data-settings="acc-remove" onclick={() => form.remove()} disabled={form.busy}>{t("wizard.remove")}</button>
+    </section>
   </div>
-
-  {#if form.error || form.status}
-    <div class="outcome">
-      <CheckError {form} />
-      {#if form.status}<p class="muted">{form.status}
-        {#if form.waitingBrowser}<button class="link" onclick={() => form.cancelSignIn()}>{t("cancel")}</button>{/if}</p>{/if}
-    </div>
-  {/if}
-
-  <footer>
-    <button class="btn ghost danger-text" onclick={() => form.remove()} disabled={form.busy}>{t("wizard.remove")}</button>
-    {#if own.auto.marks.account}
-      <span class="mark" class:undone={own.auto.marks.account === "undone"} role="status">{own.auto.marks.account === "saved" ? t("settings.saved") : t("settings.reverted")}</span>
-    {/if}
-    <span class="spacer"></span>
-    {#if form.connectionDirty}
-      <span class="muted pending">{t("account.connectionPending")}</span>
-      <button class="btn ghost" onclick={() => form.revertConnection()} disabled={form.busy}>{t("cancel")}</button>
-    {/if}
-    <button class="btn primary" onclick={() => form.checkAndSave()} disabled={form.busy || !form.connectionDirty}>
-      {form.busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")}
-    </button>
-  </footer>
 </div>
 
 <style>
@@ -202,81 +188,90 @@
   /* Offsets of the sections are counted from here. */
   .scroller {
     position: relative;
+    container-type: inline-size;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     padding: 0 24px;
   }
 
+  /* The rows keep to the column of the general pages; a table takes the whole width (0.8.12, 5.2 А). */
   section {
+    max-width: var(--column-max);
     padding: 16px 0 20px;
     border-bottom: 1px solid var(--line);
   }
 
-  section:last-child {
+  section.wide {
+    max-width: none;
+  }
+
+  section:nth-last-child(2) {
     border-bottom: none;
-    /* The last section can still be scrolled to the top, as the others. */
-    min-height: 100%;
   }
 
   h3 {
-    margin: 0 0 12px;
+    margin: 0 0 6px;
     font-size: 15px;
   }
 
   .body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
   }
 
-  .outcome {
-    flex: none;
-    max-height: 40%;
-    overflow-y: auto;
-    padding: 10px 24px 0;
-    border-top: 1px solid var(--line);
+  .state {
+    margin-left: 8px;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--muted);
   }
 
-  .outcome p {
-    margin: 0 0 6px;
+  .state::before {
+    content: "● ";
   }
 
-  .link {
-    border: none;
-    background: none;
-    color: var(--link);
-    padding: 0;
-    text-decoration: underline;
+  /* The sidebar's colours for the same states. */
+  .state.online {
+    color: var(--ok);
   }
 
-  footer {
-    flex: none;
-    display: flex;
-    gap: 8px;
-    padding: 12px 24px 16px;
-    border-top: 1px solid var(--line);
+  .state.error {
+    color: var(--warn);
   }
 
-  .spacer {
-    flex: 1;
+  .state.paused {
+    color: var(--bad);
   }
 
-  footer {
-    align-items: center;
+  /* The danger zone: a block of its own under a thin line of the colour of harm (0.8.12, 3.3 А). */
+  .danger {
+    margin: 4px 0 24px;
+    padding: 12px 16px 16px;
+    border: 1px solid var(--bad);
+    border-radius: var(--radius);
+  }
+
+  .danger .note {
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  .btn.bad {
+    border-color: var(--bad);
+    color: var(--bad);
   }
 
   .mark {
+    margin-left: auto;
+    align-self: center;
     font-size: 12px;
     color: var(--ok);
   }
 
   .mark.undone {
     color: var(--muted);
-  }
-
-  .pending {
-    font-size: 12px;
   }
 
   @media (max-width: 640px) {
@@ -286,10 +281,6 @@
 
     .scroller {
       padding: 0 16px;
-    }
-
-    footer {
-      padding: 10px 16px 12px;
     }
   }
 </style>

@@ -67,7 +67,7 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
     vi.useFakeTimers();
     try {
       open();
-      const input = target.querySelector<HTMLInputElement>("input[placeholder='jane@example.com']") ?? target.querySelectorAll<HTMLInputElement>(".grid input")[0];
+      const input = target.querySelector<HTMLInputElement>("[data-settings='acc-label'] input")!;
       input.focus();
       input.value = "Home";
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -80,15 +80,6 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("has one button, for the connection, and it waits for a change of the connection", () => {
-    open();
-    const buttons = [...target.querySelectorAll<HTMLButtonElement>("footer .btn.primary")];
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0].textContent).toContain("Проверить и сохранить");
-    expect(buttons[0].disabled).toBe(true);
-    expect(target.querySelector("footer")?.textContent).not.toContain("Сохранить\n");
   });
 
   it("says what the mailbox follows once, in the list: no second mark beside it", () => {
@@ -107,10 +98,53 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
       flushSync();
       await vi.advanceTimersByTimeAsync(200);
       expect(stored.compose_format).toBe("markdown");
-      expect(target.querySelector("footer .mark")?.textContent).toContain("Сохранено");
+      expect(target.querySelector(".account-page .mark")?.textContent).toContain("Сохранено");
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("a mailbox's page laid out as the general pages (0.8.12)", () => {
+  it("shows «Check and save» only after the connection is changed, in its section (0.8.12, 3.2 А)", () => {
+    open();
+    const check = () => [...target.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent?.includes("Проверить и сохранить"));
+    expect(check()).toHaveLength(0);
+    expect(target.querySelector("footer")).toBeNull();
+    const host = target.querySelector<HTMLInputElement>("[data-settings='acc-imap'] input")!;
+    host.value = "imap2.example.com";
+    host.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(check()).toHaveLength(1);
+    expect(check()[0].closest("section[data-section='connection']")).not.toBeNull();
+  });
+
+  it("ends with the danger zone, the removal of the mailbox in it and outside the contents (0.8.12, 3.3 А)", () => {
+    open();
+    const sections = [...target.querySelectorAll<HTMLElement>(".scroller > section")];
+    const last = sections.at(-1)!;
+    expect(last.dataset.section).toBe("danger");
+    expect(last.querySelector("h3")?.textContent).toBe("Опасная зона");
+    expect([...last.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Удалить ящик"]);
+    expect(target.querySelector(".toc a[data-toc='danger']")).toBeNull();
+    expect([...target.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "Удалить ящик")).toHaveLength(1);
+  });
+
+  it("asks before the removal, as before", () => {
+    open();
+    target.querySelector<HTMLElement>("section[data-section='danger'] button")!.click();
+    flushSync();
+    expect(app.ui.confirmation).not.toBeNull();
+    expect(api.accountRemove).not.toHaveBeenCalled();
+    app.ui.confirmation = null;
+  });
+
+  it("draws its fields as the rows of the general pages, the name at the left (0.8.12, 3.1 А)", () => {
+    open();
+    for (const id of ["acc-label", "acc-name", "acc-color", "acc-format", "acc-view", "acc-attachments", "acc-signatures", "acc-waiting", "acc-imap", "acc-smtp", "acc-login"]) {
+      expect(target.querySelector(`.rw[data-settings='${id}']`), id).not.toBeNull();
+    }
+    expect(target.querySelector("input[disabled][value='jane@example.com']")).toBeNull();
   });
 });
 
@@ -119,7 +153,7 @@ describe("a text typed in a mailbox's page and not left (#120)", () => {
     vi.useFakeTimers();
     try {
       open();
-      const input = target.querySelectorAll<HTMLInputElement>(".grid input")[0];
+      const input = target.querySelector<HTMLInputElement>("[data-settings='acc-label'] input")!;
       input.focus();
       input.value = "Home";
       input.dispatchEvent(new Event("input", { bubbles: true }));

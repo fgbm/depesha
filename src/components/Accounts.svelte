@@ -1,18 +1,20 @@
 <script lang="ts">
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Plus from "@lucide/svelte/icons/plus";
-  import Settings from "@lucide/svelte/icons/settings";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
-  import { accountColor } from "../lib/format";
-  import type { AccountView } from "../lib/types";
+  import { accountColor, accountLabel } from "../lib/format";
 
-  /** The mailbox manager: the order mailboxes are shown in and their names. Changes apply at once. */
+  /**
+   * The page «Mailboxes» (0.8.12, 3.4 А): the order of the mailboxes and «Add a mailbox». A row
+   * opens the mailbox's own page, as its entry in the menu does; the name is changed there.
+   */
   let { onOpen }: { onOpen: (page: string) => void } = $props();
-  /** Names being typed, by account id; saved on Enter or leaving the field. */
-  let names = $state<Record<string, string>>({});
+
+  const many = $derived(app.mailboxes.accounts.length > 1);
 
   async function arrange(from: number, to: number) {
     if (to < 0 || to >= app.mailboxes.accounts.length) return;
@@ -29,90 +31,52 @@
     await app.mailboxes.loadAccounts();
   }
 
-  async function look(acc: AccountView, label: string, color: string) {
-    try {
-      await api.accountLook(acc.id, label, color);
-    } catch (e) {
-      app.ui.fail(e);
-    }
-    await app.mailboxes.loadAccounts();
-  }
-
-  function saveName(acc: AccountView) {
-    const name = names[acc.id];
-    if (name === undefined) return;
-    delete names[acc.id];
-    if (name.trim() !== (acc.label ?? "")) look(acc, name, acc.color ?? "");
-  }
-
   function onRowKey(e: KeyboardEvent, i: number) {
-    // Alt+↑/↓ in the name moves the mailbox, as lines move in editors.
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      e.preventDefault();
-      arrange(i, e.key === "ArrowUp" ? i - 1 : i + 1);
-    }
-  }
-
-  /** A mailbox's own page in the same window. */
-  function settings(acc: AccountView | null) {
-    onOpen(acc ? `account:${acc.id}` : "account:new");
+    // Alt+↑/↓ moves the mailbox, as lines move in editors; the focus goes along with it.
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const to = e.key === "ArrowUp" ? i - 1 : i + 1;
+    const id = app.mailboxes.accounts[i]?.id;
+    void arrange(i, to).then(() => document.querySelector<HTMLElement>(`.accounts .mbrow[data-account="${CSS.escape(id ?? "")}"]`)?.focus());
   }
 </script>
 
 <!-- A page of the settings window. -->
 <div class="accounts">
-    <p class="muted small hint">{t("accounts.hint")}</p>
-    <div class="content">
-      {#each app.mailboxes.accounts as acc, i (acc.id)}
-        {@const color = accountColor(acc, i)}
-        <div class="acc" role="group" aria-label={acc.email}>
-          <div class="order">
-            <button class="btn ghost icon" disabled={i === 0} onclick={() => arrange(i, i - 1)} title={t("accounts.up")} aria-label={t("accounts.up")}><ArrowUp size={14} /></button>
-            <button class="btn ghost icon" disabled={i === app.mailboxes.accounts.length - 1} onclick={() => arrange(i, i + 1)} title={t("accounts.down")} aria-label={t("accounts.down")}><ArrowDown size={14} /></button>
-          </div>
-          <!-- The colour is chosen on the mailbox's page. -->
-          <span class="swatch" style:background={color} aria-hidden="true"></span>
-          <div class="who">
-            <input
-              class="input name"
-              value={names[acc.id] ?? acc.label ?? ""}
-              placeholder={acc.email}
-              aria-label={t("accounts.name")}
-              oninput={(e) => (names[acc.id] = e.currentTarget.value)}
-              onblur={() => saveName(acc)}
-              onkeydown={(e) => (e.key === "Enter" ? e.currentTarget.blur() : onRowKey(e, i))}
-            />
-            <span class="muted small email">{acc.email}</span>
-          </div>
-          <button class="btn ghost icon" onclick={() => settings(acc)} title={t("account.settings")} aria-label={t("account.settings")}><Settings size={15} /></button>
+  <p class="muted hint">{t("accounts.hint")}</p>
+  {#each app.mailboxes.accounts as acc, i (acc.id)}
+    <div class="acc">
+      <!-- Arrows are drawn from two mailboxes on: with one there is nothing to move (А18). -->
+      {#if many}
+        <div class="order">
+          <button class="arrow" disabled={i === 0} onclick={() => arrange(i, i - 1)} title={t("accounts.up")} aria-label={t("accounts.up")}><ArrowUp size={12} /></button>
+          <button class="arrow" disabled={i === app.mailboxes.accounts.length - 1} onclick={() => arrange(i, i + 1)} title={t("accounts.down")} aria-label={t("accounts.down")}><ArrowDown size={12} /></button>
         </div>
-      {/each}
+      {/if}
+      <button class="mbrow" data-account={acc.id} onclick={() => onOpen(`account:${acc.id}`)} onkeydown={(e) => onRowKey(e, i)}>
+        <span class="dot" style:background={accountColor(acc, i)} aria-hidden="true"></span>
+        <span class="who"><span>{accountLabel(acc)}</span><span class="muted email">{acc.email}</span></span>
+        <ChevronRight size={16} class="muted" />
+      </button>
     </div>
-    <button class="btn add" onclick={() => settings(null)}><Plus size={15} /> {t("account.add")}</button>
+  {/each}
+  <button class="btn add" onclick={() => onOpen("account:new")}><Plus size={15} /> {t("account.add")}</button>
 </div>
 
 <style>
+  .accounts {
+    max-width: var(--column-max);
+  }
+
   .hint {
-    margin: 14px 0 4px;
-  }
-
-  .content {
-    padding: 4px 0 12px;
-  }
-
-  .add {
-    margin-bottom: 14px;
+    margin: 4px 0 10px;
+    font-size: 13px;
   }
 
   .acc {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 0;
-  }
-
-  .acc + .acc {
-    border-top: 1px solid var(--line);
+    gap: 4px;
   }
 
   .order {
@@ -120,16 +84,55 @@
     flex-direction: column;
   }
 
-  .order :global(.btn.icon) {
-    padding: 1px 4px;
+  .arrow {
+    display: grid;
+    place-items: center;
+    padding: 0 2px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
   }
 
-  .swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
+  .arrow:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+
+  .arrow:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  /* The cursor of the list is the ground alone (AGENTS.md: no bars, no frames). */
+  .mbrow {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mbrow:hover,
+  .mbrow:focus-visible {
+    background: var(--hover);
+    outline: none;
+  }
+
+  .dot {
     flex: none;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 15%, transparent);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
   }
 
   .who {
@@ -137,17 +140,16 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-  }
-
-  .name {
-    width: 100%;
   }
 
   .email {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-left: 2px;
+    font-size: 12px;
+  }
+
+  .add {
+    margin-top: 10px;
   }
 </style>

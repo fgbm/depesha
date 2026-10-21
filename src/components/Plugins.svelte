@@ -8,6 +8,8 @@
   import { extensions, textOf } from "../lib/extensions.svelte";
   import { grantOf, widens } from "../lib/consent";
   import ExtensionConsent from "./ExtensionConsent.svelte";
+  import SettingsRow from "./prefs/SettingsRow.svelte";
+  import Switch from "./prefs/controls/Switch.svelte";
   import type { ExtManifest, ExtPreview, Extension } from "../lib/types";
 
   let confirmRemove = $state<string | null>(null);
@@ -84,19 +86,16 @@
 <!-- A page of the settings window. -->
 <div class="plugins">
     <div class="content">
+      <!-- A plugin is switched on and off here, in the one list (0.8.12, 6.3 Б); its own page has its settings. -->
       <section>
         <h4>{t("ext.builtIn")}</h4>
         <p class="muted small">{t("ext.builtInNote")}</p>
         {#each host.plugins as p (p.manifest.id)}
-          <label class="row">
-            <input
-              type="checkbox"
-              checked={host.enabled(p.manifest.id)}
-              onchange={(e) => host.setEnabled(p.manifest.id, e.currentTarget.checked)}
-              data-plugin={p.manifest.id}
-            />
-            <span class="text"><b>{say(p.manifest.name)}</b><span class="muted small">{say(p.manifest.description)}</span></span>
-          </label>
+          <div class="sw-row" data-plugin={p.manifest.id}>
+            <SettingsRow id="plugin-{p.manifest.id}" kind="toggle" label={say(p.manifest.name)} hint={say(p.manifest.description)}>
+              <Switch checked={host.enabled(p.manifest.id)} label={say(p.manifest.name)} onchange={(on) => host.setEnabled(p.manifest.id, on)} />
+            </SettingsRow>
+          </div>
         {/each}
       </section>
 

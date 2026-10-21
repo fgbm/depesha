@@ -162,7 +162,7 @@ export async function settingsSearch(kit, name, query = "аватар") {
   await press(",", { ctrlKey: true });
   await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
   await d.type(await d.find(".prefs .psearch .q"), query);
-  await d.until("search results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
+  await d.until("search results", async () => (await d.findAll(".prefs .content.results .rw")).length > 0);
   await sleep(500);
   await shot(name);
   await closeSettings();

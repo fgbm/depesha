@@ -7,17 +7,14 @@
   let { value = $bindable("") }: { value: string } = $props();
 </script>
 
-<div class="field">
-  <span id="account-color">{t("account.color")}</span>
-  <div class="colors" role="radiogroup" aria-labelledby="account-color">
-    {#each ["", ...ACCOUNT_PALETTE] as c (c)}
-      {@const on = (value || "") === c}
-      <label class="swatch" class:auto={!c} class:on style:--c={c || null} title={c || t("accounts.colorAuto")}>
-        <input type="radio" name="account-color" value={c} checked={on} onchange={() => (value = c)} aria-label={c || t("accounts.colorAuto")} />
-        {#if on}<Check size={12} />{/if}
-      </label>
-    {/each}
-  </div>
+<div class="colors" role="radiogroup" aria-label={t("account.color")}>
+  {#each ["", ...ACCOUNT_PALETTE] as c (c)}
+    {@const on = (value || "") === c}
+    <label class="swatch" class:auto={!c} class:on style:--c={c || null} title={c || t("accounts.colorAuto")}>
+      <input type="radio" name="account-color" value={c} checked={on} onchange={() => (value = c)} aria-label={c || t("accounts.colorAuto")} />
+      {#if on}<Check size={12} />{/if}
+    </label>
+  {/each}
 </div>
 
 <style>

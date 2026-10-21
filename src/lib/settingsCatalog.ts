@@ -12,8 +12,8 @@ import HardDrive from "@lucide/svelte/icons/hard-drive";
 import Inbox from "@lucide/svelte/icons/inbox";
 import Keyboard from "@lucide/svelte/icons/keyboard";
 import Palette from "@lucide/svelte/icons/palette";
-import Power from "@lucide/svelte/icons/power";
 import Puzzle from "@lucide/svelte/icons/puzzle";
+import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import SquarePen from "@lucide/svelte/icons/square-pen";
 import { accountLabel } from "./format";
 import { t, tn } from "./i18n.svelte";
@@ -86,18 +86,21 @@ export type RowSpec = Base &
     | { kind: "layer"; layer: "format" | "view" }
     /** A block of its own drawing (the list of the hints' decisions). */
     | { kind: "block"; block: "hints-list" }
+    /** A hit of the search on a place with no row of its own here: a mailbox's field, a command, a plugin (0.8.12, 4.1 Б). */
+    | { kind: "go"; text: () => string; open: () => void }
   );
 
 export type RowKindOf = RowSpec["kind"];
 
 /** The kind the keys know a row by. */
 export function rowKind(spec: RowSpec): RowKind {
-  return spec.kind === "layer" ? "link" : spec.kind;
+  return spec.kind === "layer" || spec.kind === "go" ? "link" : spec.kind;
 }
 
 export interface GroupSpec {
   id: string;
-  title: () => string;
+  /** None for a group of one row: its heading would only repeat the row (0.8.12, 2.2 А). */
+  title: (() => string) | null;
   rows: RowSpec[];
 }
 
@@ -397,7 +400,7 @@ const R = {
   },
 } satisfies Record<string, RowSpec>;
 
-const group = (id: string, title: () => string, rows: RowSpec[]): GroupSpec => ({ id, title, rows });
+const group = (id: string, title: (() => string) | null, rows: RowSpec[]): GroupSpec => ({ id, title, rows });
 
 // ---- The pages ----
 
@@ -408,7 +411,8 @@ export const PAGES: PageSpec[] = [
     icon: BookOpen,
     groups: [
       group("list", () => t("settings.list"), [R.threads, R.list_avatars, R.sender_logos]),
-      group("read", () => t("settings.reading"), [R.letter_view, R.layer_view]),
+      // The folder of the attachments received is about the letter read, not the one sent (0.8.12, 2.1 А).
+      group("read", () => t("settings.letter"), [R.letter_view, R.layer_view, R.attachments_dir]),
     ],
   },
   {
@@ -417,7 +421,7 @@ export const PAGES: PageSpec[] = [
     icon: SquarePen,
     groups: [
       group("new", () => t("settings.newMessages"), [R.compose_format, R.layer_format, R.default_account, R.image_max_px]),
-      group("send", () => t("settings.sending"), [R.undo_send, R.attachments_dir]),
+      group("send", null, [R.undo_send]),
     ],
   },
   {
@@ -426,7 +430,7 @@ export const PAGES: PageSpec[] = [
     icon: Clock,
     groups: [
       group("snooze", () => t("settings.snoozeTimes"), [R.day_start, R.evening_start, R.work_days]),
-      group("waiting", () => t("account.waiting.title"), [R.waiting]),
+      group("waiting", null, [R.waiting]),
     ],
   },
   {
@@ -435,8 +439,8 @@ export const PAGES: PageSpec[] = [
     icon: HardDrive,
     groups: [
       group("offline", () => t("settings.offline"), [R.offline, R.offline_attachments]),
-      group("space", () => t("settings.quota"), [R.quota_warn, R.quota_levels, R.quota_repeat, R.quota_own]),
-      group("big", () => t("settings.search"), [R.large_mb]),
+      // The threshold of a large letter serves «Find large letters» of a full mailbox (#102, 2.3 А).
+      group("space", () => t("settings.quota"), [R.quota_warn, R.quota_levels, R.quota_repeat, R.quota_own, R.large_mb]),
     ],
   },
   {
@@ -449,22 +453,20 @@ export const PAGES: PageSpec[] = [
     ],
   },
   {
+    // The tray icon is there for the work in the background, so the two share a page (0.8.12, 2.1 А).
     id: "notify",
     title: () => t("settings.page.notify"),
     icon: Bell,
     groups: [
-      group("notify", () => t("settings.notifications"), [R.notify]),
-      group("tray", () => t("bg.trayIcon"), [R.tray_count, R.tray_always]),
+      group("notify", () => t("settings.notifyTray"), [R.notify, R.tray_count, R.tray_always]),
+      group("bg", () => t("settings.page.background"), [R.close_action, R.tray_consent, R.autostart]),
     ],
   },
   {
-    id: "start",
-    title: () => t("settings.page.start"),
-    icon: Power,
-    groups: [
-      group("bg", () => t("settings.page.background"), [R.close_action, R.tray_consent, R.autostart]),
-      group("updates", () => t("settings.updates"), [R.updates, R.update_status]),
-    ],
+    id: "updates",
+    title: () => t("settings.updates"),
+    icon: RefreshCw,
+    groups: [group("updates", null, [R.updates, R.update_status])],
   },
 ];
 
@@ -472,30 +474,34 @@ export const PAGES: PageSpec[] = [
 export const OWN_PAGES: { id: string; title: () => string; icon: Component }[] = [
   { id: "keys", title: () => t("keys.title"), icon: Keyboard },
   { id: "accounts", title: () => t("accounts.title"), icon: Inbox },
-  { id: "plugins", title: () => t("ext.manageTitle"), icon: Puzzle },
+  { id: "plugins", title: () => t("settings.page.plugins"), icon: Puzzle },
 ];
 
 export interface MenuGroup {
-  title: () => string;
+  /** None for a group of one entry (0.8.12, 2.2 А). */
+  title: (() => string) | null;
   pages: string[];
 }
 
-/** The menu: two axes, «Mail» and «App», then the mailboxes and the plugins (#102, 2.1 В). */
+/**
+ * The menu: two axes, «Mail» and «App», then the mailboxes and the plugins (#102, 2.1 В), whose
+ * entries unfold into one entry per mailbox and per plugin with settings (0.8.12, screen 7).
+ */
 export const MENU: MenuGroup[] = [
   { title: () => t("settings.group.mail"), pages: ["reading", "writing", "later", "storage"] },
-  { title: () => t("settings.group.app"), pages: ["look", "notify", "start", "keys"] },
-  { title: () => t("settings.group.mailboxes"), pages: ["accounts"] },
-  { title: () => t("settings.page.plugins"), pages: ["plugins"] },
+  { title: () => t("settings.group.app"), pages: ["look", "notify", "updates", "keys"] },
+  { title: null, pages: ["accounts"] },
+  { title: null, pages: ["plugins"] },
 ];
 
-/** The page ids the app used before 0.8: asked for by a link or a command, they land on the page that has the matter now. */
+/** The page ids the app used before: asked for by a link or a command, they land on the page that has the matter now. */
 const LEGACY: Record<string, string> = {
   general: "look",
   mail: "reading",
   notifications: "notify",
-  background: "start",
+  background: "notify",
+  start: "notify",
   offline: "storage",
-  updates: "start",
 };
 
 export function resolvePage(id: string): string {
@@ -517,6 +523,12 @@ export function pageTitle(id: string): string {
 
 export function pageIcon(id: string): Component | undefined {
   return pageSpec(id)?.icon ?? OWN_PAGES.find((p) => p.id === id)?.icon;
+}
+
+/** The row with this id and the page it stands on. */
+export function rowOf(id: string): { page: PageSpec; row: RowSpec } | null {
+  for (const page of PAGES) for (const g of page.groups) for (const row of g.rows) if (row.id === id) return { page, row };
+  return null;
 }
 
 /** Whether the row can be changed now. */

@@ -86,7 +86,7 @@
     {:else}
       <input bind:value={k.query} placeholder={k.pressing ? t("keys.searchPress") : t("keys.search")} aria-label={t("keys.search")} />
     {/if}
-    <button class="btn small" class:on={k.pressing} title={t("keys.pressTitle")} aria-pressed={k.pressing} onclick={() => k.togglePressing()}>
+    <button class="btn small" class:on={k.pressing} aria-pressed={k.pressing} onclick={() => k.togglePressing()}>
       <Keyboard size={14} /> {t("keys.press")}
     </button>
   </label>

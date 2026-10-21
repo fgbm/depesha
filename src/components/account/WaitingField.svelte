@@ -3,6 +3,8 @@
   // conversation, to a folder on the server until the reply brings it back. The folder is
   // made at the first answer unless one is chosen; "Stop waiting" takes it back or to the archive.
   import Select from "../Select.svelte";
+  import SettingsRow from "../prefs/SettingsRow.svelte";
+  import Switch from "../prefs/controls/Switch.svelte";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
   import type { Waiting } from "../../lib/types";
@@ -18,19 +20,15 @@
   const options = $derived([{ value: "", label: t("account.waiting.folderNew") }, ...folders]);
 </script>
 
-<section class="waiting">
-  <h4>{t("account.waiting.title")}</h4>
-  <label class="check">
-    <input type="checkbox" bind:checked={waiting.park} />
-    <span>{t("account.waiting.park")}<span class="hint">{t("account.waiting.hint")}</span></span>
-  </label>
-  {#if waiting.park}
-    <div class="row">
-      <span class="k">{t("account.waiting.folder")}</span>
+<SettingsRow id="acc-waiting" kind="toggle" label={t("account.waiting.park")} hint={t("account.waiting.hint")}>
+  <Switch checked={waiting.park} label={t("account.waiting.park")} onchange={(on) => (waiting.park = on)} />
+</SettingsRow>
+{#if waiting.park}
+  <div class="depg">
+    <SettingsRow id="acc-waiting-folder" kind="field" label={t("account.waiting.folder")} dep>
       <Select class="waiting-folder" bind:value={waiting.folder} label={t("account.waiting.folder")} {options} />
-    </div>
-    <div class="row">
-      <span class="k">{t("account.waiting.stop")}</span>
+    </SettingsRow>
+    <SettingsRow id="acc-waiting-stop" kind="field" label={t("account.waiting.stop")} dep>
       <Select
         bind:value={() => (waiting.stop_to_archive ? "archive" : "inbox"), (v) => (waiting.stop_to_archive = v === "archive")}
         label={t("account.waiting.stop")}
@@ -39,45 +37,14 @@
           { value: "archive", label: t("account.waiting.stopArchive") },
         ]}
       />
-    </div>
-  {/if}
-</section>
+    </SettingsRow>
+  </div>
+{/if}
 
 <style>
-  h4 {
-    margin: 0 0 6px;
-    font-size: 13px;
-    font-weight: 650;
-  }
-
-  .check {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .check input {
-    margin-top: 3px;
-  }
-
-  .hint {
-    display: block;
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.45;
-    margin-top: 2px;
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 8px 0 0 23px;
-  }
-
-  .k {
-    font-size: 12px;
-    color: var(--muted);
+  /* The strip of the rows under the switch, as on the general pages. */
+  .depg {
+    margin-left: 4px;
+    border-left: 2px solid var(--line);
   }
 </style>

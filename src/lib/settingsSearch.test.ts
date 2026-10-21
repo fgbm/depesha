@@ -39,7 +39,7 @@ describe("finding a setting by name", () => {
     const hit = hits.find((h) => h.label === "Порог крупного письма");
     expect(hit).toBeDefined();
     expect(hit!.page).toBe("storage");
-    expect(hit!.section).toBe("Поиск");
+    expect(hit!.section).toBe("Заполнение ящиков");
   });
 
   it("finds the fields of a person's card, though the card is in the main window now and a hit leads there (#104)", () => {

@@ -39,8 +39,11 @@ export async function auditShots(kit, out) {
     await shot(name, opts);
     manifest.push(`- ${name}.png — ${BASE === "dark" ? what.replace("светлая тема", "тёмная тема") : what}`);
   };
+  /** SHOTS_SCENES=11,14: only the scenes whose number is listed (a set of one screen, its frames apart). */
+  const only = process.env.SHOTS_SCENES?.split(",").map((x) => x.trim()).filter(Boolean) ?? [];
   /** One scene: a failure skips it with the reason and the run goes on, from a clean state. */
   const scene = async (title, fn, { strict = false } = {}) => {
+    if (only.length && !only.includes(title.slice(0, 2))) return;
     try {
       await fn();
     } catch (e) {
@@ -282,24 +285,45 @@ export async function auditShots(kit, out) {
     await inbox();
   });
 
-  // 11. The settings: the first page, «Клавиши», the page of a mailbox.
+  // 11. The settings (0.8.12): the page at the opening, «Вид и язык» with the tiles, «Клавиши», «Ящики»,
+  // a mailbox's whole page down to the danger zone, «Плагины», a plugin's page, the search with the rows found.
   await scene("11 настройки", async () => {
+    const page = async (id, ready) => {
+      await d.click(await d.until(id, () => d.find(`.prefs .tab[data-page='${id}']`)));
+      await d.until(id, ready);
+      await sleep(600);
+    };
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await sleep(800);
-    await take("11-settings-main", "настройки: главная страница при открытии; светлая тема");
-    await d.click(await d.find(".prefs .tab[data-page='keys']"));
-    await d.until("keys", async () => (await d.findAll(".prefs .kr[data-command='core.archive']")).length === 1);
-    await sleep(600);
+    await take("11-settings-main", "настройки: страница «Чтение» при открытии, курсор в поиске; светлая тема");
+    await page("look", async () => (await d.findAll(".prefs [data-row='look']")).length === 1);
+    await take("11-settings-look", "настройки: «Вид и язык», плитки «Оформление» и «Тема»; светлая тема");
+    await page("keys", async () => (await d.findAll(".prefs .kr[data-command='core.archive']")).length === 1);
     await take("11-settings-keys", "настройки: страница «Клавиши»; светлая тема");
-    await d.click(await d.find(".prefs .tab[data-page='accounts']"));
-    await d.until("accounts", async () => (await d.findAll(".prefs .accounts .acc")).length > 0);
-    await sleep(400);
-    await take("11-settings-accounts", "настройки: страница «Почтовые ящики», список ящиков; светлая тема");
-    await d.click(await d.find(".prefs .accounts .acc [aria-label='Настройки…']"));
-    await d.until("account page", async () => (await textOf(".prefs")).includes("Название ящика"));
-    await sleep(800);
-    await take("11-settings-mailbox", "настройки: страница ящика anna@example.org; светлая тема");
+    await page("accounts", async () => (await d.findAll(".prefs .accounts .mbrow")).length > 0);
+    await take("11-settings-accounts", "настройки: общая страница «Ящики», ящики подпунктами меню; светлая тема");
+    await d.click(await d.find(`.prefs .tab[data-page='account:${account}']`));
+    await d.until("account page", async () => (await d.findAll(".prefs .account-page section[data-section='danger']")).length === 1);
+    // The whole page in one frame: the window as tall as the page wants (the display is taller than the screen).
+    const tall = await d.exec("const s = document.querySelector('.prefs .account-page .scroller'); return s.scrollHeight - s.clientHeight;");
+    await d.setRect(1440, Math.min(2400, 900 + tall + 40));
+    try {
+      await sleep(1000);
+      await take("11-settings-mailbox", "настройки: страница ящика anna@example.org целиком, внизу «Опасная зона»; светлая тема");
+    } finally {
+      await d.setRect(1440, 900);
+      await sleep(800);
+    }
+    await page("plugins", async () => (await d.findAll(".prefs .plugins")).length === 1);
+    await take("11-settings-plugins", "настройки: общая страница «Плагины», плагины с настройками подпунктами меню; светлая тема");
+    await page("plugin:templates", async () => (await d.findAll(".prefs section[data-plugin='templates']")).length === 1);
+    await take("11-settings-plugin", "настройки: страница плагина «Шаблоны ответов»; светлая тема");
+    await d.type(await d.find(".prefs .psearch .q"), "вложен");
+    await d.until("found", async () => (await d.findAll(".prefs .content.results .rw")).length > 0);
+    await d.exec("document.querySelector('.prefs .content.results .rw[data-row]')?.focus()");
+    await sleep(600);
+    await take("11-settings-search", "настройки: поиск «вложен», найденное живыми строками, курсор на первой; светлая тема");
     await closeSettings();
   });
 

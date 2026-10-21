@@ -174,7 +174,7 @@ describe("a refused value (#102)", () => {
 describe("the background with no tray icon (#102)", () => {
   it("is not agreed to by choosing it: the row asks, and the consent is the answer", async () => {
     api.backgroundStatus.mockResolvedValue({ tray: "absent" });
-    page = setup("start", { close_action: "ask" });
+    page = setup("notify", { close_action: "ask" });
     await vi.waitFor(() => expect(page!.row("close_action")).not.toBeNull());
     page.row("close_action").querySelector<HTMLElement>("[role=radio]:nth-child(1)")?.click();
     app.settingsCtl.settings = { ...app.settingsCtl.settings, close_action: "background" };
@@ -191,7 +191,7 @@ describe("the background with no tray icon (#102)", () => {
 
   it("asks nothing where there is a tray icon, or the background is not chosen", async () => {
     api.backgroundStatus.mockResolvedValue({ tray: "present" });
-    page = setup("start", { close_action: "background" });
+    page = setup("notify", { close_action: "background" });
     await tick();
     expect(page.row("tray_consent")).toBeNull();
   });
@@ -212,10 +212,10 @@ describe("the notes the page keeps (#102)", () => {
     page = setup("storage");
     expect(page.row("quota_repeat").textContent).toContain("Одно предупреждение на порог");
     page.destroy();
-    page = setup("writing");
+    page = setup("reading");
     expect(page.row("attachments_dir").textContent).toContain("Пусто — спрашивать каждый раз");
     page.destroy();
-    page = setup("start");
+    page = setup("updates");
     expect(page.row("updates").textContent).toContain("подписано ключом проекта");
   });
 });

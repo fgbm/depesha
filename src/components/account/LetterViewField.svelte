@@ -12,14 +12,12 @@
   const inherited = $derived(app.settingsCtl.settings.letter_view === "sender" ? t("settings.letterView.sender") : t(`letterView.${app.settingsCtl.settings.letter_view}`));
 </script>
 
-<div class="field"><span>{t("settings.letterView")}</span>
-  <Select
-    class="letter-view"
-    label={t("settings.letterView")}
-    bind:value
-    options={[
-      { value: "" as const, label: t("settings.letterViewInherit", { view: inherited }) },
-      ...(["html", "markdown", "text"] as const).map((v) => ({ value: v, label: t(`letterView.${v}`) })),
-    ]}
-  />
-</div>
+<Select
+  class="letter-view"
+  label={t("settings.letterView")}
+  bind:value
+  options={[
+    { value: "" as const, label: t("settings.letterViewInherit", { view: inherited }) },
+    ...(["html", "markdown", "text"] as const).map((v) => ({ value: v, label: t(`letterView.${v}`) })),
+  ]}
+/>

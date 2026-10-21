@@ -44,6 +44,16 @@ const key = (el: Element, k: string, init: KeyboardEventInit = {}) => {
 
 const heading = () => target.querySelector(".pane h2")?.textContent;
 const row = (id: string) => target.querySelector<HTMLElement>(`.rw[data-row="${id}"]`)!;
+/** Types a query into the search over the settings. */
+const find = (q: string) => {
+  const field = target.querySelector<HTMLInputElement>(".psearch input")!;
+  field.value = q;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+};
+/** A found row that leads elsewhere: its label and its link. */
+const hitRow = (label: string) => [...target.querySelectorAll<HTMLElement>(".content .rw")].find((r) => r.querySelector(".t")?.textContent?.includes(label))!;
+
 
 beforeEach(() => {
   i18n.lang = "ru";
@@ -98,7 +108,7 @@ describe("Ctrl+Z in the settings window (#102)", () => {
     await tick();
     expect(api.settingsPatch).toHaveBeenCalledTimes(1);
     target.querySelector<HTMLElement>(".tab[data-page='reading']")!.click();
-    await vi.waitFor(() => expect(heading()).toBe("Чтение и список"));
+    await vi.waitFor(() => expect(heading()).toBe("Чтение"));
     key(row("threads"), "z", { ctrlKey: true });
     await vi.waitFor(() => expect(api.settingsPatch).toHaveBeenCalledTimes(2));
   });
@@ -125,14 +135,14 @@ describe("Ctrl+Z in the settings window (#102)", () => {
 
 describe("Tab at the end of a page (#102, 4.1 Б)", () => {
   it("goes to the menu: the foot is a line of text, not a stop", async () => {
-    open("start");
+    open("notify");
     const rows = [...target.querySelectorAll<HTMLElement>(".content .rw[data-row]")];
     const last = rows.at(-1)!;
     last.setAttribute("tabindex", "0");
     last.focus();
     const e = key(last, "Tab");
     expect(e.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(target.querySelector(".tab[data-page='start']"));
+    expect(document.activeElement).toBe(target.querySelector(".tab[data-page='notify']"));
   });
 });
 
@@ -180,16 +190,13 @@ describe("the people moved to the main window (#104)", () => {
   });
 
   it("opens the book on a hit of the search on a field of the card", async () => {
-    const book = vi.spyOn(app, "openPeople").mockResolvedValue();
+    const people = vi.spyOn(app, "openPeople").mockResolvedValue();
     open("reading");
-    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
-    field.value = "формат писем";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    flushSync();
-    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Контакты"))!;
-    hit.click();
-    await vi.waitFor(() => expect(book).toHaveBeenCalled());
-    book.mockRestore();
+    find("формат писем");
+    const book = [...target.querySelectorAll<HTMLElement>(".content section")].find((g) => g.querySelector("h4")?.textContent === "Контакты")!;
+    book.querySelector<HTMLElement>(".rw .lnk")!.click();
+    await vi.waitFor(() => expect(people).toHaveBeenCalled());
+    people.mockRestore();
   });
 
 });
@@ -349,15 +356,18 @@ function pluginGroups() {
   });
 }
 
-describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
+describe("the plugins' groups stand on the plugin's own page (0.8.12, 6.1 Б)", () => {
   pluginGroups();
 
-  it("shows them on the plugins' page, those that name a page too", () => {
+  it("shows a plugin's groups on its page, not on the list of the plugins", () => {
     open("plugins");
+    expect(target.querySelector(".content")!.textContent).not.toContain("Напоминания body");
+    unmount(view!);
+    open("plugin:followups");
+    expect(heading()).not.toBe("");
     const text = target.querySelector(".content")!.textContent;
     expect(text).toContain("Напоминания body");
-    expect(text).toContain("Шаблоны ответов body");
-    expect(text).toContain("Сторонний body");
+    expect(text).not.toContain("Шаблоны ответов body");
   });
 
   it("does not show them on «Snooze and waiting» or «Writing»", () => {
@@ -372,53 +382,161 @@ describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
     }
   });
 
-  it("drops a group when its plugin is switched off", () => {
+  it("drops the plugin from the menu when it is switched off", () => {
     open("plugins");
-    expect(target.querySelector("section[data-plugin='templates']")).not.toBeNull();
+    expect(target.querySelector(".tab[data-page='plugin:templates']")).not.toBeNull();
     registry.removeOwner("templates");
     flushSync();
-    expect(target.querySelector("section[data-plugin='templates']")).toBeNull();
-    expect(target.querySelector(".content")!.textContent).not.toContain("Шаблоны ответов body");
-    expect(target.querySelector("section[data-plugin='followups']")).not.toBeNull();
+    expect(target.querySelector(".tab[data-page='plugin:templates']")).toBeNull();
+    expect(target.querySelector(".tab[data-page='plugin:followups']")).not.toBeNull();
   });
 });
 
 describe("the search over the plugins' groups (0.8.2)", () => {
   pluginGroups();
 
-  it("finds a plugin's group in the search and opens the plugins' page", async () => {
-    open("reading");
-    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
-    field.value = "напоминания";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    flushSync();
-    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!;
-    hit.click();
-    await vi.waitFor(() => expect(heading()).toBe("Все плагины"));
-    expect(target.querySelector(".content")!.textContent).toContain("Напоминания body");
-  });
-
-  it("scrolls to the group the hit names and lights it", async () => {
+  it("finds a plugin's group, and its link opens the plugin's page at the group, lit", async () => {
     const scroll = vi.mocked(Element.prototype.scrollIntoView);
     open("reading");
-    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
-    field.value = "напоминания";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    flushSync();
-    [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!.click();
+    find("напоминания");
+    hitRow("Напоминания").querySelector<HTMLElement>(".lnk")!.click();
     const grp = () => target.querySelector<HTMLElement>("section[data-plugin='followups']")!;
+    await vi.waitFor(() => expect(grp()).not.toBeNull());
+    expect(target.querySelector(".content")!.textContent).toContain("Напоминания body");
     await vi.waitFor(() => expect(scroll.mock.contexts).toContain(grp()));
     await vi.waitFor(() => expect(grp().classList.contains("flash")).toBe(true));
-    expect(target.querySelector("section[data-plugin='templates']")!.classList.contains("flash")).toBe(false);
+  });
+});
+
+const mailbox = (id: string, label: string, email: string, color: string) =>
+  ({ id, label, email, color, display_name: "Анна", username: email, imap: { host: "i", port: 993, security: "tls" }, smtp: { host: "s", port: 465, security: "tls" }, save_sent_copy: true, status: null }) as unknown as AccountView;
+const mailboxes = [mailbox("a", "Работа", "anna@example.org", "#3f7fca"), mailbox("b", "Личный", "anna.k@mail.example", "")];
+const tabs = () => [...target.querySelectorAll<HTMLElement>(".pages .tab[data-page]")].map((t) => t.dataset.page);
+const tab = (page: string) => target.querySelector<HTMLElement>(`.pages .tab[data-page='${page}']`)!;
+
+describe("the mailboxes and the plugins under their entries in the menu (0.8.12, screen 7)", () => {
+  pluginGroups();
+  beforeEach(() => api.accounts.mockResolvedValue(mailboxes));
+
+  it("shows every mailbox, a dot of its colour and its name, while «Mailboxes» or one of them is open (6.2 А)", () => {
+    open("reading", mailboxes);
+    expect(tabs().filter((p) => p!.startsWith("account:"))).toEqual([]);
+    unmount(view!);
+    open("accounts", mailboxes);
+    expect(tabs().filter((p) => p!.startsWith("account:"))).toEqual(["account:a", "account:b"]);
+    expect(tab("account:a").textContent).toContain("Работа");
+    expect(tab("account:a").querySelector(".kdot")).not.toBeNull();
   });
 
-  it("sets the group and the plugin tag apart in a hit by a spaced dot", () => {
+  it("marks the open mailbox by the ground of the choice alone", () => {
+    open("account:a", mailboxes);
+    expect(tab("account:a").getAttribute("aria-selected")).toBe("true");
+    expect(tab("accounts").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("shows only the plugins that have settings of their own (6.1 Б)", () => {
+    open("plugins", mailboxes);
+    expect(tabs().filter((p) => p!.startsWith("plugin:"))).toEqual(["plugin:followups", "plugin:templates", "plugin:thirdparty"]);
+    expect(tabs()).not.toContain("plugin:snooze");
+  });
+});
+
+describe("the keys of the menu (0.8.12, the table of screen 7)", () => {
+  beforeEach(() => api.accounts.mockResolvedValue(mailboxes));
+  const focused = () => (document.activeElement as HTMLElement | null)?.dataset?.page;
+
+  it("walks the entries and the open sub-entries with ↑/↓, the page opening at once", async () => {
+    open("keys", mailboxes);
+    tab("keys").focus();
+    key(tab("keys"), "ArrowDown");
+    await vi.waitFor(() => expect(focused()).toBe("accounts"));
+    expect(heading()).toBe("Ящики");
+    key(tab("accounts"), "ArrowDown");
+    await vi.waitFor(() => expect(focused()).toBe("account:a"));
+    expect(heading()).toBe("Работа");
+  });
+
+  it("folds the entry with ← on a sub-entry and goes back to it; → unfolds it, → again goes into the page", async () => {
+    open("account:b", mailboxes);
+    tab("account:b").focus();
+    key(tab("account:b"), "ArrowLeft");
+    await vi.waitFor(() => expect(focused()).toBe("accounts"));
+    expect(tabs()).not.toContain("account:a");
+    key(tab("accounts"), "ArrowRight");
+    expect(tabs()).toContain("account:a");
+    expect(focused()).toBe("accounts");
+    key(tab("accounts"), "ArrowRight");
+    await vi.waitFor(() => expect(target.querySelector(".content")!.contains(document.activeElement)).toBe(true));
+  });
+
+  it("folds an open entry with ←", async () => {
+    open("accounts", mailboxes);
+    tab("accounts").focus();
+    key(tab("accounts"), "ArrowLeft");
+    expect(tabs()).not.toContain("account:a");
+  });
+
+  it("turns through the sub-entries of an open entry with Ctrl+PgDn", async () => {
+    open("accounts", mailboxes);
+    key(target.querySelector(".prefs")!, "PageDown", { ctrlKey: true });
+    await vi.waitFor(() => expect(heading()).toBe("Работа"));
+  });
+
+  it("goes into the page with Enter, and back to the sub-entry with Alt+←", async () => {
+    open("account:a", mailboxes);
+    tab("account:a").focus();
+    key(tab("account:a"), "Enter");
+    await vi.waitFor(() => expect(target.querySelector(".content")!.contains(document.activeElement)).toBe(true));
+    key(document.activeElement!, "ArrowLeft", { altKey: true });
+    expect(focused()).toBe("account:a");
+  });
+});
+
+describe("the search shows the rows found, alive (0.8.12, 4.1 Б, 4.2 А, 4.3 А)", () => {
+  beforeEach(() => {
+    api.accounts.mockResolvedValue(mailboxes);
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("puts the cursor in the search when the window opens", async () => {
     open("reading");
-    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
-    field.value = "напоминания";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    flushSync();
-    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!;
-    expect(hit.querySelector(".grp")!.textContent!.replace(/\s/g, " ")).toBe("Все плагины · плагин");
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector(".psearch input")));
+  });
+
+  it("draws a found row as it is on its page, and its value is changed in place", async () => {
+    open("storage");
+    find("цепочки");
+    const found = row("threads");
+    expect(found).not.toBeNull();
+    found.querySelector<HTMLElement>(".sw")!.click();
+    await vi.waitFor(() => expect(api.settingsPatch).toHaveBeenCalledWith(expect.objectContaining({ threads: expect.any(Boolean) })));
+    expect(heading()).toBe("Найти настройку");
+  });
+
+  it("walks from the search to the first row found with ↓ and changes it with the arrows", async () => {
+    open("reading");
+    find("формат новых");
+    key(target.querySelector(".psearch input")!, "ArrowDown");
+    expect(document.activeElement).toBe(row("compose_format"));
+    key(row("compose_format"), "ArrowRight");
+    await vi.waitFor(() => expect(api.settingsPatch).toHaveBeenCalledWith(expect.objectContaining({ compose_format: expect.any(String) })));
+  });
+
+  it("finds a field of a mailbox's page, and its link opens the page at the field", async () => {
+    open("reading", mailboxes);
+    find("подпис");
+    const hit = hitRow("Подписи");
+    expect(hit.closest("section")!.querySelector("h4")!.textContent).toBe("Работа");
+    hit.querySelector<HTMLElement>(".lnk")!.click();
+    await vi.waitFor(() => expect(target.querySelector(".account-page [data-settings='acc-signatures']")).not.toBeNull());
+    expect(heading()).toBe("Работа");
+  });
+
+  it("finds a command of «Keys», and its link opens «Keys» at the command", async () => {
+    open("reading", mailboxes);
+    find("архив");
+    hitRow("Готово: убрать в архив").querySelector<HTMLElement>(".lnk")!.click();
+    await vi.waitFor(() => expect(heading()).toBe("Клавиши"));
+    await vi.waitFor(() => expect(target.querySelector(".kr[data-command='core.archive']")).not.toBeNull());
   });
 });
