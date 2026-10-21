@@ -142,6 +142,7 @@ const COMMANDS: &[&str] = &[
     "e2e_drop",
     "e2e_seed_message",
     "e2e_frame_probe",
+    "e2e_publish_dkim_key",
     "draft_cache_put",
     "draft_cache_list",
     "draft_cache_drop",

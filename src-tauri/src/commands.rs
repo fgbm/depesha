@@ -4254,6 +4254,20 @@ pub fn e2e_seed_message(state: St<'_>, account_id: String, html: Option<bool>) -
     Ok(id)
 }
 
+/// Test builds only (`e2e`): publishes the public key of a signed letter, as if the name
+/// servers of the internet had given it. The stand has no name server of its own, and a letter
+/// whose key nobody can look up is a letter nobody can confirm: the stand's letters would have
+/// no brand logo and the pictures of a trusted sender would stay hidden.
+///
+/// The key is the one the script signed the letter with; the record is the DKIM key record of
+/// that key (`v=DKIM1; k=…; p=…`). The name is the one the lookup asks about
+/// (`<selector>._domainkey.<domain>`).
+#[cfg(feature = "e2e")]
+#[tauri::command(async)]
+pub fn e2e_publish_dkim_key(state: St<'_>, name: String, record: String) -> CmdResult<bool> {
+    Ok(state.signatures.add_answer(&name, &record))
+}
+
 /// Test builds only (`e2e`): what a script that reached the app's IPC leaves behind. Called with a
 /// marker it records it, without one it lists what was recorded. A frame's own promise may never
 /// settle — the answer is delivered into the top document — so the run asks the app here, from the

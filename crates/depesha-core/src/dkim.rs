@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use mail_auth::common::crypto::{Algorithm, HashAlgorithm};
+use mail_auth::common::parse::TxtRecordParser;
 use mail_auth::common::verify::DomainKey;
 use mail_auth::dmarc::{Alignment, Dmarc};
 use mail_auth::hickory_resolver::TokioResolver;
@@ -376,6 +377,22 @@ impl Verifier {
             letters.insert(id, (digest(raw), address.trim().to_owned(), verdict, Instant::now()));
         }
         verdict
+    }
+
+    /// Adds a DNS answer to the cache of the check, as if the name servers had given it. The
+    /// e2e build uses it to publish the key of a signed letter of the stand: the stand has no
+    /// name server of its own, and a letter with a key nobody can look up is a letter nobody
+    /// can confirm.
+    pub fn add_answer(&self, name: &str, record: &str) -> bool {
+        let Ok(key) = DomainKey::parse(record.as_bytes()) else {
+            return false;
+        };
+        self.cache.insert(
+            name.to_owned().into_boxed_str(),
+            Txt::from(key),
+            Instant::now() + Duration::from_secs(3600),
+        );
+        true
     }
 
     fn authenticator(&self) -> Option<MessageAuthenticator> {
@@ -1305,6 +1322,23 @@ mod tests {
         let signed = sign_rfc_with(key, "1c-bitrix.ru", "s1", &["from", "to", "subject"], &[], LETTER);
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(v.check_headers(signed.as_bytes(), SENDER, "to").await, Headers::Valid);
+    }
+
+    #[tokio::test]
+    async fn a_published_key_confirms_the_letter() {
+        // The e2e build publishes the key of the stand's letter: the check asks the name and the
+        // answer is there.
+        let (key, record) = keypair();
+        let signed = sign_rfc(key, "1c-bitrix.ru", LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
+        // A verifier with an empty cache asks the name servers and gets nothing.
+        let v = dns([]);
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Unchecked);
+        // The published answer reaches the check.
+        let v = dns([]);
+        assert!(v.add_answer("s1._domainkey.1c-bitrix.ru.", &record));
+        assert_eq!(v.check(signed.as_bytes(), SENDER).await, Signature::Aligned);
     }
 
     #[tokio::test]

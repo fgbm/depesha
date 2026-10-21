@@ -18,9 +18,27 @@ const LOGOS = {
  * one of the two spellings of a person (both have letters, to be merged on a picture) gets a
  * note; the logos are in the cache as if the lookup had found them.
  */
+/**
+ * Publishes the key of the signed letter of the stand, as the name servers of the internet would
+ * have given it. The stand has no name server, and a letter whose key nobody can look up is a
+ * letter nobody can confirm: the app's own check (ступень 3) would find nothing.
+ *
+ * It is done in the shooting session, not in the seed: the app is restarted after the seed, and
+ * the published answer lives in the memory of the session that was told it.
+ */
+export async function publishDkimKey(kit) {
+  const key = JSON.parse(kit.helper("dkim-key"));
+  await kit.invoke("e2e_publish_dkim_key", { name: key.name, record: key.record });
+}
+
 export async function seed080(kit, account, now) {
   const { invoke, db } = kit;
   await invoke("account_patch_own", { id: account, patch: { label: "Работа", color: "#3d7ea6" } });
+  // The key of the signed letter of the stand: the stand has no name server, so the app is
+  // told what the name servers of the internet would have said (0.8.13, ступень 3).
+  // The sender of the signed letter is trusted: the app's own check is made for a trusted
+  // sender only (the pictures of a letter of an unknown sender stay hidden).
+  db(`INSERT OR IGNORE INTO trusted_senders (email) VALUES ('contract@example.org');`);
   await invoke("person_save", {
     person: { email: "olga.smirnova@example.org", name: "Ольга Смирнова", note: "Согласует графики поставок. Пишет с двух адресов; лучше звонить до обеда." },
   });

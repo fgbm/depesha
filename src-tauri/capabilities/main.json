@@ -155,6 +155,7 @@
     "allow-e2e-drop",
     "allow-e2e-seed-message",
     "allow-e2e-frame-probe",
+    "allow-e2e-publish-dkim-key",
     "allow-draft-cache-put",
     "allow-draft-cache-list",
     "allow-draft-cache-drop"

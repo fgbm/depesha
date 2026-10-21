@@ -445,6 +445,8 @@ pub fn run() {
             commands::e2e_seed_message,
             #[cfg(feature = "e2e")]
             commands::e2e_frame_probe,
+            #[cfg(feature = "e2e")]
+            commands::e2e_publish_dkim_key,
             drafts::draft_cache_put,
             drafts::draft_cache_list,
             drafts::draft_cache_drop,

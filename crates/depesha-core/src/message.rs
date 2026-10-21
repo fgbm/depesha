@@ -383,11 +383,28 @@ pub fn parse_summary(raw: &[u8]) -> Summary {
     }
 }
 
-/// The summary of the headers received by `receiver`, with its DMARC verdict (#108).
+/// The summary of the headers received by `receiver`, with its verdict about the sender (#108).
+///
+/// The flag says the letter may carry a brand logo, and it is the ladder's own answer for the
+/// steps where a logo is due (0.8.13, 4.1 Б): the server's word about the sender, and only when
+/// the letter has one `From` that both readers see.
 pub fn parse_summary_for(raw: &[u8], receiver: &Receiver) -> Summary {
     let mut summary = parse_summary(raw);
-    summary.dmarc = authenticity(raw, receiver).dmarc;
+    summary.dmarc = brand_logo_due(raw, receiver);
     summary
+}
+
+/// Whether the letter may carry a brand logo by the server's word alone: the ladder's steps 1
+/// and 2, and only when the letter has one `From` that both readers of its headers see (#167).
+pub fn brand_logo_due(raw: &[u8], receiver: &Receiver) -> bool {
+    let auth = authenticity(raw, receiver);
+    if !auth.dmarc {
+        return false;
+    }
+    let Some(from) = parse_summary(raw).from else {
+        return false;
+    };
+    sole_from(raw).is_some_and(|sole| sole == from.email.trim().to_lowercase())
 }
 
 pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
@@ -1225,6 +1242,22 @@ JVBERi0xLjQK\r\n\
             vouches: true,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_logo_follows_the_ladder_of_the_sender() {
+        // 0.8.13, 4.1 Б: the flag in the list is the ladder's own answer, not the server's word
+        // alone: a letter with two `From` headers is not from anybody, logo or no.
+        let ours = receiver("example.net");
+        let pass = "Authentication-Results: mx.example.net; dmarc=pass header.from=example.org\r\n";
+        let raw = format!("{pass}From: One <a@example.org>\r\nFrom: Two <b@example.org>\r\n");
+        assert!(!parse_summary_for(raw.as_bytes(), &ours).dmarc);
+        // One From: the server's word is enough.
+        let raw = format!("{pass}From: One <a@example.org>\r\n");
+        assert!(parse_summary_for(raw.as_bytes(), &ours).dmarc);
+        // A server's word about another organization is no word about the From.
+        let raw = "Authentication-Results: mx.example.net; dmarc=pass header.from=example.com\r\nFrom: One <a@example.org>\r\n";
+        assert!(!parse_summary_for(raw.as_bytes(), &ours).dmarc);
     }
 
     #[test]

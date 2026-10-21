@@ -15,9 +15,10 @@
 
 import base64
 import email
-import hashlib
 import email.utils
+import hashlib
 import imaplib
+import json
 import socket
 import sys
 import time
@@ -307,6 +308,29 @@ def demo_files(subject, sender, when, mid, to, names):
     return "".join(parts).encode()
 
 
+def signed_letter(subject, body, sender, to, when, mid):
+    """A letter with a real DKIM signature (0.8.13): the stand has no name server, and the
+    e2e run publishes the key to the app, so the letter is confirmed by the app's own check."""
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent / "fixtures"))
+    import dkim_sign
+    date = email.utils.formatdate(when, localtime=True)
+    b64 = lambda text: "=?utf-8?B?" + base64.b64encode(text.encode()).decode() + "?="
+    frm_name, frm_addr = sender.split(" <")
+    frm = b64(frm_name) + " <" + frm_addr
+    raw = dkim_sign.signed_letter(
+        b64(subject),
+        frm.encode(),
+        to.encode(),
+        body,
+        date,
+        mid,
+    )
+    head, _, rest = raw.partition(b"\r\n\r\n")
+    return head + b"\r\nMessage-ID: <" + mid.encode() + b">\r\nMIME-Version: 1.0\r\n" + (
+        b"Content-Type: text/plain; charset=utf-8\r\n\r\n" + rest
+    )
+
+
 def demo_seed(version=""):
     """Tidy, reproducible mail for the README screenshots (e2e/shots.mjs).
 
@@ -364,6 +388,14 @@ def demo_seed(version=""):
     put("INBOX", "Счёт на оплату", "Бухгалтерия <billing@example.org>",
         "Просим оплатить счёт до 15 октября.", base - 2 * day, "invoice-15@example.org",
         extra=(dmarc("example.org") + "Importance: high\r\n") if v8 else "")
+    if v8:
+        # A really signed letter: the app's own check confirms it (ступень 3), and the brand
+        # logo of the sender stands next to it in the list. The stand has no name server, so
+        # the e2e run publishes the key (e2e_publish_dkim_key).
+        append(c, "INBOX", signed_letter(
+            "Договор на подпись", "Прошу подписать договор, приложенный к письму.",
+            "Контрагенты <contract@example.org>", me, base - 2 * day, "contract-1@example.org",
+        ), "(\\Seen)", base - 2 * day)
     shop = "shop.example.net" if v8 else "shop.example.org"
     put("INBOX", "Монтаж и освещение: ноябрьские скидки", f"Магазин «Свет и монтаж» <news@{shop}>",
         "Скидки на монтаж и освещение до конца ноября.",
@@ -500,6 +532,13 @@ def main():
         return
     if cmd == "demo-seed":
         demo_seed(sys.argv[2] if len(sys.argv) > 2 else "")
+        return
+    if cmd == "dkim-key":
+        # The key of the signed letter of the stand: the name it is asked about and the record
+        # the name servers of the internet would have given.
+        sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent / "fixtures"))
+        import dkim_sign
+        print(json.dumps({"name": dkim_sign.NAME, "record": dkim_sign.key_record()}))
         return
     if cmd == "reply":
         reply(sys.argv[2], sys.argv[3])

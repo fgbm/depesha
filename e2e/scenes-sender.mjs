@@ -4,7 +4,7 @@
 // so the line over the letter names the reason; then the page of the mailbox with the switch
 // «Доверять по адресу, если проверить нельзя».
 
-import { seed080 } from "./scenes-080.mjs";
+import { publishDkimKey, seed080 } from "./scenes-080.mjs";
 
 /** A letter of a trusted sender with pictures: the line over it names the reason. */
 export async function seedSenderTrust(kit, account, now) {
@@ -18,6 +18,16 @@ export async function seedSenderTrust(kit, account, now) {
 /** The line over a letter whose sender is not confirmed, and the page of the mailbox. */
 export async function senderTrustShots(kit, out) {
   const { d, sleep, textOf, shot, openBySubject, press, closeSettings } = kit;
+  // The key of the signed letter: the app was restarted after the seed, and the answer lives in
+  // the memory of the session that was told it.
+  await publishDkimKey(kit);
+
+  // The signed letter: the app's own check confirms it, and the brand logo stands next to it
+  // in the list (0.8.13, ступень 3).
+  await openBySubject("Договор на подпись");
+  await d.until("the check", async () => (await textOf(".reader")).includes("Договор"), 15000);
+  await sleep(1500);
+  await shot("00-signed-letter");
 
   // The line over the letter: the mailbox's server did not confirm the sender.
   await openBySubject("Смета на монтаж с картинками");
