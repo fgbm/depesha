@@ -58,7 +58,7 @@ component	src/components/account/FieldError.svelte	18	7	5	6
 component	src/components/account/FoldersTable.svelte	186	53	34	99
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	45	15	14	16
-component	src/components/account/LabelsSection.svelte	308	99	94	115
+component	src/components/account/LabelsSection.svelte	306	100	90	116
 component	src/components/account/LetterViewField.svelte	25	12	13	0
 component	src/components/account/LettersSection.svelte	20	11	9	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
@@ -316,6 +316,7 @@ function	src/components/Compose.client.test.ts::altKey	4
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::openCopyField	17
 function	src/components/Compose.svelte::openPart	17
+function	src/components/Compose.svelte::caretToEnd	7
 function	src/components/Compose.svelte::dropFile	12
 function	src/components/Compose.svelte::onFileKey	5
 function	src/components/Compose.svelte::closePartsNote	3
@@ -361,10 +362,15 @@ function	src/components/LabelPicker.svelte::remove	13
 function	src/components/LabelPicker.test.ts::row	1
 function	src/components/LetterViewSwitch.svelte::pick	4
 function	src/components/MailFrame.keys.test.ts::frameOf	2
+function	src/components/MailFrame.keys.test.ts::fromFrame	3
+function	src/components/MailFrame.keys.test.ts::key	12
+function	src/components/MailFrame.keys.test.ts::status	8
+function	src/components/MailFrame.keys.test.ts::told	7
 function	src/components/MailFrame.svelte::themeCss	9
 function	src/components/MailFrame.svelte::markdownCss	9
-function	src/components/MailFrame.svelte::repaint	7
-function	src/components/MailFrame.svelte::attach	35
+function	src/components/MailFrame.svelte::repaint	3
+function	src/components/MailFrame.svelte::sync	4
+function	src/components/MailFrame.svelte::onMessage	31
 function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MessageList.svelte::tagsOf	3
 function	src/components/MessageList.svelte::folderLabel	9
@@ -472,6 +478,7 @@ function	src/components/SearchBox.svelte::clear	5
 function	src/components/SearchBox.svelte::onKey	21
 function	src/components/SearchBox.svelte::addOperator	6
 function	src/components/SearchBox.svelte.test.ts::type	5
+function	src/components/SearchBox.svelte.test.ts::typer	12
 function	src/components/Select.svelte::pick	7
 function	src/components/Select.svelte::onKey	7
 function	src/components/SignaturePicker.svelte::pick	4
@@ -502,6 +509,8 @@ function	src/components/Viewer.svelte::go	4
 function	src/components/Viewer.svelte::onKey	20
 function	src/components/Viewer.svelte.test.ts::file	1
 function	src/components/Viewer.svelte.test.ts::giveUp	1
+function	src/components/Wizard.client.test.ts::input	6
+function	src/components/Wizard.client.test.ts::failedCheck	16
 function	src/components/Wizard.svelte::leave	3
 function	src/components/Wizard.svelte::onKey	8
 function	src/components/account/AccountPage.svelte::track	6
@@ -694,9 +703,14 @@ function	src/lib/accountForm.svelte.ts::parseLimit	5
 function	src/lib/accountForm.svelte.ts::fingerprint	3
 function	src/lib/accountForm.test.ts::waitingBrowser	8
 function	src/lib/actions.test.ts::inbox	7
+function	src/lib/actions.test.ts::many	6
 function	src/lib/actions.test.ts::dated	1
 function	src/lib/actions.test.ts::threaded	11
 function	src/lib/actions.test.ts::run	3
+function	src/lib/actions.test.ts::trashed	7
+function	src/lib/actions.test.ts::moves#1	1
+function	src/lib/actions.test.ts::moves#2	1
+function	src/lib/actions.test.ts::pressed	20
 function	src/lib/anchor.test.ts::row	1
 function	src/lib/anchor.ts::anchorOf	3
 function	src/lib/anchor.ts::placeMenu	13
@@ -736,6 +750,7 @@ function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
 function	src/lib/clearFolder.test.ts::fakeUi	11
 function	src/lib/clearFolder.test.ts::host	25
+function	src/lib/commands.test.ts::folder	2
 function	src/lib/commands.ts::readableFolder	5
 function	src/lib/commands.ts::coreCommands	129
 function	src/lib/compose.test.ts::sig	3
@@ -882,7 +897,19 @@ function	src/lib/format.ts::badgeCount	3
 function	src/lib/format.ts::avatarColor	5
 function	src/lib/format.ts::initials	9
 function	src/lib/format.ts::matches	8
+function	src/lib/frameKeys.ts::frameTakes	14
 function	src/lib/frameLink.ts::linkAt	3
+function	src/lib/frameRelay.test.ts::frameEnv	17
+function	src/lib/frameRelay.test.ts::press	1
+function	src/lib/frameRelay.test.ts::stops	5
+function	src/lib/frameRelay.ts::send	4
+function	src/lib/frameRelay.ts::hrefOf	3
+function	src/lib/frameRelay.ts::linkAt	3
+function	src/lib/frameRelay.ts::ours	8
+function	src/lib/frameRelay.ts::themeMessage	5
+function	src/lib/frameRelay.ts::keysMessage	1
+function	src/lib/frameRelay.ts::toFrame	3
+function	src/lib/frameRelay.ts::frameMessage	10
 function	src/lib/hints.svelte.test.ts::draft	2
 function	src/lib/hints.svelte.ts::now	3
 function	src/lib/hints.svelte.ts::bySubject	5
@@ -930,6 +957,7 @@ function	src/lib/keymap.ts::typed	4
 function	src/lib/keymap.ts::physical	8
 function	src/lib/keymap.ts::pressName	6
 function	src/lib/keymap.ts::pressNames	8
+function	src/lib/keymap.ts::frameKey	15
 function	src/lib/keymap.ts::heldMods	7
 function	src/lib/keymap.ts::modName	3
 function	src/lib/keymap.ts::partName	5
@@ -1083,12 +1111,12 @@ function	src/lib/markdown/table.ts::setAlign	5
 function	src/lib/markdown/table.ts::moveCell	7
 function	src/lib/markdown/table.ts::cellOffset	9
 function	src/lib/markdown/tableWidget.test.ts::viewOf	1
+function	src/lib/markdown/tableWidget.test.ts::rule	1
 function	src/lib/markdown/tableWidget.ts::openMenu	34
 function	src/lib/markdown/tableWidget.ts::cellOf	7
 function	src/lib/markdown/tableWidget.ts::step	38
 function	src/lib/markdown/tableWidget.ts::drop	29
 function	src/lib/markdown/tableWidget.ts::up	15
-function	src/lib/markdown/tableWidget.ts::corner	5
 function	src/lib/markdown/tableWidget.ts::mid	4
 function	src/lib/marks.ts::moment	13
 function	src/lib/marks.ts::groups	8
@@ -1111,6 +1139,7 @@ function	src/lib/people.ts::hasAddress	4
 function	src/lib/people.ts::findPerson	4
 function	src/lib/people.ts::allMailQuery	6
 function	src/lib/people.ts::strictestFormat	3
+function	src/lib/people.ts::ruleNarrows	3
 function	src/lib/people.ts::sendFormatFor	3
 function	src/lib/people.ts::recipientParts	7
 function	src/lib/people.ts::autoFormat	4
@@ -1220,6 +1249,7 @@ function	src/lib/searchSuggest.test.ts::ctx	7
 function	src/lib/searchSuggest.ts::lastToken	10
 function	src/lib/searchSuggest.ts::applyCompletion	4
 function	src/lib/searchSuggest.ts::completions	45
+function	src/lib/searchSuggest.ts::awaitsValue	7
 function	src/lib/searchSuggest.ts::folderCompletions	16
 function	src/lib/searchSuggest.ts::yearRange	4
 function	src/lib/selection.svelte.ts::seen	6
