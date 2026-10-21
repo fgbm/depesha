@@ -95,14 +95,14 @@ describe("the suggestions of a recipient field", () => {
 });
 
 describe("the chip of an address", () => {
-  const LONG = { name: "Анастасия Вячеславовна Селиванова", email: "an.selivanova@tmssc.ru" };
+  const LONG = { name: "Мария Константиновна Заречная", email: "m.zarechnaya@example.org" };
 
   it("is one line: the name, then the address, and the whole text in the title", () => {
     show([LONG]);
     const chip = target.querySelector<HTMLElement>(".chip")!;
-    expect(chip.title).toBe("Анастасия Вячеславовна Селиванова <an.selivanova@tmssc.ru>");
+    expect(chip.title).toBe("Мария Константиновна Заречная <m.zarechnaya@example.org>");
     expect(chip.querySelector(".nm")?.textContent).toBe(LONG.name);
-    expect(chip.querySelector(".ad")?.textContent).toBe("an.selivanova@tmssc.ru");
+    expect(chip.querySelector(".ad")?.textContent).toBe("m.zarechnaya@example.org");
     expect(chip.querySelector("br")).toBeNull();
     expect(chip.textContent).not.toContain("<");
     const who = chip.querySelector<HTMLElement>(".who")!;
