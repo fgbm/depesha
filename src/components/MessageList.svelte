@@ -802,6 +802,7 @@
   }
 
   .subject {
+    flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -810,6 +811,7 @@
   /* The beginning of the letter's text (#177): grey even on an unread row, one line,
      cut to the place left after the subject. */
   .preview {
+    flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
