@@ -48,8 +48,9 @@ component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	254	102	42	110
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	233	27	92	114
-component	src/components/account/AccountPage.svelte	286	94	39	153
+component	src/components/account/AccountPage.svelte	272	94	36	142
 component	src/components/account/AttachmentsDirField.svelte	12	6	6	0
+component	src/components/account/AttachmentsDirSelect.svelte	36	32	4	0
 component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	62	7	13	42
 component	src/components/account/ConnectionFields.svelte	189	10	60	119
@@ -64,7 +65,7 @@ component	src/components/account/LettersSection.svelte	20	11	9	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
-component	src/components/account/StorageSection.svelte	487	73	173	241
+component	src/components/account/StorageSection.svelte	443	79	164	200
 component	src/components/account/WaitingField.svelte	50	20	24	6
 component	src/components/people/MergeDialog.svelte	244	65	93	86
 component	src/components/people/PeopleView.svelte	578	230	126	222
@@ -410,6 +411,7 @@ function	src/components/Preferences.svelte::pluginAbout	6
 function	src/components/Preferences.svelte::entryTitle	7
 function	src/components/Preferences.svelte::liveRow	5
 function	src/components/Preferences.svelte::wayRow	8
+function	src/components/Preferences.svelte::addressOf	4
 function	src/components/Preferences.svelte::openHit	8
 function	src/components/Preferences.svelte::reveal	10
 function	src/components/Preferences.svelte::close	4
@@ -526,6 +528,7 @@ function	src/components/account/AccountPage.svelte::scrollTo	5
 function	src/components/account/AccountPage.svelte::onInput	3
 function	src/components/account/AccountPage.svelte::onKeydown	3
 function	src/components/account/AccountPage.test.ts::open	18
+function	src/components/account/AttachmentsDirSelect.svelte::pick	12
 function	src/components/account/ConnectionSection.svelte::onKey	12
 function	src/components/account/FoldersTable.svelte::access	8
 function	src/components/account/FoldersTable.svelte::labelsOf	10
@@ -554,10 +557,10 @@ function	src/components/account/SignaturesField.svelte::grab	6
 function	src/components/account/SignaturesField.svelte::drag	17
 function	src/components/account/SignaturesField.svelte::onRowKey	15
 function	src/components/account/StorageSection.svelte::folderName	3
-function	src/components/account/StorageSection.svelte::useQuota	4
-function	src/components/account/StorageSection.svelte::useOwn	4
+function	src/components/account/StorageSection.svelte::pickLimit	10
 function	src/components/account/StorageSection.svelte::findLarge	5
 function	src/components/account/StorageSection.svelte::openTrash	6
+function	src/components/account/StorageSection.svelte.test.ts::pick	6
 function	src/components/account/sections.ts::sectionsFor	3
 function	src/components/dialogsClose.client.test.ts::show	7
 function	src/components/dialogsClose.client.test.ts::esc	4
