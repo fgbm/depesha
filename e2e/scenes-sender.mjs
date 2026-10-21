@@ -23,10 +23,19 @@ export async function senderTrustShots(kit, out) {
   await publishDkimKey(kit);
 
   // The signed letter: the app's own check confirms it, and the brand logo stands next to it
-  // in the list (0.8.13, ступень 3).
+  // in the reader and in the list (0.8.13, ступень 3). The list learns the verdict when the
+  // letter is opened, so it is reloaded before the picture.
   await openBySubject("Договор на подпись");
   await d.until("the check", async () => (await textOf(".reader")).includes("Договор"), 15000);
   await sleep(1500);
+  await kit.openFolder("Архив");
+  await sleep(800);
+  await kit.openFolder("Входящие");
+  await d.until("the list is back", async () => (await textOf(".list")).includes("Договор"), 15000);
+  await sleep(800);
+  // The letter is opened again, so the picture shows the list with the logo and the letter.
+  await openBySubject("Договор на подпись");
+  await sleep(1000);
   await shot("00-signed-letter");
 
   // The line over the letter: the mailbox's server did not confirm the sender.
