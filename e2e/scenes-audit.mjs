@@ -27,7 +27,7 @@ export async function seedAudit(kit, account, now) {
 
 const LOOK = process.env.SHOTS_LOOK ?? "ink";
 const BASE = process.env.SHOTS_LIGHT ?? "light";
-const LOOK_NAMES = { ink: "Чернила", pine: "Хвоя", office: "Канцелярия", wax: "Сургуч", salt: "Морская соль", paper: "Бумага" };
+const LOOK_NAMES = { ink: "Чернила", pine: "Хвоя", office: "Канцелярия", wax: "Сургуч", salt: "Морская соль", paper: "Бумага", snow: "Снег" };
 
 export async function auditShots(kit, out) {
   const { d, sleep, textOf, shot, press, invoke, openFolder, openBySubject, rowBySubject, palette, setInput, closeSettings } = kit;

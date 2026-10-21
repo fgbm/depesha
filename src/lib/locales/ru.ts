@@ -647,6 +647,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "settings.look.paper": "Бумага",
   "settings.look.pine": "Хвоя",
   "settings.look.salt": "Морская соль",
+  "settings.look.snow": "Снег",
   "settings.look.wax": "Сургуч",
   "settings.theme.dark": "Тёмная",
   "settings.theme.light": "Светлая",

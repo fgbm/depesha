@@ -1,5 +1,5 @@
 /** The looks in the order the tiles stand and ← / → go; «Ink» is the default (0.8.12). */
-export const LOOKS = ["ink", "pine", "office", "wax", "salt", "paper"] as const;
+export const LOOKS = ["ink", "pine", "office", "wax", "salt", "paper", "snow"] as const;
 export type Look = (typeof LOOKS)[number];
 
 /** The light, apart from the look: its own setting, «Theme». */
@@ -9,12 +9,19 @@ export type Scheme = (typeof SCHEMES)[number];
 const KEY = "depesha.theme";
 const LOOK_KEY = "depesha.look";
 
-// Before 0.8.12 a theme was a look and a light at once; the old light ones and the old dark
-// ones all become «Ink».
-const OLD: Record<string, Scheme> = { paper: "light", snow: "light", night: "dark", graphite: "dark" };
+// Before 0.8.12 a theme was a look and a light at once. «Snow» and «Graphite» are back as the
+// light and the dark of the «Snow» look (0.8.13); the others all become «Ink».
+const OLD: Record<string, Scheme> = { paper: "light", night: "dark" };
+/** The old themes that are a look of their own now: the look they become and the light with it. */
+const RESTORED: Record<string, { look: Look; scheme: Scheme }> = {
+  snow: { look: "snow", scheme: "light" },
+  graphite: { look: "snow", scheme: "dark" },
+};
 
 /** What a saved pair means: a light and a look, whatever version saved them. */
 export function themeOf(theme: string, look: string): { look: Look; scheme: Scheme } {
+  const restored = RESTORED[theme];
+  if (restored) return restored;
   const scheme = OLD[theme] ?? ((SCHEMES as readonly string[]).includes(theme) ? (theme as Scheme) : "system");
   return { look: (LOOKS as readonly string[]).includes(look) ? (look as Look) : "ink", scheme };
 }

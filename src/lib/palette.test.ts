@@ -88,7 +88,9 @@ describe("the default", () => {
     expect(css).toMatch(/:root,\s*:root\[data-theme="ink-light"\]/);
   });
 
-  it("has no themes of before 0.8.12 left", () => {
-    for (const old of ["night", "snow", "graphite", "paper"]) expect(css).not.toContain(`[data-theme="${old}"]`);
+  it("has no themes of before 0.8.12 left, but «Snow» is a look of its own", () => {
+    for (const old of ["night", "graphite", "paper"]) expect(css).not.toContain(`[data-theme="${old}"]`);
+    expect(css).toContain('[data-theme="snow-light"]');
+    expect(css).toContain('[data-theme="snow-dark"]');
   });
 });

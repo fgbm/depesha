@@ -655,6 +655,7 @@ export const en = {
   "settings.look.paper": "Paper",
   "settings.look.pine": "Pine",
   "settings.look.salt": "Sea salt",
+  "settings.look.snow": "Snow",
   "settings.look.wax": "Wax",
   "settings.theme.dark": "Dark",
   "settings.theme.light": "Light",

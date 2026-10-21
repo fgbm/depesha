@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOOKS, applySavedTheme, applyTheme, themeOf } from "./theme";
 
 describe("the saved theme", () => {
-  it("moves the themes of before 0.8.12 onto «Ink», keeping their light", () => {
+  it("moves the themes of before 0.8.12 that are no looks onto «Ink», keeping their light", () => {
     expect(themeOf("paper", "ink")).toEqual({ look: "ink", scheme: "light" });
-    expect(themeOf("snow", "ink")).toEqual({ look: "ink", scheme: "light" });
     expect(themeOf("night", "ink")).toEqual({ look: "ink", scheme: "dark" });
-    expect(themeOf("graphite", "ink")).toEqual({ look: "ink", scheme: "dark" });
     expect(themeOf("system", "ink")).toEqual({ look: "ink", scheme: "system" });
+  });
+
+  it("brings «Snow» and «Graphite» back as the light and the dark of «Snow» (0.8.13)", () => {
+    expect(themeOf("snow", "ink")).toEqual({ look: "snow", scheme: "light" });
+    expect(themeOf("graphite", "ink")).toEqual({ look: "snow", scheme: "dark" });
   });
 
   it("reads a look and a light as they are, and «Ink» as the system says for what it does not know", () => {
@@ -55,7 +58,7 @@ describe("the root's data-theme", () => {
     dark = false;
     store.set("depesha.theme", "graphite");
     applySavedTheme();
-    expect(root.dataset.theme).toBe("ink-dark");
+    expect(root.dataset.theme).toBe("snow-dark");
     applyTheme("light", "wax");
     root.dataset = {};
     applySavedTheme();

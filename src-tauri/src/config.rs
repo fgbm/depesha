@@ -43,8 +43,12 @@ pub struct Settings {
     /// before 0.8.12 (`paper`, `night`, `snow`, `graphite`) are read by `src/lib/theme.ts`.
     #[cfg_attr(test, ts(type = "\"system\" | \"light\" | \"dark\""))]
     pub theme: String,
-    /// The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt` or `paper`.
-    #[cfg_attr(test, ts(type = "\"ink\" | \"pine\" | \"office\" | \"wax\" | \"salt\" | \"paper\""))]
+    /// The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt`,
+    /// `paper` or `snow`.
+    #[cfg_attr(
+        test,
+        ts(type = "\"ink\" | \"pine\" | \"office\" | \"wax\" | \"salt\" | \"paper\" | \"snow\"")
+    )]
     pub look: String,
     /// Built-in plugins switched off, by id (`plugins/<id>`).
     #[serde(alias = "disabled_modules")]

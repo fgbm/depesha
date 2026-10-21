@@ -338,6 +338,60 @@
   color-scheme: dark;
 }
 
+/* «Snow»: the palette of before 0.8.12, its contrast fixed. The light one is the old «Snow»,
+   the dark one the old «Graphite». */
+:root[data-theme="snow-light"],
+[data-palette="snow-light"] {
+  --paper: #ffffff;
+  --paper-2: #f5f6f8;
+  --ink: #1b1f24;
+  --muted: #5f6773;
+  --line: #e3e6ea;
+  --hover: #f0f2f5;
+  --selected: #e3e8ef;
+  --accent: #b3261e;
+  --accent-ink: #ffffff;
+  --accent-text: #b3261e;
+  --link: #1d5fbf;
+  --bad: #b3261e;
+  --ok: #1a6b45;
+  --warn: #8a5300;
+  --imp: #7c4a00;
+  --side: #f3f4f6;
+  --side-2: #e5e7eb;
+  --side-ink: #1f2937;
+  --side-muted: #616a77;
+  --side-warn: #8a5300;
+  --side-alert: #b3261e;
+  color-scheme: light;
+}
+
+:root[data-theme="snow-dark"],
+[data-palette="snow-dark"] {
+  --paper: #1c1c1e;
+  --paper-2: #232325;
+  --ink: #e6e6e6;
+  --muted: #b5b5ba;
+  --line: #2e2e31;
+  --hover: #2a2a2d;
+  --selected: #45454d;
+  --accent: #c93b33;
+  --accent-ink: #ffffff;
+  --accent-text: #e8796f;
+  --link: #8ab4f8;
+  --bad: #e8796f;
+  --ok: #5fb98a;
+  --warn: #e0a83c;
+  --imp: #e0a83c;
+  --side: #26272b;
+  --side-2: #313237;
+  --side-ink: #dcdde0;
+  --side-muted: #8e9096;
+  --side-warn: #e0a83c;
+  --side-alert: #ff9c93;
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }

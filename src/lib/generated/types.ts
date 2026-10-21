@@ -277,7 +277,12 @@ acts_on?: ActsOn | null,
  * The sender asks to read the letter first (#72): `Importance: high` and `X-Priority: 1`.
  * The window offers high only; a normal letter says nothing.
  */
-importance?: Importance, };
+importance?: Importance, 
+/**
+ * The word a picture of the letter stands for in the plain part, in the language of the
+ * interface: the core knows no language, so the caller brings it. Empty is English.
+ */
+picture_word?: string, };
 
 export type Emptied = { 
 /**
@@ -893,9 +898,10 @@ language: "auto" | "en" | "ru",
  */
 theme: "system" | "light" | "dark", 
 /**
- * The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt` or `paper`.
+ * The colours apart from the light: `ink` (default), `pine`, `office`, `wax`, `salt`,
+ * `paper` or `snow`.
  */
-look: "ink" | "pine" | "office" | "wax" | "salt" | "paper", 
+look: "ink" | "pine" | "office" | "wax" | "salt" | "paper" | "snow", 
 /**
  * Built-in plugins switched off, by id (`plugins/<id>`).
  */
