@@ -1,0 +1,1422 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Цветовое оформление: шесть направлений (0.8.12)</title>
+<style>
+/* Макет к 0.8.12. Окно главного экрана — как app.css 0.8.11 и кадры 01-main-light, 01-main-dark,
+   06-compose-recipients: боковая панель, список с выбранной строкой и курсором, читалка, окно письма,
+   «Написать», уведомление. Токены названы как в app.css, чтобы победителя перенести механически. */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; padding: 28px 0 140px; background: #e7eaee; color: #1b2129; font: 14px/1.45 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; }
+.doc { width: 1360px; margin: 0 auto; }
+h1 { font-size: 25px; margin: 0 0 8px; letter-spacing: -0.01em; }
+.lead { max-width: 1020px; margin: 6px 0; line-height: 1.55; }
+.lead b { font-weight: 600; }
+.method { max-width: 1020px; color: #4e5764; font-size: 12.5px; line-height: 1.5; margin: 10px 0 4px; }
+table.q { border-collapse: collapse; font-size: 12.5px; line-height: 1.45; background: #fff; margin: 14px 0 6px; width: 100%; }
+table.q td, table.q th { border: 1px solid #d5dae1; padding: 6px 10px; text-align: left; vertical-align: top; }
+table.q th { background: #f3f5f8; font-weight: 600; }
+h2.screen { font-size: 20px; margin: 42px 0 4px; padding-top: 16px; border-top: 2px solid #c9cfd8; display: flex; gap: 10px; align-items: baseline; }
+h2.screen .n { background: #fff; border: 1px solid #d5dae1; border-radius: 5px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 15px; }
+h3.v { font-size: 15px; margin: 26px 0 6px; min-height: 80px; max-width: 1020px; }
+h3.v em { display: block; font-style: normal; font-weight: 400; color: #4e5764; font-size: 13px; margin-top: 4px; line-height: 1.5; }
+h3.v2 { min-height: 96px; }
+.rec { color: #14624a; font-weight: 700; font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; }
+.pair { display: flex; gap: 20px; align-items: flex-start; }
+.cell { width: 640px; flex: none; }
+.vlabel { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #6a7381; margin: 0 0 6px; }
+.ctwrap { display: flex; gap: 20px; margin: 6px 0 0; }
+.ct { width: 640px; font-size: 12px; color: #4e5764; margin: 0; font-variant-numeric: tabular-nums; }
+.ct b { color: #1b2129; font-weight: 600; }
+.ct b.no { color: #b3261e; text-decoration: line-through; text-decoration-thickness: 1px; }
+.ct-h { color: #6a7381; }
+.ct2 { margin-top: 2px; }
+.stripcell { width: 640px; }
+.strip { width: 640px; border-radius: 8px; overflow: hidden; background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); font-size: 13px; }
+.st-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--side); color: var(--side-ink); font-weight: 700; }
+.st-head .xs2 { color: var(--side-muted); }
+.st-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.st-btnrow { display: flex; align-items: center; gap: 10px; }
+.st-flag { display: inline-flex; }
+.st-row { display: flex; flex-direction: column; line-height: 1.35; }
+.st-line { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.st-pick { display: flex; flex-direction: column; gap: 2px; background: var(--selected); border-radius: 6px; padding: 7px 9px; font-size: 12.5px; }
+.st-pick .st-sel { font-weight: 600; }
+.dim { color: var(--muted); }
+.xs2 { font-size: 10.5px; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+/* ---- окно ---- */
+.winwrap { position: relative; width: 640px; }
+.win { width: 640px; height: 424px; display: flex; overflow: hidden; background: var(--paper); color: var(--ink); border-radius: 10px; box-shadow: 0 1px 2px rgb(18 24 32 / 8%), 0 10px 30px rgb(18 24 32 / 14%), 0 0 0 1px var(--line); font-size: 12px; position: relative; }
+.i { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.i.s13 { width: 13px; height: 13px; }
+.i.s12 { width: 12px; height: 12px; }
+.i.s11 { width: 11px; height: 11px; }
+.i.xs { width: 10px; height: 10px; }
+.seal { display: block; flex: none; }
+
+/* боковая панель */
+.w-side { width: 160px; flex: none; background: var(--side); color: var(--side-ink); display: flex; flex-direction: column; min-width: 0; }
+.s-brand { display: flex; align-items: center; gap: 5px; padding: 10px 6px 6px 9px; font-weight: 700; font-size: 13.5px; white-space: nowrap; }
+.s-brand .ver { font-size: 8.5px; font-weight: 400; color: var(--side-muted); align-self: flex-end; margin-bottom: 3px; }
+.s-brand .fold { margin-left: auto; color: var(--side-muted); display: inline-flex; }
+.s-compose { margin: 4px 8px 8px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 6px; font-size: 12px; font-weight: 600; }
+.s-item { display: flex; align-items: center; gap: 7px; padding: 4px 10px; font-size: 11.5px; white-space: nowrap; }
+.s-item .cnt { margin-left: auto; font-size: 10px; color: var(--side-muted); }
+.s-item.on { background: var(--side-2); }
+.s-acct { display: flex; align-items: center; gap: 5px; padding: 9px 10px 3px; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--side-muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.s-acct .dot { color: #5b9be0; }
+.s-foot { margin-top: auto; display: flex; align-items: center; gap: 5px; padding: 7px 9px; font-size: 11px; color: var(--side-muted); border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, transparent); }
+.s-foot .sp { flex: 1; }
+
+/* список */
+.w-list { width: 218px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; background: var(--paper); }
+.l-top { padding: 7px 8px 6px; border-bottom: 1px solid var(--line); }
+.search { display: flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; color: var(--muted); font-size: 10.5px; background: var(--paper); }
+.l-title { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 10px 4px; }
+.l-title b { font-size: 13.5px; }
+.l-title span { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; color: var(--muted); }
+.rows { padding: 0 5px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 6px; border-radius: 6px; }
+.row .ava { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.row .n { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.unread .n { font-weight: 800; }
+.row .cnt { display: inline-flex; align-items: center; margin-left: 4px; color: var(--muted); font-weight: 400; }
+.row .d { font-size: 10px; color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; }
+.row .fl { color: var(--accent-text); display: inline-flex; }
+.row .p { grid-column: 2 / -1; font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sz { display: none; }
+.row.sel { background: var(--selected); }
+.row.cur { background: var(--hover); }
+
+/* читалка */
+.w-read { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--paper); }
+.r-top { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.r-top .sp { flex: 1; }
+.r-act { display: inline-flex; align-items: center; gap: 3px; padding: 3px 4px; border-radius: 5px; font-size: 10.5px; white-space: nowrap; }
+.r-win { color: var(--muted); font-size: 10.5px; letter-spacing: 0.14em; padding-left: 6px; }
+.r-sub { padding: 10px 11px 2px; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-from { display: flex; gap: 7px; padding: 4px 11px 6px; align-items: flex-start; }
+.r-ava { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+.r-who { line-height: 1.45; min-width: 0; }
+.r-tools { padding: 0 11px 6px; }
+.attach { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; font-size: 10.5px; color: var(--ink); }
+.r-acts { display: flex; gap: 10px; padding: 2px 9px 7px; border-bottom: 1px solid var(--line); }
+.r-body { margin: 8px 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 11.5px; line-height: 1.55; min-height: 150px; }
+.r-body p { margin: 0 0 6px; }
+.r-reply { margin: auto 10px 10px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+
+/* наложение: окно письма и уведомление */
+.ov-compose { position: absolute; right: 12px; top: 44px; width: 430px; background: var(--paper); color: var(--ink); border-radius: 9px; overflow: hidden; box-shadow: 0 18px 50px rgb(10 14 20 / 34%), 0 0 0 1px rgb(0 0 0 / 10%); }
+.c-head { display: flex; align-items: center; gap: 7px; padding: 5px 8px; background: var(--side); color: var(--side-ink); }
+.c-title { flex: 1; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-mb { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; padding: 2px 6px; }
+.c-mb .dot { color: var(--link); }
+.c-hb { width: 20px; text-align: center; font-size: 12px; color: color-mix(in srgb, var(--side-ink) 82%, transparent); }
+.c-fields { padding: 2px 13px 0; }
+.c-row { display: flex; gap: 6px; align-items: flex-start; border-bottom: 1px solid var(--line); padding: 3px 0; }
+.c-lab { width: 46px; flex: none; color: var(--muted); padding-top: 3px; font-size: 11px; }
+.c-box { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; font-size: 11.5px; }
+.chip { display: inline-flex; align-items: center; background: var(--hover); border-radius: 11px; padding: 2px 7px; font-size: 11px; }
+.c-tools { display: flex; gap: 2px; padding: 5px 13px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.c-t { width: 20px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; border-radius: 4px; }
+.c-t.on { background: var(--selected); }
+.c-body { min-height: 96px; padding: 9px 14px; font-size: 11.5px; line-height: 1.55; }
+.c-body p { margin: 0; }
+.c-foot { display: flex; align-items: center; gap: 6px; padding: 8px 11px; border-top: 1px solid var(--line); font-size: 11px; }
+.c-foot .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 4px 9px; font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 4px 11px; }
+.ov-toast { position: absolute; left: 168px; bottom: 14px; display: flex; align-items: center; gap: 8px; background: var(--side); color: var(--side-ink); border-radius: 8px; padding: 8px 11px; font-size: 11px; box-shadow: 0 10px 30px rgb(10 14 20 / 30%); }
+.ov-toast .t-seal { display: inline-flex; }
+.ov-toast .t-act { color: var(--side-warn); font-weight: 600; padding-left: 4px; }
+.ov-toast .t-txt { white-space: nowrap; }
+
+/* таблица токенов */
+table.tbl { border-collapse: collapse; font-size: 12.5px; background: #fff; margin: 12px 0; width: 100%; }
+table.tbl td, table.tbl th { border: 1px solid #d5dae1; padding: 5px 9px; text-align: left; }
+table.tbl th { background: #f3f5f8; }
+table.tbl td code { white-space: nowrap; }
+.notes { max-width: 1020px; line-height: 1.55; padding-left: 20px; }
+.notes li { margin: 4px 0; }
+.notes b { font-weight: 600; }
+.fin { max-width: 1020px; background: #fff; border: 1px solid #d5dae1; border-radius: 8px; padding: 14px 18px; line-height: 1.6; margin-top: 14px; }
+.fin h3 { margin: 0 0 6px; font-size: 15px; }
+.t-now-light { --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf; --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --accent-text: #b3261e; --link: #1f5fa8; --bad: #b3261e; --ok: #2e7d4f; --warn: #b26a00; --imp: #8a5200; --side: #1f2a37; --side-2: #263444; --side-ink: #d5dde6; --side-muted: #8c99a8; --side-warn: #e3a63c; --side-alert: #ff8a80; }
+.t-now-dark { --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #adb3bb; --line: #2c323b; --hover: #222831; --selected: #3a4553; --accent: #b3261e; --accent-ink: #fff8f0; --accent-text: #b3261e; --link: #7fb0ec; --bad: #b3261e; --ok: #5fb57f; --warn: #e0a83c; --imp: #e3a63c; --side: #11161c; --side-2: #1a222b; --side-ink: #d5dde6; --side-muted: #8c99a8; --side-warn: #e3a63c; --side-alert: #ff8a80; }
+.t-ink-light { --paper: #f6f8fb; --paper-2: #edf1f6; --ink: #141a23; --muted: #5a6473; --line: #dce2ea; --hover: #e8eef6; --selected: #d7e3f2; --accent: #1c4f8f; --accent-ink: #ffffff; --accent-text: #1c4f8f; --link: #1a5aa8; --bad: #a62a24; --ok: #1a6b45; --warn: #8a5300; --imp: #7c4a00; --side: #17222e; --side-2: #1e2b39; --side-ink: #d3dde8; --side-muted: #93a2b3; --side-warn: #e0a83c; --side-alert: #ff9c93; }
+.t-ink-dark { --paper: #11151b; --paper-2: #171c24; --ink: #e2e8f0; --muted: #a5b0be; --line: #262e39; --hover: #1c232c; --selected: #29353f; --accent: #2b62a6; --accent-ink: #ffffff; --accent-text: #8ab4ea; --link: #8ab4ea; --bad: #e8796f; --ok: #5fb98a; --warn: #e0a83c; --imp: #e0a83c; --side: #0d1218; --side-2: #141b23; --side-ink: #d3dde8; --side-muted: #8fa0b2; --side-warn: #e0a83c; --side-alert: #ff9c93; }
+.t-hvoja-light { --paper: #f7f8f7; --paper-2: #eef1ef; --ink: #171b19; --muted: #58625c; --line: #dde3df; --hover: #e9eeeb; --selected: #d9e5dd; --accent: #14624a; --accent-ink: #ffffff; --accent-text: #14624a; --link: #1f5f9e; --bad: #a62a24; --ok: #1a6b45; --warn: #8a5300; --imp: #7c4a00; --side: #15201b; --side-2: #1c2923; --side-ink: #d4ded7; --side-muted: #8ea298; --side-warn: #e2b25a; --side-alert: #ff9c93; }
+.t-hvoja-dark { --paper: #121614; --paper-2: #181d1a; --ink: #e3e8e4; --muted: #a6b0aa; --line: #28302b; --hover: #1e2420; --selected: #2a3630; --accent: #1e7a5c; --accent-ink: #ffffff; --accent-text: #6fc79f; --link: #8ab4ea; --bad: #e8796f; --ok: #63c08f; --warn: #e2a94a; --imp: #e2a94a; --side: #0e1512; --side-2: #151f1a; --side-ink: #d4ded7; --side-muted: #8ba095; --side-warn: #e2b25a; --side-alert: #ff9c93; }
+.t-office-light { --paper: #ffffff; --paper-2: #f4f5f7; --ink: #12161c; --muted: #56606e; --line: #e0e3e8; --hover: #eef1f5; --selected: #dde4ee; --accent: #2b3442; --accent-ink: #ffffff; --accent-text: #2b3442; --link: #1b56a4; --bad: #a3231d; --ok: #1a6b45; --warn: #8a5300; --imp: #7c4a00; --side: #eef1f5; --side-2: #e0e6ee; --side-ink: #1b2330; --side-muted: #5c6775; --side-warn: #8a5300; --side-alert: #a3231d; }
+.t-office-dark { --paper: #101215; --paper-2: #16191d; --ink: #e6e8ec; --muted: #a3aab6; --line: #262b32; --hover: #1b1f25; --selected: #262d36; --accent: #46536a; --accent-ink: #ffffff; --accent-text: #9fb0cc; --link: #8ab4ea; --bad: #e8796f; --ok: #5fb98a; --warn: #e0a83c; --imp: #e0a83c; --side: #0b0d10; --side-2: #14171c; --side-ink: #dfe3e9; --side-muted: #8b929e; --side-warn: #e0a83c; --side-alert: #ff9c93; }
+.t-surguch-light { --paper: #f7f7f8; --paper-2: #eeeef0; --ink: #1a1a1d; --muted: #5c5c64; --line: #e0e0e4; --hover: #ecebee; --selected: #e6dde0; --accent: #7a2130; --accent-ink: #fff5f4; --accent-text: #7a2130; --link: #1d569e; --bad: #a8231d; --ok: #1a6b45; --warn: #8a5300; --imp: #7c4a00; --side: #221a1d; --side-2: #2b2226; --side-ink: #e0d6d8; --side-muted: #a29196; --side-warn: #e0a83c; --side-alert: #ff9c93; }
+.t-surguch-dark { --paper: #161315; --paper-2: #1d181a; --ink: #e9e2e3; --muted: #b3a7aa; --line: #2f2729; --hover: #241d1f; --selected: #332729; --accent: #a84452; --accent-ink: #ffffff; --accent-text: #e58a94; --link: #8ab4ea; --bad: #e8796f; --ok: #64bd8d; --warn: #e0a94a; --imp: #e0a94a; --side: #120e10; --side-2: #1a1517; --side-ink: #e0d6d8; --side-muted: #a29196; --side-warn: #e0a83c; --side-alert: #ff9c93; }
+.t-salt-light { --paper: #f5f8f8; --paper-2: #eaf0f0; --ink: #121a1b; --muted: #546266; --line: #d9e2e2; --hover: #e5eeed; --selected: #d3e5e3; --accent: #0f5b62; --accent-ink: #ffffff; --accent-text: #0f5b62; --link: #1a5f9e; --bad: #a62a24; --ok: #1a6b45; --warn: #8a5300; --imp: #7c4a00; --side: #10262a; --side-2: #17343a; --side-ink: #d3e3e4; --side-muted: #87a3a7; --side-warn: #e3b45c; --side-alert: #ff9c93; }
+.t-salt-dark { --paper: #0f1617; --paper-2: #151e1f; --ink: #e1eaea; --muted: #a3b2b3; --line: #253233; --hover: #1a2425; --selected: #243335; --accent: #16737c; --accent-ink: #ffffff; --accent-text: #6fc3c9; --link: #8ab4ea; --bad: #e8796f; --ok: #5fbd8e; --warn: #e3aa4a; --imp: #e3aa4a; --side: #0a1113; --side-2: #122122; --side-ink: #d3e3e4; --side-muted: #87a3a7; --side-warn: #e3b45c; --side-alert: #ff9c93; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs></defs></svg>
+<div class="doc">
+<h1>Цветовое оформление: шесть направлений вместо кремово-терракотового</h1>
+<p class="lead">Один и тот же экран — боковая панель, список с выбранной строкой и курсором, читалка, кнопка «Написать» — в светлой и тёмной теме рядом. Первым стоит «как сейчас», дальше пять направлений. Числа под каждой парой — контраст по WCAG; зачёркнутое и красное число ниже порога 4,5:1.</p>
+<p class="method">Знак нарисован приблизительно: зубчатая печать с антиквенной «Д» в кольце. Настоящий знак — <code>dist/icon.png</code>, красный #b3261e, тот же, что <code>--accent</code>. Во всех вариантах 1.1 печать одна и та же, красная; что с ней делать дальше — вопрос 1.2.</p>
+<table class="q">
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>★</th></tr>
+<tr data-q="1.1" data-q-title="Направление палитры" data-variants="А,Б,В,Г,Д,Е" data-recommended="Б"><td>1.1</td><td>Какое направление цвета берём вместо кремово-терракотового</td><td>А — как сейчас · Б — «Чернила» · В — «Хвоя» · Г — «Канцелярия» · Д — «Сургуч» · Е — «Морская соль»</td><td>Б</td></tr>
+<tr data-q="1.2" data-q-title="Что делает красный цвет печати" data-variants="А,Б,В" data-recommended="А"><td>1.2</td><td>Остаётся ли красный в интерфейсе, когда акцент стал другим</td><td>А — красный только у печати и ошибок · Б — знак перекрашен в акцент · В — красный остаётся цветом флагов и удаления</td><td>А</td></tr>
+</table>
+
+<h2 class="screen" data-q="1.1" data-q-title="Направление палитры" data-variants="А,Б,В,Г,Д,Е" data-recommended="Б"><span class="n">1.1</span> Направление палитры</h2>
+<p class="lead"><b>Вопрос 1.1.</b> Какое направление цвета берём. Токены названы как в <code>src/app.css</code>: <code>--paper</code>, <code>--paper-2</code>, <code>--ink</code>, <code>--muted</code>, <code>--line</code>, <code>--selected</code>, <code>--hover</code>, <code>--accent</code>, <code>--accent-ink</code>, <code>--accent-text</code> (новый), <code>--link</code>, <code>--bad</code> (новый), <code>--ok</code>, <code>--warn</code>, <code>--imp</code>, <code>--side</code>, <code>--side-2</code>, <code>--side-ink</code>, <code>--side-muted</code>.</p>
+<p class="method">Выбранная строка узнаётся только фоном <code>--selected</code>, строка под курсором — фоном <code>--hover</code>. Полос, скобок и рамок слева нет. Флаг у непрочитанного письма показан цветом <code>--accent-text</code>; что с ним делать дальше — вопрос 1.2.</p>
+<h3 class="v" data-q="1.1" data-variant="А">1.1 А. Как сейчас — «Бумага» и «Ночь»<em>Кремовый фон, тёплые поверхности, кирпичный акцент. Печать в знаке — тот же #b3261e, поэтому знак и кнопка «Написать» выглядят одним цветом.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-now-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-now-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">14,79</b> · серый <b class="no">4,43</b> · серый на выборе <b class="no">3,45</b> · акцент <b class="">6,11</b> · подпись кнопки <b class="">6,21</b> · ошибка <b class="">6,11</b> · боковая <b class="">10,60</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">13,25</b> · серый <b class="">8,26</b> · серый на выборе <b class="">4,61</b> · акцент <b class="no">2,67</b> · подпись кнопки <b class="">6,21</b> · ошибка <b class="no">2,67</b> · боковая <b class="">13,26</b></p></div>
+<h3 class="v" data-q="1.1" data-variant="Б">1.1 Б. «Чернила» — холодный нейтральный, акцент чернильно-синий <span class="rec">рекомендую</span><em>Фон уходит из кремового в голубовато-серый, поверхности холодные, акцент — глубокий синий. Красная печать на синем полу рядом читается как печать, а не как логотип.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-ink-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-ink-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">16,42</b> · серый <b class="">5,63</b> · серый на выборе <b class="">4,61</b> · акцент <b class="">7,70</b> · подпись кнопки <b class="">8,19</b> · ошибка <b class="">6,63</b> · боковая <b class="">11,71</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">14,85</b> · серый <b class="">8,33</b> · серый на выборе <b class="">5,70</b> · акцент <b class="">8,54</b> · подпись кнопки <b class="">6,18</b> · ошибка <b class="">6,45</b> · боковая <b class="">13,68</b></p></div>
+<h3 class="v" data-q="1.1" data-variant="В">1.1 В. «Хвоя» — графит и глубокий зелёный<em>Нейтральный белый с зеленоватым оттенком, боковая панель уходит в графит с холодным зелёным. Акцент — тёмная хвоя. Знак читается как сургучная печать на деловом бланке.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-hvoja-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-hvoja-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">16,34</b> · серый <b class="">5,95</b> · серый на выборе <b class="">4,89</b> · акцент <b class="">6,86</b> · подпись кнопки <b class="">7,30</b> · ошибка <b class="">6,62</b> · боковая <b class="">12,14</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">14,71</b> · серый <b class="">8,18</b> · серый на выборе <b class="">5,64</b> · акцент <b class="">8,99</b> · подпись кнопки <b class="">5,26</b> · ошибка <b class="">6,43</b> · боковая <b class="">13,42</b></p></div>
+<h3 class="v" data-q="1.1" data-variant="Г">1.1 Г. «Канцелярия» — белый лист и графит, красный только у печати<em>Чистый белый фон, почти чёрный текст, кнопки графитовые, светлая боковая панель. Цвет несёт только знак, ошибка и флаг. Самое строгое направление, ближе всех к бумажному документу.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-office-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-office-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">18,15</b> · серый <b class="">6,38</b> · серый на выборе <b class="">4,98</b> · акцент <b class="">12,56</b> · подпись кнопки <b class="">12,56</b> · ошибка <b class="">7,46</b> · боковая <b class="">13,94</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">15,29</b> · серый <b class="">8,02</b> · серый на выборе <b class="">5,94</b> · акцент <b class="">8,54</b> · подпись кнопки <b class="">7,76</b> · ошибка <b class="">6,61</b> · боковая <b class="">15,10</b></p></div>
+<h3 class="v" data-q="1.1" data-variant="Д">1.1 Д. «Сургуч» — нейтральный холодный серый и бордо<em>Серый фон без кремового оттенка, акцент — тёмное бордо, тот же красный род, что у печати, но глубже и без терракотовой теплоты. Самый «казённый» из тёплых вариантов.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-surguch-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-surguch-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">16,22</b> · серый <b class="">6,19</b> · серый на выборе <b class="">4,98</b> · акцент <b class="">9,40</b> · подпись кнопки <b class="">9,40</b> · ошибка <b class="">6,71</b> · боковая <b class="">11,98</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">14,46</b> · серый <b class="">7,93</b> · серый на выборе <b class="">6,17</b> · акцент <b class="">7,38</b> · подпись кнопки <b class="">5,81</b> · ошибка <b class="">6,50</b> · боковая <b class="">13,48</b></p></div>
+<h3 class="v" data-q="1.1" data-variant="Е">1.1 Е. «Морская соль» — холодный светлый и тёмная бирюза<em>Самый светлый и холодный фон, поверхности с голубым уклоном, акцент — глубокая бирюза. Не синий офис и не зелёная аптека; спокойный цвет для медицины и техники.</em></h3>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="win t-salt-light">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="win t-salt-dark">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div></div>
+</div>
+<div class="ctwrap"><p class="ct"><span class="ct-h">Светлая:</span> текст <b class="">16,53</b> · серый <b class="">5,93</b> · серый на выборе <b class="">4,85</b> · акцент <b class="">7,30</b> · подпись кнопки <b class="">7,80</b> · ошибка <b class="">6,60</b> · боковая <b class="">11,91</b></p><p class="ct"><span class="ct-h">Тёмная:</span> текст <b class="">14,95</b> · серый <b class="">8,35</b> · серый на выборе <b class="">5,99</b> · акцент <b class="">9,00</b> · подпись кнопки <b class="">5,56</b> · ошибка <b class="">6,45</b> · боковая <b class="">14,40</b></p></div>
+
+<h2 class="screen" data-q="1.2" data-q-title="Что делает красный цвет печати" data-variants="А,Б,В" data-recommended="А"><span class="n">1.2</span> Что делает красный цвет печати</h2>
+<p class="lead"><b>Вопрос 1.2.</b> Знак Депеши — красная печать. Когда акцент перестаёт быть красным, у красного остаётся роль или её нет. Показано на палитре Б, светлая и тёмная тема рядом.</p>
+<h3 class="v v2" data-q="1.2" data-variant="А">1.2 А. Красный — только знак и ошибки <span class="rec">рекомендую</span><em>Печать красная, кнопки и ссылки — чернильные. Флаг «важное» — янтарный --imp, который уже есть. Красный остаётся у ошибки и «Удалить», то есть там, где значит опасность.</em></h3>
+<div class="pair"><div class="cell stripcell"><div class="strip t-ink-light">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Бумага</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#7c4a00"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#a62a24"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div><div class="cell stripcell"><div class="strip t-ink-dark">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Ночь</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#e0a83c"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#e8796f"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div></div><div class="ctwrap"><p class="ct ct2"><span class="ct-h">Светлая:</span> подпись кнопки <b class="">8,19</b> · значок флага <b class="">6,96</b> · ошибка и «Удалить» <b class="">6,63</b></p><p class="ct ct2"><span class="ct-h">Тёмная:</span> подпись кнопки <b class="">6,18</b> · значок флага <b class="">8,58</b> · ошибка и «Удалить» <b class="">6,45</b></p></div>
+<h3 class="v v2" data-q="1.2" data-variant="Б">1.2 Б. Знак перекрашен в акцент<em>Печать в цвете акцента: синяя печать и синяя кнопка. Красного в интерфейсе нет совсем. Нужны новые значки во всех размерах: ico, png, icns.</em></h3>
+<div class="pair"><div class="cell stripcell"><div class="strip t-ink-light">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#1c4f8f"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#ffffff" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#ffffff">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Бумага</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#b3261e"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#a62a24"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div><div class="cell stripcell"><div class="strip t-ink-dark">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#2b62a6"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#ffffff" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#ffffff">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Ночь</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#b3261e"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#e8796f"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div></div><div class="ctwrap"><p class="ct ct2"><span class="ct-h">Светлая:</span> подпись кнопки <b class="">8,19</b> · значок флага <b class="">7,70</b> · ошибка и «Удалить» <b class="">6,63</b></p><p class="ct ct2"><span class="ct-h">Тёмная:</span> подпись кнопки <b class="">6,18</b> · значок флага <b class="">8,54</b> · ошибка и «Удалить» <b class="">6,45</b></p></div>
+<h3 class="v v2" data-q="1.2" data-variant="В">1.2 В. Красный остаётся цветом флагов и удаления<em>Печать красная, кнопки чернильные, но флаг и «Удалить» остаются красными. Больше всего красного на экране и два сильных цвета рядом.</em></h3>
+<div class="pair"><div class="cell stripcell"><div class="strip t-ink-light">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Бумага</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#b3261e"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#a62a24"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div><div class="cell stripcell"><div class="strip t-ink-dark">
+<div class="st-head"><svg class="seal" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="sp"></span><span class="dim xs2">Ночь</span></div>
+<div class="st-body">
+  <div class="st-btnrow"><span class="btn primary">Написать</span><span class="st-flag" style="color:#b3261e"><svg class="i s14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span><span class="st-row"><b>Бухгалтерия</b><span class="dim">Счёт на оплату</span></span></div>
+  <div class="st-line" style="color:#e8796f"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить · не удалось подключиться</div>
+  <div class="st-pick"><span class="st-sel">Выбранная строка</span><span class="dim">второй строкой серый текст</span></div>
+</div>
+</div></div></div><div class="ctwrap"><p class="ct ct2"><span class="ct-h">Светлая:</span> подпись кнопки <b class="">8,19</b> · значок флага <b class="">6,14</b> · ошибка и «Удалить» <b class="">6,63</b></p><p class="ct ct2"><span class="ct-h">Тёмная:</span> подпись кнопки <b class="">6,18</b> · значок флага <b class="no">2,80</b> · ошибка и «Удалить» <b class="">6,45</b></p></div>
+
+<h2 class="screen"><span class="n">2</span> Окно письма и уведомление в направлении Б</h2>
+<p class="lead">Тот же экран, но поверх читалки открыто окно письма, а внизу висит уведомление с отменой. Здесь видно, как ложатся <code>--hover</code> на чипы адресов, <code>--accent</code> на «Отправить», <code>--side</code> на шапку окна письма и <code>--side-warn</code> на «Отменить». Красного в интерфейсе нет — только печать в шапке окна письма и в уведомлении.</p>
+<div class="pair">
+  <div class="cell"><p class="vlabel">Светлая тема</p><div class="winwrap"><div class="win t-ink-light" style="height:400px">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div><div class="ov-compose t-ink-light">
+<div class="c-head"><svg class="seal" width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span class="c-title">График поставок на ноябрь</span><span class="c-mb"><span class="dot"></span>Работа</span><span class="c-hb">–</span><span class="c-hb">×</span></div>
+<div class="c-fields">
+  <div class="c-row"><span class="c-lab">Кому:</span><span class="c-box"><span class="chip">petr@example.com ×</span><span class="chip">maria@example.org ×</span></span></div>
+  <div class="c-row"><span class="c-lab">Копия:</span><span class="c-box"><span class="chip">olga.smirnova@example.org ×</span></span></div>
+  <div class="c-row"><span class="c-lab">Тема:</span><span class="c-box"><b>График поставок на ноябрь</b></span></div>
+</div>
+<div class="c-tools"><span class="c-t">B</span><span class="c-t on">I</span><span class="c-t">U</span><span class="c-t">≡</span><span class="c-t">≣</span><span class="c-t">🔗</span><span class="c-t">T</span></div>
+<div class="c-body"><p>С уважением,<br>Анна Крылова<br>Отдел логистики</p></div>
+<div class="c-foot"><span class="btn primary">Отправить<svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9l5 5 5-5"/></svg></span><span class="btn"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> Файлы</span><span class="sp"></span><span class="dim"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Без напоминания</span></div>
+</div><div class="ov-toast t-ink-light"><span class="t-seal"><svg class="seal" width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg></span><span class="t-txt">Письмо «Отчёт за сентябрь» в архиве</span><span class="t-act">Отменить</span></div></div></div>
+  <div class="cell"><p class="vlabel">Тёмная тема</p><div class="winwrap"><div class="win t-ink-dark" style="height:400px">
+<div class="w-side">
+  <div class="s-brand"><svg class="seal" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span>Депеша</span><span class="ver">0.8.12</span><span class="fold"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l-5 6 5 6"/><path d="M18 6l-5 6 5 6"/></svg></span></div>
+  <div class="s-compose"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 5l3 3"/></svg> Написать</div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Непрочитанные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg><span>С флагом</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11a3 3 0 1 0 0-6"/><path d="M17.5 20c0-2.4-.8-4-2.2-5"/></svg><span>Контакты</span></div>
+  <div class="s-acct"><span class="dot"></span>Работа</div>
+  <div class="s-item on"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Входящие</span><span class="cnt">2</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Отложенные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><span>Черновики</span><span class="cnt">1</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4L3 11l7 2 2 7z"/></svg><span>Отправленные</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg><span>Архив</span></div>
+  <div class="s-item"><svg class="i " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Корзина</span></div>
+  <div class="s-foot"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg><span>Настройки</span><span class="sp"></span><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5z"/><path d="M10 20h4"/></svg><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div>
+</div>
+<div class="w-list">
+  <div class="l-top"><div class="search"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg> Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="l-title"><b>Входящие</b><span><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/></svg> По дате</span></div>
+  <div class="rows"><div class="row"><span class="ava" style="background:#2f7d6d">П</span><span class="n">Пётр, Подрядчик<span class="cnt">3<svg viewBox="0 0 24 24" class="i xs"><path d="M7 9l5 5 5-5"/></svg></span></span><span class="d">29 авг</span><span class="p">Re: Смета пересчитали, сумма 2 480 000</span><span class="sz">2 КБ</span></div><div class="row sel"><span class="ava" style="background:#7a5ab8">МС</span><span class="n">Мария Соколова</span><span class="d">28 авг</span><span class="p">Отчёт за сентябрь готов, замечания во вложении</span><span class="sz">45 КБ</span></div><div class="row unread"><span class="ava" style="background:#2f6fa8">Б</span><span class="n">Бухгалтерия</span><span class="d"><span class="fl"><svg class="i s11" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></svg></span>27 авг</span><span class="p">Счёт на оплату, просим оплатить до пятницы</span><span class="sz">511 КБ</span></div><div class="row cur"><span class="ava" style="background:#b06a2c">С</span><span class="n">Магазин «Свет и монтаж»</span><span class="d">26 авг</span><span class="p">Монтаж на объекте, скидки на монтаж до 30-го</span><span class="sz">724 КБ</span></div><div class="row"><span class="ava" style="background:#1f8a7a">ОЗ</span><span class="n">Отдел закупок</span><span class="d">25 авг</span><span class="p">Пакет документов по закупке</span><span class="sz">109 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">23 авг</span><span class="p">Согласованный график поставок</span><span class="sz">507 КБ</span></div><div class="row"><span class="ava" style="background:#8c5a3c">СО</span><span class="n">Смирнова Ольга</span><span class="d">22 авг</span><span class="p">Акт приёмки оборудования подписан</span><span class="sz">508 КБ</span></div><div class="row"><span class="ava" style="background:#a05aa8">ОС</span><span class="n">Ольга Смирнова</span><span class="d">20 авг</span><span class="p">Планерка в четверг в 11:00</span><span class="sz">495 КБ</span></div></div>
+</div>
+<div class="w-read">
+  <div class="r-top"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg> Готово</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Отложить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg> Удалить</span><span class="sp"></span><span class="r-win">– ▢ ×</span></div>
+  <div class="r-sub">Отчёт за сентябрь</div>
+  <div class="r-from"><span class="r-ava" style="background:#7a5ab8">МС</span><div class="r-who"><b>Мария Соколова</b> <span class="dim">&lt;maria@example.org&gt;</span><div class="dim xs2">28 августа 2026 г. в 13:40 · 45 КБ</div></div></div>
+  <div class="r-tools"><span class="attach"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> report.pdf 32 КБ <svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/></svg></span></div>
+  <div class="r-acts"><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</span><span class="r-act"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg> Переслать</span></div>
+  <div class="r-body"><p>Отчёт за сентябрь готов, замечания во вложении. Сводную таблицу поправлю завтра и пришлю отдельно.</p><p>Мария</p></div>
+  <div class="r-reply"><svg class="i s13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg> Ответить</div>
+</div>
+</div><div class="ov-compose t-ink-dark">
+<div class="c-head"><svg class="seal" width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg><span class="c-title">График поставок на ноябрь</span><span class="c-mb"><span class="dot"></span>Работа</span><span class="c-hb">–</span><span class="c-hb">×</span></div>
+<div class="c-fields">
+  <div class="c-row"><span class="c-lab">Кому:</span><span class="c-box"><span class="chip">petr@example.com ×</span><span class="chip">maria@example.org ×</span></span></div>
+  <div class="c-row"><span class="c-lab">Копия:</span><span class="c-box"><span class="chip">olga.smirnova@example.org ×</span></span></div>
+  <div class="c-row"><span class="c-lab">Тема:</span><span class="c-box"><b>График поставок на ноябрь</b></span></div>
+</div>
+<div class="c-tools"><span class="c-t">B</span><span class="c-t on">I</span><span class="c-t">U</span><span class="c-t">≡</span><span class="c-t">≣</span><span class="c-t">🔗</span><span class="c-t">T</span></div>
+<div class="c-body"><p>С уважением,<br>Анна Крылова<br>Отдел логистики</p></div>
+<div class="c-foot"><span class="btn primary">Отправить<svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9l5 5 5-5"/></svg></span><span class="btn"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V7a3 3 0 0 1 6 0v9a2 2 0 0 1-4 0V9"/></svg> Файлы</span><span class="sp"></span><span class="dim"><svg class="i s12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Без напоминания</span></div>
+</div><div class="ov-toast t-ink-dark"><span class="t-seal"><svg class="seal" width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><g fill="#b3261e"><circle cx="16" cy="16" r="12.4"/><circle cx="26.50" cy="16.00" r="5.2"/><circle cx="25.09" cy="21.25" r="5.2"/><circle cx="21.25" cy="25.09" r="5.2"/><circle cx="16.00" cy="26.50" r="5.2"/><circle cx="10.75" cy="25.09" r="5.2"/><circle cx="6.91" cy="21.25" r="5.2"/><circle cx="5.50" cy="16.00" r="5.2"/><circle cx="6.91" cy="10.75" r="5.2"/><circle cx="10.75" cy="6.91" r="5.2"/><circle cx="16.00" cy="5.50" r="5.2"/><circle cx="21.25" cy="6.91" r="5.2"/><circle cx="25.09" cy="10.75" r="5.2"/></g><circle cx="16" cy="16" r="8.7" fill="none" stroke="#fff8f0" stroke-width="1.5"/><text x="16" y="21.2" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="11.5" font-weight="700" fill="#fff8f0">Д</text></svg></span><span class="t-txt">Письмо «Отчёт за сентябрь» в архиве</span><span class="t-act">Отменить</span></div></div></div>
+</div>
+
+<h2 class="screen"><span class="n">3</span> Что переносится в app.css</h2>
+<p class="lead">Девятнадцать токенов направления Б. Два из них новые: <code>--accent-text</code> (акцент как текст и значок в тёмной теме) и <code>--bad</code> (ошибка, «Удалить», отказ). Остальные имена уже есть в <code>src/app.css</code>, значения меняются.</p>
+<table class="tbl"><tr><th>Токен</th><th>Б «Чернила», светлая</th><th>Б «Чернила», тёмная</th><th>Что красит</th></tr><tr><td><code>--paper</code></td><td>#f6f8fb</td><td>#11151b</td><td class="dim">фон окна, списка, читалки</td></tr><tr><td><code>--paper-2</code></td><td>#edf1f6</td><td>#171c24</td><td class="dim">фон страницы настроек, карточки</td></tr><tr><td><code>--ink</code></td><td>#141a23</td><td>#e2e8f0</td><td class="dim">текст писем и подписей</td></tr><tr><td><code>--muted</code></td><td>#5a6473</td><td>#a5b0be</td><td class="dim">дата, превью, размер, подписи полей</td></tr><tr><td><code>--line</code></td><td>#dce2ea</td><td>#262e39</td><td class="dim">разделители и рамки</td></tr><tr><td><code>--selected</code></td><td>#d7e3f2</td><td>#29353f</td><td class="dim">фон выбранной строки</td></tr><tr><td><code>--hover</code></td><td>#e8eef6</td><td>#1c232c</td><td class="dim">фон строки под курсором и наведение</td></tr><tr><td><code>--accent</code></td><td>#1c4f8f</td><td>#2b62a6</td><td class="dim">заливка кнопок, выбранный пункт</td></tr><tr><td><code>--accent-ink</code></td><td>#ffffff</td><td>#ffffff</td><td class="dim">подпись на заливке</td></tr><tr><td><code>--accent-text</code></td><td>#1c4f8f</td><td>#8ab4ea</td><td class="dim">акцент как текст и значок</td></tr><tr><td><code>--link</code></td><td>#1a5aa8</td><td>#8ab4ea</td><td class="dim">ссылки</td></tr><tr><td><code>--bad</code></td><td>#a62a24</td><td>#e8796f</td><td class="dim">ошибка, «Удалить», отказ</td></tr><tr><td><code>--ok</code></td><td>#1a6b45</td><td>#5fb98a</td><td class="dim">«подключён», успех</td></tr><tr><td><code>--warn</code></td><td>#8a5300</td><td>#e0a83c</td><td class="dim">предупреждение, «только чтение»</td></tr><tr><td><code>--imp</code></td><td>#7c4a00</td><td>#e0a83c</td><td class="dim">«важное», флаг</td></tr><tr><td><code>--side</code></td><td>#17222e</td><td>#0d1218</td><td class="dim">боковая панель</td></tr><tr><td><code>--side-2</code></td><td>#1e2b39</td><td>#141b23</td><td class="dim">выбранный пункт боковой панели</td></tr><tr><td><code>--side-ink</code></td><td>#d3dde8</td><td>#d3dde8</td><td class="dim">текст боковой панели</td></tr><tr><td><code>--side-muted</code></td><td>#93a2b3</td><td>#8fa0b2</td><td class="dim">второстепенный текст боковой панели</td></tr></table>
+
+<h2 class="screen"><span class="n">4</span> Замеры, которые стоит знать</h2>
+<ul class="notes">
+<li><b>Сейчас серый текст на бумаге 4,43:1</b> — уже ниже AA, а на выбранной строке 3,45:1 (находка А6). В направлениях Б–Е серый на выбранной строке 4,6–6,2:1 без отдельного правила.</li>
+<li><b>Сейчас акцент в тёмной теме 2,67:1</b> — это находка А5. В Б–Е акцент как текст идёт отдельным токеном <code>--accent-text</code>: 7,4–9,0:1.</li>
+<li><b>Зелёный «подключён» сейчас 3,46:1 в тёмной теме</b> (А31), янтарный <code>--warn</code> 3,96:1 в светлой (А32). В Б–Е: 7,7–8,2 и 5,9–6,3.</li>
+<li><b>Переключатель в настройках</b> красится <code>--link</code>, флажок — <code>--accent</code> (А12). Направления Б–Е разводят синий ссылки и акцент по оттенку: ссылка светлее и голубее, акцент глубже.</li>
+<li><b>Кнопка «Написать» в 1.2 Б</b> — синяя с белой подписью, 6,2–8,2:1. Печать того же цвета теряет смысл «красная печать»: знак перестаёт отличаться от кнопки.</li>
+</ul>
+
+<div class="fin"><h3>Что рекомендую</h3>
+<p><b>Б «Чернила».</b> Холодный нейтральный фон убирает кремовую теплоту, из-за которой экран читается как Claude, а чернильно-синий акцент — привычный цвет делового письма. Красная печать на холодном фоне становится единственным тёплым пятном и работает как знак.</p>
+<p><b>1.2 А.</b> Красный остаётся у печати, ошибки и «Удалить»; флаг и «важное» уходят в янтарный <code>--imp</code>, который уже есть. Значки перекрашивать не нужно.</p>
+<p><b>Перенос.</b> Значения 19 токенов из раздела 3 — в <code>src/app.css</code>; правило «акцент как текст» — на <code>--accent-text</code>; «Удалить» и ошибки — на <code>--bad</code>.</p></div>
+</div>
+
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+@media (max-width: 1099px) { html.mk-open body { margin-right: 0; } }
+html.mk-noting, html.mk-noting * { cursor: crosshair !important; }
+html.mk-noting .mk-panel, html.mk-noting .mk-panel *, html.mk-noting .mk-tab { cursor: default !important; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
+  doc.addEventListener("click", function (e) {
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы · " + done + "/" + total;
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
