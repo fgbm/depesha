@@ -208,7 +208,8 @@ export async function run() {
     const dir = join(profile, "Вложения");
     const setDir = async (value) => {
       await press(",", { ctrlKey: true });
-      await d.click(await d.until("writing page", () => d.find(".prefs .tab[data-page='writing']")));
+      // The folder of the attachments received is on «Reading» (0.8.12, 2.1 А).
+      await d.click(await d.until("reading page", () => d.find(".prefs .tab[data-page='reading']")));
       const row = ".prefs [data-row='attachments_dir']";
       const shown = () => d.exec(`return document.querySelector("${row} .path").title`);
       await d.until("folder field", () => d.find(`${row} .folder`));
@@ -928,7 +929,9 @@ export async function run() {
     await d.until("звезда блока снова невидима", async () => (await colorIn(block, ten[0])) === blockIdle);
     await d.exec("document.querySelector(arguments[0] + ' .star').focus()", `${block}[data-folder=${JSON.stringify(ten[0])}]`);
     await d.until("звезда блока проявилась в фокусе", async () => (await colorIn(block, ten[0])) !== blockIdle);
-    if ((await colorIn(tree, ten[0])) !== "rgb(224, 176, 64)") throw new Error("звезда избранной папки в дереве не золотая");
+    // Gold is the sidebar's warm colour of the look in use (--side-warn), not one fixed value.
+    const gold = await d.exec("const p = document.createElement('i'); p.style.color = 'var(--side-warn)'; document.querySelector('nav.side').append(p); const c = getComputedStyle(p).color; p.remove(); return c;");
+    if ((await colorIn(tree, ten[0])) !== gold) throw new Error(`звезда избранной папки в дереве не золотая: ${await colorIn(tree, ten[0])}, ждали ${gold}`);
     // The row's paint belongs to the row: the star lies over the row, so crossing onto it must
     // not blink the background off (#60). Hovering the row and hovering its star read the same.
     const bgIn = (where, name) =>
