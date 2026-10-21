@@ -232,7 +232,7 @@ describe("an address that may be another person's", () => {
     const smirnova = person("Смирнова Ольга", ["o.smirnova@example.net"]);
     await book([olga(), smirnova]);
     const root = show(PersonCard, { email: "o.smirnova@example.net", name: "", onAllMail: () => {}, inBook: true });
-    expect(root.textContent).toContain("Возможно, это один человек: Ольга Смирнова");
+    expect(root.textContent).toContain("Возможно, это один контакт: Ольга Смирнова");
     press(rowOf(root, "all"), "n");
     await tick();
     expect(api.hintSave).toHaveBeenCalledWith(
@@ -371,7 +371,7 @@ describe("the keys of the book", () => {
   it("shows the suggestion over the list, M joins the pair and N says they are two", async () => {
     await book([olga(), person("Смирнова Ольга", ["o.smirnova@example.net"]), ivan()]);
     const root = show(PeopleView);
-    expect(root.querySelector(".banner")?.textContent).toContain("Возможно, это один человек");
+    expect(root.querySelector(".banner")?.textContent).toContain("Возможно, это один контакт");
     const list = root.querySelector<HTMLElement>("[role=listbox]")!;
     press(list, "m");
     expect(peopleOps.dialog?.plan.people.map((p) => p.name).sort()).toEqual(["Ольга Смирнова", "Смирнова Ольга"]);

@@ -73,3 +73,13 @@ describe("English mail text", () => {
     expect(size(1536 * 1024)).toBe("1,5 МБ");
   });
 });
+
+describe("the word for a contact (А14)", () => {
+  // The palette's search words and the settings, rebuilt apart, keep theirs.
+  const KEEP = new Set(["cmd.peopleAlso", "settings.notifyPeople"]);
+
+  it("is «контакт», not «человек» or «люди»", () => {
+    const said = Object.entries(ru).filter(([k, v]) => !KEEP.has(k) && /(^|[^а-яё])(человек|люд)/i.test(JSON.stringify(v)));
+    expect(said.map(([k]) => k)).toEqual([]);
+  });
+});
