@@ -1,5 +1,6 @@
 <script lang="ts">
   import ImageOff from "@lucide/svelte/icons/image-off";
+  import Info from "@lucide/svelte/icons/info";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
@@ -71,6 +72,9 @@
   );
   const isDraft = $derived(msg ? app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);
+  /** The mailbox trusts the sender by address where nothing could be checked: the pictures are
+   *  shown, and the line says the address is not checked (0.8.13, 6.1 Б). */
+  const showByAddressLine = $derived(!!msg && msg.why_unverified === "address_only" && !msg.sender_unverified);
   const bulk = $derived(app.selection.selected.size > 1);
   /** The letter with its toolbar is on screen: the panel above asks app.reader for the same,
    *  and a narrow window keeps its own compact toolbar when it is not. */
@@ -223,6 +227,13 @@
         </div>
       {/each}
       {#each pluginBanners as b, i (i)}<PluginBannerView banner={b} />{/each}
+      <!-- The address alone was trusted: the pictures are shown, and the line says so. -->
+      {#if showByAddressLine}
+        <div class="remote">
+          <Info size={14} />
+          <span>{t("reader.addressNotChecked")}</span>
+        </div>
+      {/if}
       <!-- A quiet line, not a warning: hidden images are the normal state. -->
       {#if showRemoteBanner}
         <div class="remote" title={t("reader.remoteWhy")}>

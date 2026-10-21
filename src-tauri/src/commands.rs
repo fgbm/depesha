@@ -821,7 +821,7 @@ fn evidence_of<'a>(
     sender: &'a str,
     listed: bool,
 ) -> CmdResult<Evidence<'a>> {
-    let own_full = state.signatures.known(row.id, raw, sender);
+    let known = state.signatures.known(row.id, raw, sender);
     // The original headers of a letter of Exchange (0.8.13, ступень 4): the block
     // `PR_TRANSPORT_MESSAGE_HEADERS` the server kept aside of the letter it assembled again.
     let original = match state.store.ews_headers(row.id)? {
@@ -832,14 +832,18 @@ fn evidence_of<'a>(
         .as_ref()
         .and_then(|headers| state.signatures.known_headers(row.id, headers.as_bytes(), sender));
     let headers_checked = original.is_some();
+    // What the app's own check of the letter says without asking anyone: a letter with no
+    // signature, or with one that is not about the From, is known at once.
+    let offline = dkim::offline_verdict(raw, sender);
+    let own_full = known.or(offline);
     // The app's own check of the whole letter is due when the server stayed silent and the
     // letter carries a signature of the sender's organization. With the original headers of
     // Exchange at hand, the check over them is the one to make.
     let own_due = listed
         && !auth.verified()
         && auth.check.as_ref().is_none_or(|c| c.no_verdict())
-        && own_full.is_none()
-        && (headers_checked || dkim::offline_verdict(raw, sender).is_none());
+        && known.is_none()
+        && (headers_checked || offline.is_none());
     let by_address = state.account(&row.account_id)?.trust_by_address;
     Ok(Evidence::of(
         raw,
@@ -977,9 +981,17 @@ pub async fn message_open(
     let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
     let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
     let verdict = sender_verdict(&evidence);
-    let why_unverified = listed
-        .then(|| Unverified::from(verdict.reason))
-        .filter(|_| !verdict.confirmed);
+    // The reason the sender was not confirmed, or «the address alone was trusted» (0.8.13,
+    // 6.1 Б): the pictures are shown, and the line says the address is not checked.
+    let why_unverified: Option<Unverified> = if !listed {
+        None
+    } else if verdict.reason == sender::Reason::AddressOnly {
+        Some(Unverified::AddressOnly)
+    } else if verdict.confirmed {
+        None
+    } else {
+        Some(Unverified::from(verdict.reason))
+    };
     let trusted_sender = listed && verdict.confirmed;
     // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
     let kind = box_kind(&account);

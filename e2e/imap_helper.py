@@ -108,6 +108,21 @@ HTML = (
 ).encode()
 
 
+def trust_letter(to):
+    """A letter with pictures whose sender the mailbox's server says nothing about (0.8.13)."""
+    return (
+        "From: =?utf-8?B?" + base64.b64encode("Подрядчик".encode()).decode() + "?= <petr@example.com>\r\n"
+        f"To: {to}\r\n"
+        "Subject: =?utf-8?B?" + base64.b64encode("Смета на монтаж с картинками".encode()).decode() + "?=\r\n"
+        "Date: Mon, 19 Oct 2026 12:00:00 +0300\r\nMessage-ID: <trust-1@example.com>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/related; boundary="rel"\r\n\r\n'
+        "--rel\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        '<p>Вот смета. <img id="pixel" src="https://tracker.example/p.gif"></p>\r\n'
+        "--rel\r\nContent-Type: image/png\r\nContent-ID: <logo@x>\r\nContent-Disposition: inline\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n" + base64.b64encode(PNG).decode() + "\r\n--rel--\r\n"
+    ).encode()
+
+
 FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "attachments"
 DOCS_TYPES = {
     "contract.pdf": "application/pdf",
@@ -304,7 +319,9 @@ def demo_seed(version=""):
     logo), an important one, a letter with many attachments and a full «Корзина». Without it
     the set is the one of 0.7.
     """
-    v8 = version in ("0.8.0", "0.8.2", "0.8.3", "audit")
+    v8 = version in ("0.8.0", "0.8.2", "0.8.3", "audit", "trust")
+    # The trust set (0.8.13): a letter with pictures whose sender the server says nothing about.
+    trust = version == "trust"
     c = conn()
     # Start clean: these also drop the 620 letters of the acceptance seed.
     # The 0.8 set has no folder tree: what a picture shows is the standard folders only.
@@ -353,6 +370,10 @@ def demo_seed(version=""):
         base - 3 * day, "weekly-44@example.org",
         extra=f"List-Id: <weekly.{shop}>\r\n"
               f"List-Unsubscribe: <mailto:unsubscribe@{shop}?subject=unsubscribe>\r\n" + (dmarc(shop) if v8 else ""))
+    if trust:
+        # A letter with pictures whose sender the mailbox's server says nothing about: the line
+        # over the letter names the reason (0.8.13, 5.1 Б).
+        append(c, "INBOX", trust_letter(me), "", base - 3_600)
     if v8:
         names = ["Договор поставки.pdf", "Спецификация №1.xlsx", "Спецификация №2.xlsx", "Акт сверки за сентябрь.pdf",
                  "Счёт-фактура 0412.pdf", "Накладная ТОРГ-12.pdf", "Скан договора поставки, приложение к спецификации (подписано).pdf",
