@@ -296,6 +296,7 @@ export async function auditShots(kit, out) {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await sleep(800);
+    console.log(`  · фокус при открытии: ${await d.exec("return (document.activeElement?.className ?? '') + ' · окно в фокусе: ' + document.hasFocus()")}`);
     await take("11-settings-main", "настройки: страница «Чтение» при открытии, курсор в поиске; светлая тема");
     await page("look", async () => (await d.findAll(".prefs [data-row='look']")).length === 1);
     await take("11-settings-look", "настройки: «Вид и язык», плитки «Оформление» и «Тема»; светлая тема");
@@ -310,7 +311,10 @@ export async function auditShots(kit, out) {
     await d.setRect(1440, Math.min(2400, 900 + tall + 40));
     try {
       await sleep(1000);
-      await take("11-settings-mailbox", "настройки: страница ящика anna@example.org целиком, внизу «Опасная зона»; светлая тема");
+      await take("11-settings-mailbox", "настройки: страница ящика anna@example.org, верх; светлая тема");
+      await d.exec("const s = document.querySelector('.prefs .account-page .scroller'); s.scrollTop = s.scrollHeight;");
+      await sleep(600);
+      await take("11-settings-mailbox-end", "настройки: страница ящика anna@example.org, низ: «Метки» и «Опасная зона»; светлая тема");
     } finally {
       await d.setRect(1440, 900);
       await sleep(800);

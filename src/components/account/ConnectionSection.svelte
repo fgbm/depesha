@@ -100,13 +100,14 @@
     max-width: 100%;
   }
 
+  /* The server, its port and its protection on one line of the column. */
   .host {
-    width: 200px;
+    width: 150px;
     max-width: 100%;
   }
 
   .port {
-    width: 70px;
+    width: 78px;
   }
 
   .provider {
