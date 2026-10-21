@@ -1,7 +1,10 @@
+DKIM-Signature: v=1; a=ed25519-sha256; s=s1; d=timeweb.cloud; c=relaxed/relaxed;
+	h=Date:Subject:To:From; t=1792621681; bh=55UyAGQsxpUA8r0/pI7zN7C58TUZgn8/p7
+	wUPfFsMMg=; b=/E8ZCzaeXvSs6CD6DtMH9mh3Ki0Xx9qVvxrYU5lFHDuzudkg5u8TfYl+l+5dl
+	NOsqFjJgLx2GS5DTpLJrg1fCQ==;
 Received: from out-1.smtp.timeweb.cloud (out-1.smtp.timeweb.cloud. [192.0.2.9])
 	by mx.firm.example with ESMTPS id 4C5D6E7F8A9B;
 	Mon, 19 Oct 2026 12:00:00 +0300
-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=timeweb.cloud; s=dkim; t=1792605600; h=from:to:subject:date; bh=Zm9vYmFyYmF6; b=c2lnbmF0dXJl
 From: Timeweb Cloud <info@timeweb.cloud>
 To: me@box.example
 Subject: Счёт за октябрь

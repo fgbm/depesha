@@ -271,10 +271,14 @@ export function unverifiedKey(why: Unverified | null): Key {
       return "reader.serverUnsigned";
     case "signature":
       return "reader.serverBadSignature";
+    case "no_key":
+      return "reader.serverNoKey";
     case "unchecked":
       return "reader.serverUnchecked";
     case "address_only":
       return "reader.addressNotChecked";
+    case "address_only_unchecked":
+      return "reader.addressNotCheckedNoKey";
     case "no_check":
       return "reader.cannotCheck";
     default:
@@ -285,11 +289,15 @@ export function unverifiedKey(why: Unverified | null): Key {
 /**
  * The tip under the line: the detail the line does not carry (0.8.13). The line says who did
  * not confirm the sender; the tip says what the server said.
+ *
+ * `serverChecks` is the mailbox's server checking senders itself (Gmail, Yandex, Mail.ru,
+ * Exchange Online). Where it does, the letter being unsigned needs no explanation: telling the
+ * user that the server does not check senders would be untrue (0.8.13, 5.1 Б).
  */
-export function unverifiedTip(why: Unverified | null): Key | null {
+export function unverifiedTip(why: Unverified | null, serverChecks = false): Key | null {
   switch (why) {
     case "unsigned":
-      return "reader.tipUnsigned";
+      return serverChecks ? null : "reader.tipUnsigned";
     case "signature":
       return "reader.tipBadSignature";
     case "unchecked":

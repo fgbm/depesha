@@ -1,23 +1,25 @@
 """A DKIM-signed letter for the stand, with the key the e2e run publishes.
 
-The letter is signed the way a real sender signs it (RFC 6376 §3.7): the signed data is the
-canonicalized headers, the `DKIM-Signature` header with its `b=` value deleted, and the body
-hash. The stand has no name server, so the e2e run publishes the key to the app
+The letter is signed the way RFC 6376 §3.7 says, as any mail program signs: the signed data is
+the canonicalized headers of `h=` and the `DKIM-Signature` header with the value of its `b=` tag
+deleted. The body enters the signature through `bh=` alone — it is not appended to the signed
+data. The stand has no name server, so the e2e run publishes the key to the app
 (`e2e_publish_dkim_key`) — the letter is then confirmed by the app's own check (ступень 3),
 and its brand logo stands next to it in the list.
 
-The key is a test key of this file: it signs nothing outside the stand.
+The key is a test key of this folder (`dkim-key.pem`): it signs nothing outside the stand.
 """
 
 import base64
 import hashlib
+from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 DOMAIN = "example.org"
 SELECTOR = "s1"
-KEY_PATH = "/home/vch/Projects/depesha-wt/q-trust/e2e/fixtures/dkim-key.pem"
+KEY_PATH = Path(__file__).with_name("dkim-key.pem")
 NAME = f"{SELECTOR}._domainkey.{DOMAIN}."
 
 
@@ -63,7 +65,6 @@ def sign(headers: list[tuple[bytes, bytes]], body: bytes) -> str:
         f"h=from:to:subject:date; bh={bh}; b="
     ).encode()
     data += _relaxed(b"dkim-signature", unsigned)
-    data += body_hash
     with open(KEY_PATH, "rb") as f:
         key = serialization.load_pem_private_key(f.read(), password=None)
     signature = key.sign(data, padding.PKCS1v15(), hashes.SHA256())

@@ -683,6 +683,9 @@ pub struct OpenedMessage {
     sender_unverified: bool,
     /// Why `sender_unverified`; `Checking` asks the window to call `message_check_sender`.
     why_unverified: Option<Unverified>,
+    /// The mailbox's server checks senders itself (Gmail, Yandex, Mail.ru, Exchange Online): a
+    /// line over the letter must not tell the user it does not (0.8.13, 5.1 Б).
+    server_checks_sender: bool,
 }
 
 /// Why a trusted sender is not confirmed (0.8.13).
@@ -698,13 +701,19 @@ pub enum Unverified {
     Unsigned,
     /// The server gave no verdict, and the signature does not confirm the From address.
     Signature,
+    /// The server gave no verdict, and the key of the signature is not there, or is revoked.
+    NoKey,
     /// The server gave no verdict, and DNS did not answer for the signature's key.
     Unchecked,
     /// The letter's From is not the one trusted address alone, as both readers of its headers
     /// see it: a second From, or a header one of them reads and the other does not.
     AmbiguousFrom,
-    /// The mailbox's setting trusts the sender by address: the address is not checked.
+    /// The mailbox's setting trusts the sender by address: the letter carries no signature, and
+    /// nothing was checked.
     AddressOnly,
+    /// The mailbox's setting trusts the sender by address: the letter is signed, but the key did
+    /// not answer, and nothing was checked.
+    AddressOnlyUnchecked,
     /// The mailbox's server cannot be asked about the sender, and the app's own check has no
     /// way in.
     NoCheck,
@@ -715,6 +724,8 @@ impl From<dkim::Signature> for Unverified {
         match s {
             dkim::Signature::Unsigned => Self::Unsigned,
             dkim::Signature::Unchecked => Self::Unchecked,
+            // A key that is not there is no answer from the network, and the line says so.
+            dkim::Signature::Failed(dkim::Reason::NoKey) => Self::NoKey,
             dkim::Signature::Aligned | dkim::Signature::NotAligned | dkim::Signature::Invalid => Self::Signature,
             dkim::Signature::Failed(_) => Self::Signature,
         }
@@ -726,6 +737,7 @@ impl From<dkim::Headers> for Unverified {
         match s {
             dkim::Headers::Unsigned => Self::Unsigned,
             dkim::Headers::Unchecked => Self::Unchecked,
+            dkim::Headers::Rejected(dkim::Reason::NoKey) => Self::NoKey,
             dkim::Headers::Rejected(_) => Self::Signature,
             dkim::Headers::Valid => Self::Checking,
         }
@@ -794,6 +806,7 @@ impl<'a> Evidence<'a> {
             own_due: self.own_due,
             sole_from: message::sole_from(self.raw).is_some_and(|from| from == self.sender.trim().to_lowercase()),
             internal: self.auth.internal,
+            uneven_headers: self.auth.uneven,
             by_address: self.by_address,
         }
     }
@@ -834,17 +847,19 @@ fn evidence_of<'a>(
         .and_then(|headers| state.signatures.known_headers(row.id, headers.as_bytes(), sender));
     let headers_checked = original.is_some();
     // What the app's own check of the letter says without asking anyone: a letter with no
-    // signature, or with one that is not about the From, is known at once.
+    // signature, or with one that is not about the From, is known at once. A letter whose
+    // original headers are at hand has its body assembled again by Exchange: the check over that
+    // body says nothing about the sender and would close the ladder before the headers
+    // (0.8.13, ступень 4).
     let offline = dkim::offline_verdict(raw, sender);
-    let own_full = known.or(offline);
+    let own_full = sender::body_check(known, offline, headers_checked);
     // The app's own check of the whole letter is due when the server stayed silent and the
     // letter carries a signature of the sender's organization. With the original headers of
-    // Exchange at hand, the check over them is the one to make.
-    let own_due = listed
-        && !auth.verified()
-        && auth.check.as_ref().is_none_or(|c| c.no_verdict())
-        && known.is_none()
-        && (headers_checked || offline.is_none());
+    // Exchange at hand, the check over them is the one to make. An uneven block of headers is
+    // read differently by the server and by the app: its word is not taken either, and the app
+    // checks the signature itself (0.8.13, 7.1 Б).
+    let server_silent = auth.uneven || (!auth.verified() && auth.check.as_ref().is_none_or(|c| c.no_verdict()));
+    let own_due = listed && server_silent && known.is_none() && (headers_checked || offline.is_none());
     let by_address = state.account(&row.account_id)?.trust_by_address;
     Ok(Evidence::of(
         raw,
@@ -911,7 +926,8 @@ fn signature_outcome(signature: dkim::Signature) -> &'static str {
         dkim::Signature::Unsigned => "unsigned",
         dkim::Signature::NotAligned => "from_mismatch",
         dkim::Signature::Invalid => "bad_signature",
-        dkim::Signature::Unchecked => "no_key",
+        // No answer from the name servers: not the same as a key that is not there.
+        dkim::Signature::Unchecked => "no_answer",
         dkim::Signature::Failed(reason) => reason.code(),
     }
 }
@@ -923,7 +939,7 @@ fn headers_outcome(headers: dkim::Headers) -> &'static str {
         dkim::Headers::Valid => "pass",
         dkim::Headers::Unsigned => "unsigned",
         dkim::Headers::Rejected(reason) => reason.code(),
-        dkim::Headers::Unchecked => "no_key",
+        dkim::Headers::Unchecked => "no_answer",
     }
 }
 
@@ -994,11 +1010,15 @@ pub async fn message_open(
     let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
     let verdict = sender_verdict(&evidence);
     // The reason the sender was not confirmed, or «the address alone was trusted» (0.8.13,
-    // 6.1 Б): the pictures are shown, and the line says the address is not checked.
+    // 6.1 Б): the pictures are shown, and the line says the address is not checked — and why it
+    // could not be: the letter carries no signature, or its key gave no answer.
     let why_unverified: Option<Unverified> = if !listed {
         None
     } else if verdict.reason == sender::Reason::AddressOnly {
-        Some(Unverified::AddressOnly)
+        Some(match evidence.own_full {
+            Some(dkim::Signature::Unchecked) => Unverified::AddressOnlyUnchecked,
+            _ => Unverified::AddressOnly,
+        })
     } else if verdict.confirmed {
         None
     } else {
@@ -1054,6 +1074,7 @@ pub async fn message_open(
         trusted_sender,
         sender_unverified: listed && !trusted_sender,
         why_unverified,
+        server_checks_sender: Receiver::of(&account).vouches,
     })
 }
 
@@ -1117,10 +1138,16 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
     if let Some(headers) = state.store.ews_headers(row.id)?
         && !headers.trim().is_empty()
     {
-        let received = row.date;
         let bytes = headers.as_bytes();
-        // The signature must cover the header the address of the mailbox stands in, and the
-        // letter must be of this time: a letter of another time proves nothing (0.8.13, ступень 4).
+        // The letter must be of this time: the signature of a letter that came long ago proves
+        // nothing about a letter that came now (0.8.13, ступень 4). The time of receipt is the
+        // server's own (`DateTimeReceived`), not the date of the letter — that one the sender
+        // wrote, and a letter of another time carries its own.
+        let received = state
+            .store
+            .ews_received(&row.account_id, &row.folder, row.uid)?
+            .unwrap_or(row.date);
+        // The signature must cover the header the address of the mailbox stands in.
         let verdict = match dkim::replay_time(bytes, &account.email) {
             Some((recipient, _)) if dkim::not_a_replay(bytes, &account.email, received) => {
                 state
@@ -5311,6 +5338,61 @@ mod tests {
         assert!(verdict.confirmed, "{verdict:?}");
         assert_eq!(verdict.step, sender::Step::OwnFull);
         assert!(verdict.logo);
+    }
+
+    #[test]
+    fn a_passed_signature_of_the_server_needs_the_own_check_of_an_uneven_block() {
+        // Yandex vouches for a signature of `bank.ru`, and its `Authentication-Results` stands
+        // above a bare LF line: the server and the app may part on where the headers end, so its
+        // word about the sender is not taken and the app checks the signature itself (0.8.13,
+        // 7.1 Б).
+        let raw = "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\n"
+            .to_owned()
+            + SIGNATURE
+            + "From: Bank <noreply@bank.ru>\r\n\r\n<img src=\"https://bank.ru/p.png\">\r\n";
+        let raw = raw.as_bytes();
+        let sender = "security@bank.ru";
+        assert_eq!(message::sole_from(raw).as_deref(), Some(sender));
+        let auth = message::authenticity(raw, &yandex());
+        assert!(auth.uneven);
+        // The server confirmed the sender, and its word is not taken: nothing confirmed it.
+        assert!(auth.check.as_ref().is_some_and(|c| c.passed()));
+        assert_ne!(
+            sender_verdict(&evidence(raw, &auth, sender, None)).step,
+            sender::Step::ServerSignature
+        );
+        let mut ev = evidence(raw, &auth, sender, None);
+        ev.own_due = true;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        // The own check decides, whatever it found.
+        let mut ev = evidence(raw, &auth, sender, Some(dkim::Signature::Invalid));
+        ev.own_due = false;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Signature);
+        assert!(!own_check_due(true, &ev));
+    }
+
+    #[test]
+    fn the_original_headers_of_exchange_decide_before_the_body_assembled_again() {
+        // Exchange assembled the letter again, and the assembled one carries no signature: the
+        // check over its body would close the ladder at «unsigned» before the check over the
+        // original headers, which are signed (0.8.13, ступень 4).
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        // What `evidence_of` finds for a letter whose original headers are at hand: no verdict
+        // about the body, and the check over the headers is due.
+        let own_full = super::sender::body_check(None, Some(dkim::Signature::Unsigned), true);
+        assert_eq!(own_full, None);
+        let mut ev = Evidence::of(&raw, &auth, sender, own_full, None, true, false);
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        // The signature over the original headers stands: step 4, pictures and no logo.
+        ev.own_headers = Some(dkim::Headers::Valid);
+        let verdict = sender_verdict(&ev);
+        assert_eq!(verdict.step, sender::Step::OwnHeaders);
+        assert!(verdict.confirmed);
+        assert!(!verdict.logo, "the headers alone prove nothing about the body");
     }
 
     #[test]

@@ -231,6 +231,7 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
     expect(unverifiedKey("signature")).toBe("reader.serverBadSignature");
     expect(unverifiedKey("unchecked")).toBe("reader.serverUnchecked");
     expect(unverifiedKey("address_only")).toBe("reader.addressNotChecked");
+    expect(unverifiedKey("address_only_unchecked")).toBe("reader.addressNotCheckedNoKey");
     expect(unverifiedKey("no_check")).toBe("reader.cannotCheck");
     // The detail is under the line, not in it.
     expect(unverifiedTip("unsigned")).toBe("reader.tipUnsigned");
@@ -238,6 +239,13 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
     expect(unverifiedTip("unchecked")).toBe("reader.tipUnchecked");
     expect(unverifiedTip("no_check")).toBe("reader.tipCannotCheck");
     expect(unverifiedTip("server")).toBeNull();
+  });
+
+  it("does not tell the user that a server that checks senders does not check them", () => {
+    // 0.8.13, 5.1 Б: Gmail, Yandex, Mail.ru and Exchange Online check senders themselves, and the
+    // old tip («the mailbox's server does not check senders») was untrue there.
+    expect(unverifiedTip("unsigned", true)).toBeNull();
+    expect(unverifiedTip("unsigned", false)).toBe("reader.tipUnsigned");
   });
 });
 

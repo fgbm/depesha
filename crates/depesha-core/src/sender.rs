@@ -116,6 +116,9 @@ pub struct Evidence {
     pub sole_from: bool,
     /// The server of the mailbox says the sender signed in to the same organization.
     pub internal: bool,
+    /// The block of headers of the letter is uneven: the server and the app may read it
+    /// differently, and the server's word about the sender is not taken (0.8.13, 7.1 Б).
+    pub uneven_headers: bool,
     /// The mailbox's setting: trust the sender by address where nothing could be checked.
     pub by_address: bool,
 }
@@ -143,15 +146,18 @@ fn weigh(evidence: &Evidence) -> Verdict {
     if !evidence.sole_from {
         return no(Reason::AmbiguousFrom);
     }
+    // An uneven block of headers is read one way by the server and another by the app: its word
+    // about the sender is not taken, and the app checks the signature itself (0.8.13, 7.1 Б).
+    let server = evidence.server.as_ref().filter(|_| !evidence.uneven_headers);
     // The server's «no» stays a «no»: its own check of the sender failed. A server that said
     // nothing at all is not a «no»: the app's own check stands then.
-    if let Some(check) = &evidence.server
+    if let Some(check) = server
         && !check.passed()
         && !check.no_verdict()
     {
         return no(Reason::Server);
     }
-    if let Some(check) = &evidence.server
+    if let Some(check) = server
         && check.passed()
     {
         // `dmarc=pass` aligned with the From domain, or a passed signature of the same
@@ -170,7 +176,7 @@ fn weigh(evidence: &Evidence) -> Verdict {
         };
     }
     // A colleague of the same organization: the server of the mailbox says so itself.
-    if evidence.internal {
+    if evidence.internal && !evidence.uneven_headers {
         return Verdict {
             step: Step::Internal,
             confirmed: true,
@@ -224,6 +230,21 @@ fn no(reason: Reason) -> Verdict {
         logo: false,
         reason,
     }
+}
+
+/// What the app's own check of the whole letter may say for a letter whose original headers are
+/// at hand (0.8.13, ступень 4): nothing.
+///
+/// Exchange in the firm's own network assembles the letter again from its own store, so the bytes
+/// the check hashed are not the ones the sender signed. Its verdict about them would close the
+/// ladder — a letter assembled again carries no signature at all — before the check of the
+/// signature over the original headers. The body is left out, and the headers decide.
+pub fn body_check(
+    known: Option<crate::dkim::Signature>,
+    offline: Option<crate::dkim::Signature>,
+    headers_at_hand: bool,
+) -> Option<crate::dkim::Signature> {
+    if headers_at_hand { None } else { known.or(offline) }
 }
 
 #[cfg(test)]
@@ -355,5 +376,39 @@ mod tests {
         let v = decide(&e);
         assert!(!v.confirmed);
         assert_eq!(v.reason, Reason::Signature);
+    }
+
+    #[test]
+    fn an_uneven_block_of_headers_takes_no_word_from_the_server() {
+        // 0.8.13, 7.1 Б: the server and the app may part on where the headers end, and its word
+        // about the sender is not taken then. The app checks the signature itself.
+        let mut e = evidence(Some(SenderCheck::Passed));
+        e.uneven_headers = true;
+        e.own_due = true;
+        assert_eq!(decide(&e).reason, Reason::Checking);
+        // A colleague of the organization is the server's word too.
+        let mut e = evidence(None);
+        e.uneven_headers = true;
+        e.internal = true;
+        assert!(!decide(&e).confirmed);
+        // And a «no» of the server neither confirms nor is it overruled: nothing is known.
+        let mut e = evidence(Some(SenderCheck::DmarcNot("fail".into())));
+        e.uneven_headers = true;
+        assert!(!decide(&e).confirmed);
+    }
+
+    #[test]
+    fn the_original_headers_of_exchange_leave_the_body_out() {
+        // 0.8.13, ступень 4: the body of the letter Exchange assembled again is not the one the
+        // sender signed, so the check over it says nothing — not even that the letter is unsigned.
+        let known = Some(Signature::Aligned);
+        assert_eq!(body_check(known, None, true), None);
+        assert_eq!(body_check(None, Some(Signature::Unsigned), true), None);
+        // Without the original headers the body is all there is to check.
+        assert_eq!(body_check(known, None, false), known);
+        assert_eq!(
+            body_check(None, Some(Signature::Unsigned), false),
+            Some(Signature::Unsigned)
+        );
     }
 }

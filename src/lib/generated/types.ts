@@ -787,7 +787,12 @@ sender_unverified: boolean,
 /**
  * Why `sender_unverified`; `Checking` asks the window to call `message_check_sender`.
  */
-why_unverified: Unverified | null, };
+why_unverified: Unverified | null, 
+/**
+ * The mailbox's server checks senders itself (Gmail, Yandex, Mail.ru, Exchange Online): a
+ * line over the letter must not tell the user it does not (0.8.13, 5.1 Б).
+ */
+server_checks_sender: boolean, };
 
 export type OutboxItem = { id: number, account_id: string, draft: Draft, attempts: number, next_attempt: number, last_error: string | null, 
 /**
@@ -1198,7 +1203,7 @@ export type UnsubscribeWay = { "kind": "one-click", host: string, } | { "kind": 
 
 export type Unsubscribed = { "kind": "done" } | { "kind": "mail-sent", to: string, } | { "kind": "confirm", plan: UnsubscribePlan, reason: string, };
 
-export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from" | "address_only" | "no_check";
+export type Unverified = "server" | "checking" | "unsigned" | "signature" | "no_key" | "unchecked" | "ambiguous_from" | "address_only" | "address_only_unchecked" | "no_check";
 
 export type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
 

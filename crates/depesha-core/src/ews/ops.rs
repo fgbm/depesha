@@ -603,9 +603,9 @@ struct Fetched {
     /// The item's preview text (#177): one line Exchange keeps, no body download.
     preview: String,
     /// The original headers of the letter, as the sender wrote them (0.8.13, ступень 4):
-    /// the block `PR_TRANSPORT_MESSAGE_HEADERS` (`0x007D`). Exchange assembles the letter
-    /// again from its own store, so the body it hands over is not the body the sender signed;
-    /// the headers it keeps aside are.
+    /// the block `PR_TRANSPORT_MESSAGE_HEADERS` (`0x007D`) up to the body, and only when it
+    /// carries a signature. Exchange assembles the letter again from its own store, so the body
+    /// it hands over is not the body the sender signed; the headers it keeps aside are.
     headers: Option<String>,
 }
 
@@ -662,11 +662,11 @@ fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
     let id = item_id(it)?;
     let props = ext_props(it);
     let received = text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0);
-    let original = props
-        .get(&tag(PR_TRANSPORT_HEADERS))
-        .filter(|h| h.contains(':'))
-        .cloned();
-    let headers = original.clone().unwrap_or_else(|| synth_headers(it));
+    let transport = props.get(&tag(PR_TRANSPORT_HEADERS)).filter(|h| h.contains(':'));
+    let headers = transport.cloned().unwrap_or_else(|| synth_headers(it));
+    let original = transport
+        .and_then(|h| signature_headers(h, receiver))
+        .map(str::to_owned);
     let mut summary = message::parse_summary_for(headers.as_bytes(), receiver);
     // The item knows its attachments better than a header block does.
     summary.has_attachments = text(it, "HasAttachments") == Some("true");
@@ -758,6 +758,19 @@ fn synth_headers(it: Node<'_, '_>) -> String {
     }
     h.push_str("\r\n");
     h
+}
+
+/// The original headers worth keeping beside a letter of Exchange (0.8.13, ступень 4): the block
+/// up to the body, and only when it carries a `DKIM-Signature` — the check of the sender reads
+/// nothing else, and the cache has no room for the whole block of every letter. Exchange Online
+/// keeps none: its server checks the sender itself and writes its verdict (0.8.13, 2.1 Б).
+fn signature_headers<'a>(headers: &'a str, receiver: &Receiver) -> Option<&'a str> {
+    if receiver.exchange_online {
+        return None;
+    }
+    let end = crate::dkim::header_end(headers.as_bytes());
+    let block = &headers[..end];
+    block.to_ascii_lowercase().contains("dkim-signature:").then_some(block)
 }
 
 /// The preview texts of the given item ids (#177), Exchange's own `Preview`: the empty

@@ -398,7 +398,7 @@ pub fn parse_summary_for(raw: &[u8], receiver: &Receiver) -> Summary {
 /// and 2, and only when the letter has one `From` that both readers of its headers see (#167).
 pub fn brand_logo_due(raw: &[u8], receiver: &Receiver) -> bool {
     let auth = authenticity(raw, receiver);
-    if !auth.dmarc {
+    if !auth.dmarc || auth.uneven {
         return false;
     }
     let Some(from) = parse_summary(raw).from else {
@@ -526,6 +526,9 @@ pub struct Authenticity {
     pub check: Option<crate::avatar::SenderCheck>,
     /// Exchange says the sender signed in to the organization (a colleague).
     pub internal: bool,
+    /// The block of headers is uneven: the server and the app may read it differently, and the
+    /// server's word about the sender is not taken (0.8.13, 7.1 Б).
+    pub uneven: bool,
 }
 
 impl Authenticity {
@@ -534,6 +537,7 @@ impl Authenticity {
             dmarc: false,
             check: None,
             internal: false,
+            uneven: false,
         }
     }
 
@@ -564,6 +568,7 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
         dmarc: check.as_ref().is_some_and(crate::avatar::SenderCheck::confirmed),
         check,
         internal,
+        uneven: crate::dkim::uneven_headers(raw),
     }
 }
 

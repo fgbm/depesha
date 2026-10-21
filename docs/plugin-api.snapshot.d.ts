@@ -264,6 +264,7 @@ export type OpenedMessage = {
     trusted_sender: boolean;
     sender_unverified: boolean;
     why_unverified: Unverified | null;
+    server_checks_sender: boolean;
 };
 
 export interface Placed {
@@ -751,7 +752,7 @@ type Unsubscribe = {
     mailto: string | null;
 };
 
-type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from" | "address_only" | "no_check";
+type Unverified = "server" | "checking" | "unsigned" | "signature" | "no_key" | "unchecked" | "ambiguous_from" | "address_only" | "address_only_unchecked" | "no_check";
 
 type Voice = {
     from: Addr;

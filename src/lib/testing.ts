@@ -205,6 +205,7 @@ export function opened(r: MessageRow): OpenedMessage {
     trusted_sender: false,
     sender_unverified: false,
     why_unverified: null,
+    server_checks_sender: false,
   };
 }
 

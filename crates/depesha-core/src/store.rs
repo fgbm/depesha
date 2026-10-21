@@ -508,8 +508,10 @@ fn v26_backfills(conn: &Connection) -> Result<()> {
 /// firm's own network assembles the letter again from its own store, so the body it hands over
 /// is not the body the sender signed. The original headers it keeps aside
 /// (`PR_TRANSPORT_MESSAGE_HEADERS`, `0x007D`) are: the signature over them still proves who
-/// wrote the letter. The column is empty for the letters of other servers, and for the letters
-/// of Exchange that came before this step.
+/// wrote the letter. Only the block up to the body is kept, and only when it carries a
+/// `DKIM-Signature` — the check reads nothing else, and the cache has no room for more. The
+/// column is empty for the letters of other servers, for Exchange Online (its server checks the
+/// sender itself), and for the letters of Exchange that came before this step.
 fn v29_ews_headers(conn: &Connection) -> Result<()> {
     add_column(conn, "messages", "ews_headers", "TEXT")?;
     Ok(())
@@ -2169,6 +2171,20 @@ impl Store {
             .flatten())
     }
 
+    /// When Exchange received a letter (its own `DateTimeReceived`) — the time a letter of
+    /// another time is measured against (0.8.13, ступень 4). `None` for a letter that came by
+    /// IMAP: its date is all there is.
+    pub fn ews_received(&self, account_id: &str, folder: &str, uid: u32) -> Result<Option<i64>> {
+        Ok(self
+            .read()
+            .query_row(
+                "SELECT received FROM ews_items WHERE account_id = ?1 AND folder = ?2 AND uid = ?3",
+                params![account_id, folder, uid],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// Keeps the original headers of a letter of Exchange (0.8.13, ступень 4). An empty block
     /// is not kept: a letter whose headers are not there is a letter without them.
     pub fn save_ews_headers(&self, id: i64, headers: &str) -> Result<()> {
@@ -3596,6 +3612,34 @@ mod tests {
             date: Some(date),
             ..Default::default()
         }
+    }
+
+    /// The time Exchange received a letter is the server's own `DateTimeReceived`, not the date
+    /// the sender wrote into the letter (0.8.13, ступень 4).
+    #[test]
+    fn the_time_of_receipt_of_a_letter_of_exchange_is_the_servers_own() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        let mail = summary("Привет", 100);
+        let msg = NewMessage {
+            uid: 7,
+            summary: &mail,
+            fallback_date: 0,
+            size: 10,
+            flags: Flags::default(),
+            keywords: Vec::new(),
+        };
+        store.insert_message("a", "INBOX", &msg).unwrap();
+        // A letter that came by IMAP has no receipt time of its own.
+        assert_eq!(store.ews_received("a", "INBOX", 7).unwrap(), None);
+        store.ews_item_add("a", "INBOX", 7, "item-1", 1_800_000_000).unwrap();
+        assert_eq!(store.ews_received("a", "INBOX", 7).unwrap(), Some(1_800_000_000));
+        // Another mailbox, another folder, another letter: nothing.
+        assert_eq!(store.ews_received("b", "INBOX", 7).unwrap(), None);
+        assert_eq!(store.ews_received("a", "Archive", 7).unwrap(), None);
+        assert_eq!(store.ews_received("a", "INBOX", 8).unwrap(), None);
     }
 
     #[test]

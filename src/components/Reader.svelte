@@ -246,8 +246,8 @@
               <!-- Anyone can write a trusted address into From: the trust waits for a confirmed sender. -->
               <span
                 class="tip"
-                title={unverifiedTip(msg.why_unverified)
-                  ? t(unverifiedTip(msg.why_unverified)!)
+                title={unverifiedTip(msg.why_unverified, msg.server_checks_sender)
+                  ? t(unverifiedTip(msg.why_unverified, msg.server_checks_sender)!)
                   : undefined}
               >{t(unverifiedKey(msg.why_unverified), { email: msg.view.summary.from.email, box: boxName })}</span>
             {:else}

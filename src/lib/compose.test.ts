@@ -64,6 +64,7 @@ function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessag
     trusted_sender: false,
     sender_unverified: false,
     why_unverified: null,
+    server_checks_sender: false,
   };
 }
 
