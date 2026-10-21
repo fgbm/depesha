@@ -27,6 +27,7 @@
   import { viewTitle } from "../lib/titles";
   import { i18n, locale, t, tn } from "../lib/i18n.svelte";
   import { recentSearches } from "../lib/recentSearches.svelte";
+  import { OPERATOR_SAMPLES } from "../lib/searchSuggest";
   import { rowMarks } from "../lib/marks";
   import { mayAskLogo, rowAvatar } from "../lib/listAvatar";
   import { cursorId } from "../lib/cursor";
@@ -322,7 +323,7 @@
           {t("search.nothing")}
           <div class="ops">
             {t("search.refine")}
-            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "это:важное", "после:2026-09-01", "год:2025", "старше:1г", "больше:25М", "в:Работа/*", "ящик:"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "is:important", "after:2026-09-01", "year:2025", "older:1y", "larger:25M", "in:Work/*", "account:"]) as op (op)}<code>{op}</code>{" "}{/each}
+            {#each OPERATOR_SAMPLES[i18n.lang] as op (op)}<code>{op}</code>{" "}{/each}
           </div>
         {:else if pluginView}
           {pluginView.empty()}

@@ -912,3 +912,15 @@ describe("the menu of a row from the keyboard (#126)", () => {
     expect(document.querySelector("button.mi")).toBeNull();
   });
 });
+
+describe("the operators under «nothing found» (А10)", () => {
+  it("are the Russian ones of the search box, with the folder sample of its suggestions", () => {
+    app.list.view = { kind: "search", text: "ничего" };
+    const t = draw([]);
+    const ops = [...t.querySelectorAll(".ops code")].map((c) => c.textContent);
+    expect(ops).toContain("это:непрочитанное");
+    expect(ops).toContain("в:Папка/*");
+    expect(ops).not.toContain("is:unread");
+    expect(ops).not.toContain("в:Работа/*");
+  });
+});

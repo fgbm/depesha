@@ -18,6 +18,12 @@ export const NEW_OPERATORS: Record<Lang, string[]> = {
   ru: ["больше:", "меньше:", "старше:", "новее:", "год:", "в:Папка/*", "ящик:"],
 };
 
+/** The cheat sheet under "nothing found": the operators with a sample value where one helps. */
+export const OPERATOR_SAMPLES: Record<Lang, string[]> = {
+  en: ["from:", "to:", "subject:", "has:attachment", "is:unread", "is:important", "after:2026-09-01", "year:2025", "older:1y", "larger:25M", "in:Folder/*", "account:"],
+  ru: ["от:", "кому:", "тема:", "есть:вложение", "это:непрочитанное", "это:важное", "после:2026-09-01", "год:2025", "старше:1г", "больше:25М", "в:Папка/*", "ящик:"],
+};
+
 export interface Completion {
   kind: "operator" | "year" | "folder" | "size" | "account" | "label";
   /** What replaces the token being typed. */
