@@ -23,6 +23,7 @@ data-menu-row
 data-no
 data-own
 data-page
+data-palette
 data-placeholder
 data-plugin
 data-problem

@@ -82,7 +82,7 @@ component	src/components/prefs/controls/DaysField.svelte	71	20	18	33
 component	src/components/prefs/controls/FolderField.svelte	56	23	11	22
 component	src/components/prefs/controls/SegChoice.svelte	61	15	9	37
 component	src/components/prefs/controls/Switch.svelte	52	8	6	38
-component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
+component	src/components/prefs/controls/ThemeTiles.svelte	94	19	12	63
 component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
 component	src/components/reader/AttachmentChip.svelte	119	34	16	69
 component	src/components/reader/AttachmentStrip.svelte	176	80	44	52
@@ -910,6 +910,8 @@ function	src/lib/frameRelay.ts::themeMessage	5
 function	src/lib/frameRelay.ts::keysMessage	1
 function	src/lib/frameRelay.ts::toFrame	3
 function	src/lib/frameRelay.ts::frameMessage	10
+function	src/lib/hardColors.test.ts::files	1
+function	src/lib/hardColors.test.ts::colours	7
 function	src/lib/hints.svelte.test.ts::draft	2
 function	src/lib/hints.svelte.ts::now	3
 function	src/lib/hints.svelte.ts::bySubject	5
@@ -1080,12 +1082,16 @@ function	src/lib/markdown/mdedits.ts::pictureEdit	9
 function	src/lib/markdown/mdedits.ts::imageAt	7
 function	src/lib/markdown/mdedits.ts::pictureAltEdit	6
 function	src/lib/markdown/mdedits.ts::pictureRemoveEdit	9
+function	src/lib/markdown/picture.test.ts::editorOf	9
+function	src/lib/markdown/picture.test.ts::caret	1
 function	src/lib/markdown/preview.test.ts::stateOf	5
 function	src/lib/markdown/preview.test.ts::shown	15
 function	src/lib/markdown/preview.test.ts::lines	1
+function	src/lib/markdown/preview.test.ts::atoms	1
 function	src/lib/markdown/preview.ts::isOwnPicture	3
 function	src/lib/markdown/preview.ts::previewPieces	14
-function	src/lib/markdown/preview.ts::block	24
+function	src/lib/markdown/preview.ts::block	19
+function	src/lib/markdown/preview.ts::image	10
 function	src/lib/markdown/preview.ts::mark	17
 function	src/lib/markdown/preview.ts::linkWords	4
 function	src/lib/markdown/preview.ts::inline	14
@@ -1132,6 +1138,9 @@ function	src/lib/menuScroll.ts::scrollToRow	4
 function	src/lib/office.ts::clean	4
 function	src/lib/office.ts::docxHtml	14
 function	src/lib/office.ts::sheetsHtml	19
+function	src/lib/palette.test.ts::block	8
+function	src/lib/palette.test.ts::luminance	7
+function	src/lib/palette.test.ts::ratio	4
 function	src/lib/people.test.ts::person	1
 function	src/lib/people.ts::blankPerson	16
 function	src/lib/people.ts::addressesOf	3
@@ -1377,6 +1386,8 @@ function	src/lib/testing.ts::rows	3
 function	src/lib/testing.ts::opened	27
 function	src/lib/testing.ts::deferred	9
 function	src/lib/testing.ts::flush	3
+function	src/lib/theme.ts::themeOf	4
+function	src/lib/theme.ts::lightOf	5
 function	src/lib/theme.ts::applyTheme	7
 function	src/lib/theme.ts::applySavedTheme	3
 function	src/lib/titles.ts::viewTitle	16
