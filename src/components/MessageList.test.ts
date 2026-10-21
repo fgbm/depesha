@@ -245,13 +245,6 @@ describe("the cursor has the ground, not a bar (#165, #108)", () => {
       expect([...t.querySelectorAll(".row")].map(ground)).not.toContain("var(--selected)");
     });
 
-    it("gives the subject the place it needs and the preview only what is left", () => {
-      const [subject] = rulesFor(".subject");
-      const [preview] = rulesFor(".preview");
-      expect(subject.style.getPropertyValue("flex")).toBe("0 1 auto");
-      expect(preview.style.getPropertyValue("flex")).toBe("1 1 0");
-    });
-
     it("has no bar: no element for it and no rule that draws one before a row", () => {
       const t = draw([row(1, "a@cur.example")]);
       app.selection.selected = new Set([1]);
@@ -922,5 +915,18 @@ describe("the operators under «nothing found» (А10)", () => {
     expect(ops).toContain("в:Папка/*");
     expect(ops).not.toContain("is:unread");
     expect(ops).not.toContain("в:Работа/*");
+  });
+});
+
+describe("the second line of a row (А1)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+
+  it("gives the subject the place it needs and the preview only what is left", () => {
+    const [subject] = rulesFor(".subject");
+    const [preview] = rulesFor(".preview");
+    expect(subject.style.getPropertyValue("flex")).toBe("0 1 auto");
+    expect(preview.style.getPropertyValue("flex")).toBe("1 1 0");
   });
 });
