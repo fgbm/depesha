@@ -80,3 +80,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-21 16:40 — claude-opus-5-5
 
 Кадры настроек на своём Xvfb `:117` → после первого прогона съёмки Xvfb умирал, а следующий прогон падал «Failed to initialize GTK» и «HeadersTimeoutError». Причина — сброс сервера, когда отключается последний клиент. Помог флаг `-noreset`; стоит дописать его в команду Xvfb в `e2e/README.md`.
+
+## 2026-10-21 18:45 — minimax-m3.1-flash
+
+Выпуск 0.8.12: CI на коммите версии упал — задачи «Build macos-latest» и «Print a sheet (macOS)» отменились без раннера (`runner_name` пуст, шагов нет), при этом status.github.com показывал degraded Actions. Обход: `gh run rerun <id> --failed` — задачи взяли раннер и прошли. Отмена macOS-задач без раннера бывает и от сбоя платформы GitHub, а не от кода: смотреть `runner_name` в `gh api .../jobs` и лог задачи (у отменённой он недоступен).
