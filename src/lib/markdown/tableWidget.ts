@@ -103,10 +103,6 @@ export class TableView extends WidgetType {
     const table = document.createElement("table");
     table.className = "md-table";
 
-    const headRow = document.createElement("tr");
-    headRow.append(corner());
-    this.parsed.head.forEach((_, c) => headRow.append(this.grip(view, root, "col", c)));
-    table.append(headRow);
     table.append(this.row(view, root, -1));
     this.parsed.rows.forEach((_, r) => table.append(this.row(view, root, r)));
     inner.append(table);
@@ -127,7 +123,7 @@ export class TableView extends WidgetType {
       // A click on a table cell puts the caret in it: the editor's own caret stays out of
       // the widget, so the keys reach the cell.
       root.addEventListener("mousedown", (e) => {
-        if ((e.target as Element).closest(".md-table-grip")) e.stopPropagation();
+        if ((e.target as Element).closest(".md-table-grip-btn")) e.stopPropagation();
       });
     }
 
@@ -158,17 +154,16 @@ export class TableView extends WidgetType {
     return true;
   }
 
-  private grip(view: EditorView, root: HTMLElement, kind: "col" | "row", index: number): HTMLTableCellElement {
-    const td = document.createElement("td");
-    td.className = `md-table-grip md-table-grip-${kind}`;
+  /** A grip laid over the edge of a cell: the column's over the top of its header cell, the
+   *  row's over the left of its first cell, so the grips take no row or column of the table. */
+  private grip(view: EditorView, root: HTMLElement, kind: "col" | "row", index: number): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "md-table-grip-btn";
+    btn.className = `md-table-grip-btn md-table-grip-${kind}`;
     btn.dataset.grip = `${kind}:${index}`;
     btn.textContent = kind === "col" ? "⋯" : "⋮";
     btn.tabIndex = -1;
     btn.title = kind === "col" ? t("markdown.table.colGrip") : t("markdown.table.rowGrip");
-    td.append(btn);
     if (!this.readonly) {
       btn.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -176,7 +171,7 @@ export class TableView extends WidgetType {
         this.startDrag(view, root, e, kind, index, btn);
       });
     }
-    return td;
+    return btn;
   }
 
   /** The grip of the row and of the column the caret is in stands out (frame 1 of the mockup):
@@ -193,7 +188,6 @@ export class TableView extends WidgetType {
   private row(view: EditorView, root: HTMLElement, r: number): HTMLTableRowElement {
     const tr = document.createElement("tr");
     tr.dataset.row = String(r);
-    tr.append(this.grip(view, root, "row", r));
     const cells = r < 0 ? this.parsed.head : this.parsed.rows[r];
     cells.forEach((value, c) => {
       const td = document.createElement(r < 0 ? "th" : "td");
@@ -213,6 +207,8 @@ export class TableView extends WidgetType {
         span.addEventListener("keydown", (e) => this.cellKey(view, root, e, r, c));
       }
       td.append(span);
+      if (c === 0) td.append(this.grip(view, root, "row", r));
+      if (r < 0) td.append(this.grip(view, root, "col", c));
       tr.append(td);
     });
     return tr;
@@ -442,12 +438,6 @@ export class TableView extends WidgetType {
     view.dispatch({ changes: { from, to: end, insert: "" }, userEvent: "delete.table" });
     view.focus();
   }
-}
-
-function corner(): HTMLTableCellElement {
-  const td = document.createElement("td");
-  td.className = "md-table-corner";
-  return td;
 }
 
 function mid(el: Element): { left: number; top: number } {

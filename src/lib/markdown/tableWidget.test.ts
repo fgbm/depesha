@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EditorView } from "@codemirror/view";
 import { TableView } from "./tableWidget";
+import { createEditor, type EditorOptions } from "./markdownEditor";
 
 const TABLE = "| Кто | Что |\n| --- | --- |\n| Иван | зал |\n| Ольга | транспорт |";
 
@@ -9,11 +10,22 @@ const TABLE = "| Кто | Что |\n| --- | --- |\n| Иван | зал |\n| Ол
  *  building the table. */
 const viewOf = () => ({ dom: document.createElement("div") }) as unknown as EditorView;
 
+const OPTIONS: Omit<EditorOptions, "parent" | "value"> = {
+  label: "",
+  placeholder: "",
+  readonly: false,
+  markup: false,
+  onchange: () => {},
+  onselection: () => {},
+  onfocus: () => {},
+  onpictures: () => {},
+};
+
 describe("the grips of a Markdown table", () => {
   it("stands over every column and beside every row, with its own glyph", () => {
     const dom = new TableView(0, TABLE).toDOM(viewOf());
-    const cols = [...dom.querySelectorAll<HTMLElement>(".md-table-grip-col .md-table-grip-btn")];
-    const rows = [...dom.querySelectorAll<HTMLElement>(".md-table-grip-row .md-table-grip-btn")];
+    const cols = [...dom.querySelectorAll<HTMLElement>(".md-table-grip-btn.md-table-grip-col")];
+    const rows = [...dom.querySelectorAll<HTMLElement>(".md-table-grip-btn.md-table-grip-row")];
     // Two columns of the table, three rows: the header and its two rows.
     expect(cols.map((b) => b.textContent)).toEqual(["⋯", "⋯"]);
     expect(rows.map((b) => b.textContent)).toEqual(["⋮", "⋮", "⋮"]);
@@ -34,6 +46,60 @@ describe("the grips of a Markdown table", () => {
     const dom = new TableView(0, TABLE).toDOM(viewOf());
     expect(dom.classList.contains("has-cur")).toBe(false);
     expect(dom.querySelectorAll(".md-table-grip-btn.cur")).toHaveLength(0);
+  });
+});
+
+describe("the controls of a Markdown table in the layout", () => {
+  it("adds no row and no column of their own to the drawn table", () => {
+    // The grips stand over the cells' edges: the table has the letter's rows and columns only,
+    // so its width is the letter's and no empty service row stands over the header.
+    const dom = new TableView(0, TABLE).toDOM(viewOf());
+    const rows = [...dom.querySelectorAll<HTMLTableRowElement>(".md-table tr")];
+    expect(rows.map((tr) => tr.dataset.row)).toEqual(["-1", "0", "1"]);
+    expect(rows.map((tr) => tr.children.length)).toEqual([2, 2, 2]);
+    expect([...dom.querySelectorAll(".md-table th, .md-table td")].every((c) => c.classList.contains("md-table-cell"))).toBe(true);
+  });
+
+  it("lays every control over the table's box, never past its edge", () => {
+    // A narrow table must not scroll: the inner box hugs the table, and no control stands
+    // outside it, where it would widen what the scroller holds. jsdom lays nothing out, so
+    // the editor's own stylesheet is what is read.
+    const parent = document.createElement("div");
+    const editor = createEditor({ ...OPTIONS, parent, value: TABLE });
+    const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+    const rule = (sel: string) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) => m[1].split(",").some((s) => s.trim().endsWith(sel))).map((m) => m[2]);
+    expect(rule(".md-table-in").join(";")).not.toMatch(/min-width:\s*100%/);
+    for (const sel of [".md-table-grip-btn", ".md-table-add"]) expect(rule(sel).join(";")).toMatch(/position:\s*absolute/);
+    for (const sel of [".md-table-grip-col", ".md-table-grip-row", ".md-table-add-col", ".md-table-add-row"]) {
+      expect(rule(sel).join(";"), sel).not.toMatch(/(top|right|bottom|left):\s*-/);
+    }
+    editor.destroy();
+  });
+});
+
+describe("a Markdown table written back from the editor", () => {
+  it("keeps only the letter's rows and columns in the Markdown it writes", () => {
+    // jsdom has no layout of text ranges, which the editor reads while it draws.
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+    vi.useFakeTimers();
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    let value = "";
+    const editor = createEditor({ ...OPTIONS, parent, value: `Текст\n\n${TABLE}\n`, onchange: (v) => (value = v) });
+    const cell = parent.querySelector<HTMLElement>('[data-cell="0:1"]')!;
+    cell.textContent = "сцена";
+    cell.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    vi.runAllTimers();
+    vi.useRealTimers();
+    const lines = value.split("\n").filter((l) => l.startsWith("|"));
+    // The header, the separator, the two rows: each with the two columns of the letter.
+    expect(lines).toHaveLength(4);
+    expect(lines.every((l) => l.split("|").length === 4)).toBe(true);
+    expect(lines.some((l) => /^\|(\s*\|)+$/.test(l))).toBe(false);
+    expect(lines[2]).toContain("сцена");
+    editor.destroy();
+    parent.remove();
   });
 });
 

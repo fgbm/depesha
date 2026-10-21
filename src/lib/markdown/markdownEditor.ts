@@ -428,26 +428,30 @@ const theme = EditorView.theme({
     WebkitMaskImage: "linear-gradient(to right, #000 calc(100% - 46px), transparent calc(100% - 14px))",
     maskImage: "linear-gradient(to right, #000 calc(100% - 46px), transparent calc(100% - 14px))",
   },
-  ".md-table-in": { position: "relative", display: "inline-block", minWidth: "100%" },
+  // The box hugs the table, and every control lies inside it over the table's edge: nothing
+  // takes a row or column of its own, so a table no wider than the editor never scrolls.
+  ".md-table-in": { position: "relative", display: "inline-block", verticalAlign: "top" },
   ".md-table": { borderCollapse: "collapse", width: "max-content", maxWidth: "none" },
   // The floor the columns keep when empty; a filled cell widens its column on its own
   // (`min-width: max-content` on the cell, tableWidget.ts).
-  ".md-table th, .md-table td": { border: "1px solid var(--line)", padding: "0", verticalAlign: "top", minWidth: "40px" },
+  ".md-table th, .md-table td": { position: "relative", border: "1px solid var(--line)", padding: "0", verticalAlign: "top", minWidth: "40px" },
   ".md-table th": { background: "var(--paper-2)" },
   ".md-table-cell-text": { padding: "3px 10px", outline: "none", cursor: "text" },
   ".md-table-cell-text:focus": { boxShadow: "inset 0 0 0 2px var(--link)" },
-  ".md-table-corner, .md-table-grip": { border: "none", padding: "0", background: "none", width: "18px" },
   // The grips stay quiet until the table is pointed at or the caret is in a cell; the row and
   // the column of that cell stand out (frames 1–2 of the 0.7 mockup).
-  ".md-table-grip-btn": { width: "18px", padding: "0", border: "none", background: "none", color: "var(--muted)", cursor: "pointer", lineHeight: "1", font: "inherit", opacity: "0", transition: "opacity .1s" },
+  ".md-table-grip-btn": { position: "absolute", zIndex: "2", padding: "0", border: "none", background: "none", color: "var(--muted)", cursor: "pointer", font: "inherit", fontSize: "11px", opacity: "0", transition: "opacity .1s" },
+  // The column's grip over the top of its header cell, the row's over the left padding of its first cell.
+  ".md-table-grip-col": { top: "0", left: "50%", transform: "translateX(-50%)", height: "9px", padding: "0 4px", lineHeight: "6px" },
+  ".md-table-grip-row": { left: "0", top: "50%", transform: "translateY(-50%)", width: "9px", height: "14px", lineHeight: "14px" },
   ".md-table-view:hover .md-table-grip-btn, .md-table-view.has-cur .md-table-grip-btn": { opacity: "0.55" },
   ".md-table-view .md-table-grip-btn:hover, .md-table-view .md-table-grip-btn.cur": { opacity: "1", color: "var(--ink)", background: "var(--selected)", borderRadius: "4px" },
   ".md-table-view .md-table-grip-btn.cur": { background: "color-mix(in srgb, var(--link) 22%, var(--paper))", color: "var(--link)" },
-  ".md-table-add": { position: "absolute", border: "1px dashed var(--line)", background: "none", color: "var(--muted)", cursor: "pointer", padding: "0", lineHeight: "1", opacity: "0", transition: "opacity .1s" },
+  ".md-table-add": { position: "absolute", zIndex: "1", border: "1px dashed var(--line)", background: "var(--paper)", color: "var(--muted)", cursor: "pointer", padding: "0", fontSize: "11px", opacity: "0", transition: "opacity .1s" },
   ".md-table-view:hover .md-table-add, .md-table-view.has-cur .md-table-add": { opacity: "0.6" },
   ".md-table-add:hover": { opacity: "1", color: "var(--ink)" },
-  ".md-table-add-col": { top: "0", right: "-22px", width: "18px", height: "100%" },
-  ".md-table-add-row": { left: "0", bottom: "-22px", width: "100%", height: "18px" },
+  ".md-table-add-col": { top: "0", right: "0", width: "9px", height: "100%", lineHeight: "1" },
+  ".md-table-add-row": { left: "0", bottom: "0", width: "100%", height: "6px", lineHeight: "4px" },
   ".md-table-drop": { position: "absolute", background: "var(--accent)", pointerEvents: "none", zIndex: "3" },
 });
 
