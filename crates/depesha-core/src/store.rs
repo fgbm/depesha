@@ -86,6 +86,7 @@ const MIGRATIONS: &[Step] = &[
     v26_backfills,
     waiting::v27_stop_undo,
     labels::v28_local_labels,
+    v29_ews_headers,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -500,6 +501,17 @@ fn v26_backfills(conn: &Connection) -> Result<()> {
             done   INTEGER NOT NULL DEFAULT 0
         );",
     )?;
+    Ok(())
+}
+
+/// 29: the original headers of a letter of Exchange (0.8.13, ступень 4). Exchange in the
+/// firm's own network assembles the letter again from its own store, so the body it hands over
+/// is not the body the sender signed. The original headers it keeps aside
+/// (`PR_TRANSPORT_MESSAGE_HEADERS`, `0x007D`) are: the signature over them still proves who
+/// wrote the letter. The column is empty for the letters of other servers, and for the letters
+/// of Exchange that came before this step.
+fn v29_ews_headers(conn: &Connection) -> Result<()> {
+    add_column(conn, "messages", "ews_headers", "TEXT")?;
     Ok(())
 }
 
@@ -2146,6 +2158,51 @@ impl Store {
         Ok(())
     }
 
+    /// The original headers of a letter of Exchange (0.8.13, ступень 4): the block
+    /// `PR_TRANSPORT_MESSAGE_HEADERS` (`0x007D`) that Exchange keeps aside of the letter it
+    /// assembles again. `None` for a letter of another server, or one Exchange did not keep.
+    pub fn ews_headers(&self, id: i64) -> Result<Option<String>> {
+        Ok(self
+            .read()
+            .query_row("SELECT ews_headers FROM messages WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?
+            .flatten())
+    }
+
+    /// Keeps the original headers of a letter of Exchange (0.8.13, ступень 4). An empty block
+    /// is not kept: a letter whose headers are not there is a letter without them.
+    pub fn save_ews_headers(&self, id: i64, headers: &str) -> Result<()> {
+        if headers.trim().is_empty() {
+            return Ok(());
+        }
+        self.conn().execute(
+            "UPDATE messages SET ews_headers = ?2 WHERE id = ?1 AND ews_headers IS NULL",
+            params![id, headers],
+        )?;
+        Ok(())
+    }
+
+    /// Keeps the original headers of many letters of Exchange (0.8.13, ступень 4), in one
+    /// commit.
+    pub fn save_ews_headers_batch(&self, headers: &[(i64, &str)]) -> Result<()> {
+        if headers.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for (id, headers) in headers {
+            if headers.trim().is_empty() {
+                continue;
+            }
+            tx.execute(
+                "UPDATE messages SET ews_headers = ?2 WHERE id = ?1 AND ews_headers IS NULL",
+                params![id, headers],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Search over subject, addresses and the bodies already downloaded, with
     /// operators (see `query`). Trash and spam only with `in:`. Newest first unless `sort` says otherwise.
     pub fn search(
@@ -2461,11 +2518,11 @@ impl Store {
         &self,
         account_id: &str,
         folder: &str,
-        items: &[(NewMessage<'_>, &str, i64, &str)],
+        items: &[(NewMessage<'_>, &str, i64, &str, Option<&str>)],
     ) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        for (msg, item_id, received, _preview) in items {
+        for (msg, item_id, received, _preview, _headers) in items {
             insert_message(&tx, account_id, folder, msg)?;
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO ews_items (account_id, folder, uid, item_id, received) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -6379,9 +6436,9 @@ mod tests {
                 (m, id, 0)
             })
             .collect();
-        let items: Vec<(NewMessage<'_>, &str, i64, &str)> = items
+        let items: Vec<(NewMessage<'_>, &str, i64, &str, Option<&str>)> = items
             .iter()
-            .map(|(m, id, r)| (m.clone(), id.as_str(), *r, ""))
+            .map(|(m, id, r)| (m.clone(), id.as_str(), *r, "", None))
             .collect();
         let ((), ran) = statements(&store, || store.ews_insert_items("a", "Sent", &items).unwrap());
         assert_eq!(commits(&ran), 1);

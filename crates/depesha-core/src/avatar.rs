@@ -618,7 +618,8 @@ pub enum SenderCheck {
     /// about exactly the From domain.
     NotAlignedWithoutDmarc,
     /// No `dmarc=` result, but a passed `dkim` or `spf` is about exactly the From domain.
-    /// Not a DMARC verdict: the server did not check DMARC.
+    /// Not a DMARC verdict: the server did not check DMARC, but it did check the signature on
+    /// the original bytes, which is as much as a DMARC verdict says (0.8.13, 2.1 Б).
     AlignedWithoutDmarc {
         via: &'static str,
     },
@@ -642,25 +643,30 @@ impl SenderCheck {
         matches!(self, Self::Passed | Self::AlignedWithoutDmarc { .. })
     }
 
+    /// The server's own DMARC verdict: `dmarc=pass` about the From domain. A passed
+    /// signature without a DMARC result is not this: the server did not check DMARC.
+    pub fn dmarc_passed(&self) -> bool {
+        matches!(self, Self::Passed)
+    }
+
     /// The mailbox's server gave no verdict on the sender: no header of its own, or no DMARC
-    /// check in it (a passed signature alone is none, see [`SenderCheck::confirmed`]). The app may then check the DKIM signature itself ([`crate::dkim`]); a `no`
+    /// check in it. The app may then check the DKIM signature itself ([`crate::dkim`]); a `no`
     /// of the server (`dmarc=fail`, another organization) stays a `no`.
     pub fn no_verdict(&self) -> bool {
         matches!(
             self,
-            Self::NoOwnHeader { .. }
-                | Self::NoDmarc
-                | Self::NotAlignedWithoutDmarc
-                | Self::AlignedWithoutDmarc { via: "dkim" }
+            Self::NoOwnHeader { .. } | Self::NoDmarc | Self::NotAlignedWithoutDmarc
         )
     }
 
     /// The server's word alone confirms the sender. A passed signature of the sender's
-    /// organization without a DMARC result does not: `header.d` names the signer, not the From
-    /// the server read, and a From the server and the app read differently passes there. The
-    /// app's own check of the signature against its own From decides then.
+    /// organization without a DMARC result does too (0.8.13, 2.1 Б): the server checked the
+    /// body hash on the original bytes when it took the letter, and the app cannot check it
+    /// better later. What may still go wrong is that the server read the `From` differently
+    /// than the app does; the one From both readers see ([`crate::message::sole_from`]) closes
+    /// that way in.
     pub fn confirmed(&self) -> bool {
-        self.passed() && !self.no_verdict()
+        self.passed()
     }
 }
 
@@ -1028,8 +1034,8 @@ mod tests {
                 "{name}: fail"
             );
         }
-        // A server that writes no `dmarc=` (Yandex): the app's own path believes an exact
-        // dkim/spf match, and only that.
+        // A server that writes no `dmarc=` (Yandex): the server's passed signature of the From
+        // organization confirms the sender (0.8.13, 2.1 Б).
         let yandex_box = imap("user@yandex.ru", "imap.yandex.ru");
         let plain = "Authentication-Results: mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mail=notifications@github.com; dkim=pass header.i=@github.com\r\n";
         assert!(verified(
@@ -1044,8 +1050,8 @@ mod tests {
             plain,
             "notifications@evilgithub.com"
         ));
-        // A signature of the organization alone waits for the app's own check (#167).
-        assert!(!verified(
+        // A subdomain of the same organization: relaxed alignment, the server's word holds.
+        assert!(verified(
             &yandex_box,
             YANDEX_RECEIVED,
             plain,
@@ -1498,8 +1504,9 @@ mod tests {
     }
 
     #[test]
-    fn a_passed_signature_alone_waits_for_the_apps_own_check() {
-        // `header.d` names the signer, not the From the server read (#167).
+    fn a_passed_signature_of_the_server_confirms_the_sender() {
+        // 0.8.13, 2.1 Б: the server hashed the body of the letter on arrival; its word about the
+        // signature is as much as its word about DMARC.
         let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
         let dkim = check_sender(
             &["mx.yandex.net; dkim=pass header.d=bank.ru".into()],
@@ -1507,7 +1514,7 @@ mod tests {
             &yandex,
         );
         assert_eq!(dkim, SenderCheck::AlignedWithoutDmarc { via: "dkim" });
-        assert!(!dkim.confirmed() && dkim.no_verdict());
+        assert!(dkim.confirmed() && !dkim.no_verdict());
         let spf = check_sender(
             &["mx.yandex.net; spf=pass smtp.mailfrom=a@bank.ru; dkim=pass header.d=bank.ru".into()],
             "bank.ru",
@@ -1515,12 +1522,20 @@ mod tests {
         );
         assert_eq!(spf, SenderCheck::AlignedWithoutDmarc { via: "spf" });
         assert!(spf.confirmed() && !spf.no_verdict());
+        // A signature of another organization is not about the From: no confirmation.
         let raw = letter_with(
             YANDEX_RECEIVED,
             "Authentication-Results: mx.yandex.net; dkim=pass header.d=github.com\r\n",
             "notifications@github.com",
         );
-        assert!(!crate::message::authenticity(&raw, &yandex).verified());
+        assert!(crate::message::authenticity(&raw, &yandex).verified());
+        // A signature of a look-alike domain: not the From domain, no confirmation.
+        let other = letter_with(
+            YANDEX_RECEIVED,
+            "Authentication-Results: mx.yandex.net; dkim=pass header.d=evilgithub.com\r\n",
+            "notifications@github.com",
+        );
+        assert!(!crate::message::authenticity(&other, &yandex).verified());
     }
 
     #[test]

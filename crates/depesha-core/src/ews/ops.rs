@@ -602,6 +602,11 @@ struct Fetched {
     categories: Vec<String>,
     /// The item's preview text (#177): one line Exchange keeps, no body download.
     preview: String,
+    /// The original headers of the letter, as the sender wrote them (0.8.13, ступень 4):
+    /// the block `PR_TRANSPORT_MESSAGE_HEADERS` (`0x007D`). Exchange assembles the letter
+    /// again from its own store, so the body it hands over is not the body the sender signed;
+    /// the headers it keeps aside are.
+    headers: Option<String>,
 }
 
 async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
@@ -657,11 +662,11 @@ fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
     let id = item_id(it)?;
     let props = ext_props(it);
     let received = text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0);
-    let headers = props
+    let original = props
         .get(&tag(PR_TRANSPORT_HEADERS))
         .filter(|h| h.contains(':'))
-        .cloned()
-        .unwrap_or_else(|| synth_headers(it));
+        .cloned();
+    let headers = original.clone().unwrap_or_else(|| synth_headers(it));
     let mut summary = message::parse_summary_for(headers.as_bytes(), receiver);
     // The item knows its attachments better than a header block does.
     summary.has_attachments = text(it, "HasAttachments") == Some("true");
@@ -686,6 +691,7 @@ fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
         categories: categories_of(it),
         summary,
         preview: text(it, "Preview").unwrap_or_default().to_owned(),
+        headers: original,
     })
 }
 
@@ -783,7 +789,7 @@ async fn add_items(
                 // Exchange categories are the letter's labels; their names are the keywords.
                 keywords: f.categories.clone(),
             };
-            Some((msg, f.id.as_str(), f.received, f.preview.as_str()))
+            Some((msg, f.id.as_str(), f.received, f.preview.as_str(), f.headers.as_deref()))
         })
         .collect();
     // A commit per batch, not per item; batches keep the cache free for the window between.
@@ -794,7 +800,7 @@ async fn add_items(
     // none — the empty text says so, and the backfill leaves the letter alone.
     let previews: Vec<(u32, String)> = items
         .iter()
-        .map(|(msg, _, _, preview)| (msg.uid, crate::snippet::normalize(preview)))
+        .map(|(msg, _, _, preview, _)| (msg.uid, crate::snippet::normalize(preview)))
         .collect();
     if !previews.is_empty() {
         let uids: Vec<u32> = previews.iter().map(|(uid, _)| *uid).collect();
@@ -804,6 +810,19 @@ async fn add_items(
             .filter_map(|(uid, text)| by_uid.get(uid).map(|id| (*id, text.clone())))
             .collect();
         off_runtime_thread(|| store.save_snippets(&texts))?;
+        // The original headers of the letters (0.8.13, ступень 4): kept beside the letters
+        // they belong to, for the check of the signature over them.
+        let headers: Vec<(i64, &str)> = items
+            .iter()
+            .filter_map(|(msg, _, _, _, headers)| {
+                let headers = (*headers)?;
+                let id = by_uid.get(&msg.uid)?;
+                Some((*id, headers))
+            })
+            .collect();
+        if !headers.is_empty() {
+            off_runtime_thread(|| store.save_ews_headers_batch(&headers))?;
+        }
     }
     Ok(items.len())
 }
@@ -813,7 +832,7 @@ fn insert_batches(
     store: &Store,
     account_id: &str,
     folder: &str,
-    items: &[(NewMessage<'_>, &str, i64, &str)],
+    items: &[(NewMessage<'_>, &str, i64, &str, Option<&str>)],
 ) -> Result<()> {
     for batch in items.chunks(WRITE_BATCH) {
         off_runtime_thread(|| store.ews_insert_items(account_id, folder, batch))?;
@@ -1916,7 +1935,7 @@ mod tests {
                         flags: Flags::default(),
                         keywords: Vec::new(),
                     };
-                    (msg, "id", 1, "")
+                    (msg, "id", 1, "", None)
                 })
                 .collect();
             insert_batches(&store, "a", "INBOX", &items).unwrap();
