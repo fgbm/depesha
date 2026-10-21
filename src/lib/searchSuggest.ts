@@ -108,6 +108,16 @@ export function completions(text: string, ctx: SuggestContext): Completion[] {
   return [];
 }
 
+// A search for such a word would replace the list and close the letter for half a query.
+/** True when the word being typed is an operator with no value yet, or with its values still offered. */
+export function awaitsValue(text: string, offered: Completion[]): boolean {
+  const { token } = lastToken(text);
+  const colon = token.indexOf(":");
+  if (colon < 0) return false;
+  if (colon === token.length - 1) return true;
+  return offered.some((c) => c.kind !== "operator") && !offered.some((c) => c.token === token);
+}
+
 /** Each matching folder twice: alone, and with its subfolders when it has any. */
 function folderCompletions(key: string, value: string, ctx: SuggestContext): Completion[] {
   const v = value.toLowerCase();

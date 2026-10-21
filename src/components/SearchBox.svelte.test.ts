@@ -66,3 +66,35 @@ describe("the highlighted suggestion", () => {
     expect(lit()).toBe(at);
   });
 });
+
+describe("the search while an operator is typed (А2)", () => {
+  function typer() {
+    const props = $state<{ input: HTMLInputElement | null }>({ input: null });
+    view = mount(SearchBox, { target: document.body, props });
+    flushSync();
+    const input = props.input!;
+    return (v: string) => {
+      input.value = v;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+      vi.advanceTimersByTime(300);
+    };
+  }
+  beforeEach(() => {
+    vi.useFakeTimers();
+    app.mailboxes.folders = [{ account_id: "a", name: "INBOX", display_name: "INBOX", delimiter: "/", role: "inbox" }] as never;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("does not start for an operator without its value, nor while its values are offered", () => {
+    const setView = vi.spyOn(app.selection, "setView").mockResolvedValue();
+    const type = typer();
+    type("в:");
+    type("в:IN");
+    type("от:ann в:");
+    expect(setView).not.toHaveBeenCalled();
+    type("от:ann");
+    expect(setView).toHaveBeenLastCalledWith({ kind: "search", text: "от:ann" });
+    setView.mockRestore();
+  });
+});

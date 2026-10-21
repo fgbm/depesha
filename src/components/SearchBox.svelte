@@ -15,7 +15,7 @@
   import { i18n, t } from "../lib/i18n.svelte";
   import { readyQueries, threshold } from "../lib/largeMail";
   import { recentSearches } from "../lib/recentSearches.svelte";
-  import { NEW_OPERATORS, OPERATORS, applyCompletion, completions, type Completion } from "../lib/searchSuggest";
+  import { NEW_OPERATORS, OPERATORS, applyCompletion, awaitsValue, completions, type Completion } from "../lib/searchSuggest";
   import { labels as labelStore } from "../lib/labels.svelte";
 
   let { input = $bindable() }: { input: HTMLInputElement | null } = $props();
@@ -65,6 +65,8 @@
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       const q = text.trim();
+      // Enter, Tab or a whole value searches; "в:" with the folders offered does not.
+      if (awaitsValue(text, typed.flatMap((i) => (i.kind === "completion" ? [i.c] : [])))) return;
       if (q) app.selection.setView({ kind: "search", text: q });
       else if (app.list.view.kind === "search") app.selection.setView(app.mailboxes.home());
     }, 250);

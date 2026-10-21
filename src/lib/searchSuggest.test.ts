@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyCompletion, completions, lastToken, type SuggestContext } from "./searchSuggest";
+import { applyCompletion, awaitsValue, completions, lastToken, type SuggestContext } from "./searchSuggest";
 import { RecentSearches } from "./recentSearches.svelte";
 import { i18n } from "./i18n.svelte";
 
@@ -88,5 +88,18 @@ describe("recent searches", () => {
     expect(r.list).toEqual(["c", "f", "e", "d", "b"]);
     expect(new RecentSearches(storage).list).toEqual(["c", "f", "e", "d", "b"]);
     expect(new RecentSearches({ get: () => "not json", set: () => {} }).list).toEqual([]);
+  });
+});
+
+describe("awaitsValue (А2)", () => {
+  const inbox = { kind: "folder" as const, token: "в:Входящие", detail: "", done: true };
+  it("waits for an empty value and for a value still offered, not for a free one", () => {
+    expect(awaitsValue("в:", [])).toBe(true);
+    expect(awaitsValue("от:ann есть:", [])).toBe(true);
+    expect(awaitsValue("в:Вх", [inbox])).toBe(true);
+    expect(awaitsValue("в:Входящие", [inbox])).toBe(false);
+    expect(awaitsValue("от:ann", [])).toBe(false);
+    expect(awaitsValue("в: ", [])).toBe(false);
+    expect(awaitsValue("счёт", [])).toBe(false);
   });
 });
