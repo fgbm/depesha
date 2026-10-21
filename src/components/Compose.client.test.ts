@@ -277,6 +277,22 @@ describe("the opened quote of a plain reply (А27)", () => {
     expect(win.draft.text.endsWith("\n\nИван писал(а):\n> Пришлите акт.")).toBe(true);
   });
 
+  it("has no scroll of its own: it is as tall as its text, and a long one scrolls the whole letter", () => {
+    const tall = vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(130);
+    try {
+      const { target } = open(true, true);
+      dots(target)!.click();
+      flushSync();
+      expect(quote(target)!.style.height).toBe("130px");
+    } finally {
+      tall.mockRestore();
+    }
+    const css = readFileSync("src/components/Compose.svelte", "utf8");
+    const rule = /\n {2}\.quote-text \{([^}]*)\}/.exec(css)![1];
+    expect(rule).toContain("overflow: hidden");
+    expect(rule).not.toMatch(/max-height/);
+  });
+
   it("is of the size and colour of the text, told apart by the grey line alone", () => {
     const css = readFileSync("src/components/Compose.svelte", "utf8");
     const rule = /\n {2}\.quote-text \{([^}]*)\}/.exec(css)![1];

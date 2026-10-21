@@ -191,6 +191,19 @@
     field.setSelectionRange(field.value.length, field.value.length);
   }
 
+  /**
+   * The opened quote is as tall as its text, wrapped lines too: it has no scroll of its own, and
+   * a long one scrolls the letter with it. Fitted again as its text or the width changes.
+   */
+  function fitQuote(field: HTMLTextAreaElement, _deps: unknown) {
+    const fit = () => {
+      field.style.height = "auto";
+      field.style.height = `${field.scrollHeight}px`;
+    };
+    fit();
+    return { update: fit };
+  }
+
   /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
   const chips = $derived(c.mode === "max" ? c.draft.attachments.length : visibleChips(width, c.draft.attachments.length));
 
@@ -454,6 +467,7 @@
               value={shownQuote}
               oninput={(e) => (fmt.quote = lead + e.currentTarget.value)}
               rows={shownQuote.split("\n").length}
+              use:fitQuote={[shownQuote, fmt.areaWidth]}
               readonly={fmt.switching}
               spellcheck="false"
               aria-label={t("compose.quote")}
@@ -849,10 +863,11 @@
     color: var(--ink);
   }
 
-  /* The opened quote: the letter's own text, told apart by the grey line at its left alone. */
+  /* The opened quote: the letter's own text, told apart by the grey line at its left alone.
+     As tall as its text: the letter scrolls, not the quote. */
   .quote-text {
     flex: none;
-    max-height: 40vh;
+    overflow: hidden;
     margin: 8px 18px 10px;
     padding: 0 0 0 14px;
     border-left: 3px solid var(--line);
