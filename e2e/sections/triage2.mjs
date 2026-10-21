@@ -547,7 +547,7 @@ export async function run() {
     if (!shown.title.includes("Планёрка по выпуску")) throw new Error(`название встречи: ${shown.title}`);
     // The time is the reader's own: the stand may stand in any zone, so what the test holds is the
     // shape of it and the offset beside it, not the clock of one machine.
-    if (!/·\s\d{2}:\d{2}–\d{2}:\d{2}\s*$/.test(shown.time.trim())) throw new Error(`время не сказано: ${shown.time}`);
+    if (!/·\s\d{2}:\d{2}–\d{2}:\d{2}\s+UTC[+-]\d/.test(shown.time.trim())) throw new Error(`время не сказано: ${shown.time}`);
     if (!shown.zone.startsWith("UTC")) throw new Error(`пояса не видно: ${shown.zone}`);
     if (!shown.rows.some((r) => r.includes("Переговорная 2"))) throw new Error(`места нет: ${shown.rows.join(" | ")}`);
     if (!shown.rows.some((r) => r.includes("Анна Соколова"))) throw new Error(`организатора нет: ${shown.rows.join(" | ")}`);
