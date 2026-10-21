@@ -725,7 +725,9 @@ pub fn not_a_replay(headers: &[u8], mailbox: &str, received: i64) -> bool {
 /// received.
 ///
 /// The header the address stands in matters twice over: the signature must cover it, or anyone
-/// may add the address to a letter of another time (0.8.13, ступень 4).
+/// may add the address to a letter of another time (0.8.13, ступень 4). The time is read from
+/// the signature itself (`t=`), and from the `Date` only when the signature covers that header
+/// too — a `Date` nobody signed may be any date at all.
 pub fn replay_time(headers: &[u8], mailbox: &str) -> Option<(&'static str, i64)> {
     let summary = crate::message::parse_summary(headers);
     let mailbox = mailbox.trim().to_lowercase();
@@ -735,9 +737,20 @@ pub fn replay_time(headers: &[u8], mailbox: &str) -> Option<(&'static str, i64)>
             .then_some(name)
     };
     let header = stands_in(&summary.to, "to").or_else(|| stands_in(&summary.cc, "cc"))?;
-    // The time of the signature, or the date of the letter.
-    let signed_at = signed_time(headers).or(summary.date)?;
+    // The time of the signature, or the date of the letter when the signature covers it.
+    let signed_at = signed_time(headers).or_else(|| covers(headers, "date").then_some(summary.date).flatten())?;
     Some((header, signed_at))
+}
+
+/// Whether the signature of the letter covers the header with this name.
+fn covers(headers: &[u8], name: &str) -> bool {
+    let Some(message) = AuthenticatedMessage::parse(headers) else {
+        return false;
+    };
+    message
+        .dkim_headers
+        .iter()
+        .any(|h| h.header.h.iter().any(|signed| signed.trim().eq_ignore_ascii_case(name)))
 }
 
 /// The time of the signature (`t=`), when it has one.
@@ -1480,6 +1493,28 @@ mod tests {
             v.check_headers(LETTER.as_bytes(), SENDER, "to").await,
             Headers::Unsigned
         );
+    }
+
+    #[tokio::test]
+    async fn a_date_nobody_signed_is_no_date_at_all() {
+        // The `Date` of a letter may be any date: only a signed one says when the letter was
+        // sent (0.8.13, ступень 4).
+        let now = 1_800_000_000;
+        let letter = concat!(
+            "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=1c-bitrix.ru; s=s1; ",
+            "h=from:to:subject; bh=AAAA; b=AAAA\r\n",
+            "From: Bitrix24 <no-reply@1c-bitrix.ru>\r\nTo: me@firm.example\r\n",
+            "Subject: Hi\r\nDate: Mon, 19 Oct 2026 12:00:00 +0300\r\n\r\n"
+        );
+        let headers = letter.as_bytes();
+        // The `Date` is not in the `h=` list: the time of the letter is unknown.
+        assert!(replay_time(headers, "me@firm.example").is_none());
+        assert!(!not_a_replay(headers, "me@firm.example", now));
+        // The `t=` of the signature is always the sender's own.
+        let letter = letter.replace("h=from:to:subject;", &format!("h=from:to:subject; t={now};"));
+        let headers = letter.as_bytes();
+        assert!(replay_time(headers, "me@firm.example").is_some());
+        assert!(not_a_replay(headers, "me@firm.example", now));
     }
 
     #[tokio::test]
