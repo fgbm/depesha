@@ -660,10 +660,11 @@ nav.side {
       0 0 0 4px color-mix(in srgb, var(--side-ink) 45%, transparent);
   }
 
+  /* Red stays with errors: a red ring on the one mailbox reads as a failed connection. */
   .side .circle.current:not(.open) {
     box-shadow:
       0 0 0 2px var(--side),
-      0 0 0 4px var(--accent);
+      0 0 0 4px var(--side-ink);
   }
 
   /* A mailbox past a warning level: a ring round its circle; the corners keep the status and the count. */

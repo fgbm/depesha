@@ -24,4 +24,11 @@ describe("the current item of the sidebar", () => {
     expect(style.background).toBe("var(--side-2)");
     expect(style.boxShadow).toBe("");
   });
+
+  it("rings the current mailbox of the folded panel in the ink of the panel, not in the red of an error (А9)", () => {
+    document.body.innerHTML = '<nav class="side"><button class="circle current"></button></nav>';
+    const ring = getComputedStyle(document.body.querySelector(".circle")!).boxShadow;
+    expect(ring).toContain("var(--side-ink)");
+    expect(ring).not.toContain("--accent");
+  });
 });
