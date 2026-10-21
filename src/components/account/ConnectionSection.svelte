@@ -100,7 +100,6 @@
     max-width: 100%;
   }
 
-  /* The server, its port and its protection on one line of the column. */
   .host {
     width: 150px;
     max-width: 100%;
