@@ -230,6 +230,24 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
   });
 });
 
+describe("the mailbox trusts the sender by address (0.8.13, 6.1 Б)", () => {
+  it("the pictures are shown and the line says the address is not checked", async () => {
+    api.messages.mockResolvedValue(rows(1, 1));
+    const byAddress = () => ({ ...opened(row(1)), trusted_sender: true, why_unverified: "address_only" as const });
+    api.open.mockResolvedValue(byAddress());
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    await s.reader.open(1);
+    await flush();
+    // The sender is confirmed (the address was trusted), and the reason is carried along: the
+    // line over the letter says the address is not checked.
+    expect(s.reader.opened?.trusted_sender).toBe(true);
+    expect(s.reader.opened?.why_unverified).toBe("address_only");
+  });
+});
+
 describe("a trusted sender the mailbox's server said nothing about (#167)", () => {
   it("checks the signature in the background and shows the answer without opening again", async () => {
     api.messages.mockResolvedValue(rows(1, 1));

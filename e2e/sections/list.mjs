@@ -181,9 +181,10 @@ export async function run() {
     await openBySubject("Счёт за октябрь");
     await openBySubject("HTML-письмо с картинками");
     // The trust is kept, but the stand's own IMAP server strips no forged `Authentication-Results`
-    // and the letter is unsigned: the sender stays unconfirmed, the pictures hidden (#35, #167).
-    // The letter is drawn a moment after it is opened: wait for the answer, not for the first look.
-    await d.until("trust kept", async () => (await d.bodyText()).includes("в доверенных, но сервер ящика не проверяет"));
+    // and the letter is unsigned: the sender stays unconfirmed, the pictures hidden (0.8.13, 5.1 Б).
+    // The line names the mailbox and the reason. The letter is drawn a moment after it is opened:
+    // wait for the answer, not for the first look.
+    await d.until("trust kept", async () => (await d.bodyText()).includes("не подтвердил, что письмо от"));
     if (!(await d.bodyText()).includes("Внешние картинки скрыты")) throw new Error("картинки показаны без подтверждения");
   });
 
