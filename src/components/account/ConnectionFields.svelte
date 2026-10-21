@@ -5,9 +5,23 @@
   import { t } from "../../lib/i18n.svelte";
   import { fingerprint, type AccountForm } from "../../lib/accountForm.svelte";
   import { PROVIDER_LOGO } from "./logos";
+  import CheckError from "./CheckError.svelte";
   import type { Security, ServerConfig } from "../../lib/types";
 
-  let { form }: { form: AccountForm } = $props();
+  let {
+    form,
+    errors = false,
+  }: {
+    form: AccountForm;
+    /** The error of a failed check goes here: under the login, or under the server whose certificate or encryption failed. */
+    errors?: boolean;
+  } = $props();
+
+  const errorAt = $derived.by(() => {
+    if (!errors || !form.error) return null;
+    const server = form.error.kind === "certificate" || form.error.kind === "no-tls";
+    return server && form.errorProto ? form.errorProto.toLowerCase() : "login";
+  });
 </script>
 
 <div class="connection">
@@ -26,6 +40,7 @@
       <label class="field"><span>{form.existing ? t("wizard.passwordKeep") : t("wizard.password")}</span><input class="input" type="password" bind:value={form.password} /></label>
     {/if}
   </div>
+  {#if errorAt === "login"}<CheckError {form} />{/if}
 
   {#if form.mode === "ews"}
     <fieldset>
@@ -35,6 +50,7 @@
         <button class="link" onclick={() => (form.ewsCert = undefined)}>{t("wizard.forget")}</button></p>{/if}
       <p class="muted small">{t("wizard.ewsNote")}</p>
     </fieldset>
+    {#if errorAt === "ews"}<CheckError {form} />{/if}
   {/if}
 
   {#each (form.mode === "ews" ? [] : [["imap", t("wizard.incoming"), form.imap], ["smtp", t("wizard.outgoing"), form.smtp]]) as [key, title, server] (key)}
@@ -62,6 +78,7 @@
       {#if s.trusted_cert}<p class="muted small">{t("wizard.trusted")} {fingerprint(s.trusted_cert).slice(0, 23)}…
         <button class="link" onclick={() => (s.trusted_cert = undefined)}>{t("wizard.forget")}</button></p>{/if}
     </fieldset>
+    {#if errorAt === key}<CheckError {form} />{/if}
   {/each}
 
   {#if form.mode !== "ews"}<label class="check"><input type="checkbox" bind:checked={form.saveSent} /> {t("wizard.saveSent")}</label>{/if}

@@ -101,12 +101,12 @@
           <label class="field wide"><span>{t("wizard.address")}</span><input class="input" bind:value={form.email} disabled={!!existing} /></label>
         </div>
 
-        <ConnectionFields {form} />
+        <ConnectionFields {form} errors />
         <SignaturesField {form} />
         <AttachmentsDirField bind:value={form.attachmentsDir} />
       {/if}
 
-      <CheckError {form} />
+      {#if form.step === "start"}<CheckError {form} />{/if}
       {#if form.status}<p class="muted">{form.status}
         {#if form.waitingBrowser}<button class="link" onclick={() => form.cancelSignIn()}>{t("cancel")}</button>{/if}</p>{/if}
     </div>

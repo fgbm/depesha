@@ -6,11 +6,17 @@
   import { fingerprint, type AccountForm } from "../../lib/accountForm.svelte";
 
   let { form }: { form: AccountForm } = $props();
+  let box = $state<HTMLElement | null>(null);
+
+  // The box may stand below the fold of a long form, its buttons too.
+  $effect(() => {
+    if (form.error) box?.scrollIntoView?.({ block: "nearest" });
+  });
 </script>
 
 {#if form.error}
   {@const error = form.error}
-  <div class="error selectable">
+  <div class="error selectable" bind:this={box}>
     <p><b>{error.message}</b></p>
     {#if form.authHint}<p>{form.authHint}</p>{/if}
     {#if error.kind === "certificate" && error.cert}
