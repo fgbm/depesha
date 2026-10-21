@@ -104,3 +104,7 @@ Vale (`DepeshaRU.SentenceLength`) и `scripts/md-onelines.mjs` тянут в р�
 ## 2026-10-22 00:12 — minimax-m3.1-flash
 
 Съёмка кадров (`scripts/release-shots.sh`) → `kit.boot` перезапускает приложение после посева, поэтому то, что отдано приложению в посеве (например, опубликованный ключ DKIM), в съёмке уже не в памяти: публиковать надо в самой сессии съёмки, а не в `seed`. И `kit.helper()` отдаёт строку JSON — её надо разобрать (`JSON.parse`) до `invoke`, иначе команда получает не объект («missing required key name»).
+
+## 2026-10-22 01:33 — deepseek-v4.1-flash
+
+Пересъёмка `e2e/meeting-shots.mjs` на свежем стенде → первый прогон упал на «timeout waiting for folders» сразу после мастера, второй прошёл. Разница между прогонами — `python3 e2e/imap_helper.py seed` до запуска и `DISPLAY=:1031` в окружении (сам скрипт поднимает приложению `DISPLAY` из `E2E_DISPLAY`, а xdg-desktop-portal берёт переменную оболочки и без неё ругается «cannot open display»). Причина не установлена: перед съёмкой делай seed, как `scripts/check.sh`, и выставляй `DISPLAY` в оболочке.
