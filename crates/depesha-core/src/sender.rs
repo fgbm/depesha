@@ -16,6 +16,10 @@
 //!    original headers of the letter (`PR_TRANSPORT_MESSAGE_HEADERS`), without the body hash:
 //!    pictures only.
 //! 5. Nothing confirmed the sender: no pictures.
+//!
+//! One more case: a letter of a colleague of the same organization, which Exchange says so
+//! itself (`AuthAs: Internal`): pictures, but no logo — the organization vouches for the
+//! sender, not for its brand.
 
 use crate::avatar::SenderCheck;
 
@@ -32,6 +36,8 @@ pub enum Step {
     /// The app's own check of the signature against the original headers of the letter, without
     /// the body hash (Exchange of the firm's own over EWS).
     OwnHeaders,
+    /// A colleague of the same organization, which the server of the mailbox says so.
+    Internal,
     /// Nothing confirmed the sender.
     None,
     /// The mailbox's setting trusts the sender by address alone, where nothing could be checked.
@@ -39,13 +45,14 @@ pub enum Step {
 }
 
 impl Step {
-    /// The step as the log names it: a number of the ladder, or `address`.
+    /// The step as the log names it: a number of the ladder, or a word.
     pub fn code(self) -> &'static str {
         match self {
             Self::ServerDmarc => "1",
             Self::ServerSignature => "2",
             Self::OwnFull => "3",
             Self::OwnHeaders => "4",
+            Self::Internal => "internal",
             Self::None => "-",
             Self::AddressOnly => "address",
         }
@@ -85,6 +92,8 @@ pub enum Reason {
     /// The letter's From is not the one trusted address alone, as both readers of its headers
     /// see it: a second From, or a header one of them reads and the other does not.
     AmbiguousFrom,
+    /// The server stayed silent, the app's own check is still to be made.
+    Checking,
     /// The mailbox's server cannot be asked and the app's own check has no way in.
     NoCheck,
     /// The mailbox's setting trusts the sender by address alone.
@@ -92,16 +101,21 @@ pub enum Reason {
 }
 
 /// What the server of the mailbox said about the sender, and what the app's own check said.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Evidence {
     /// The server's own answer about the From domain.
     pub server: Option<SenderCheck>,
-    /// The app's own full DKIM check of the letter.
+    /// The app's own full DKIM check of the letter; `None` while it is still to be made.
     pub own_full: Option<crate::dkim::Signature>,
-    /// The app's own check of the signature against the original headers of the letter.
+    /// The app's own check of the signature against the original headers of the letter; `None`
+    /// while it is still to be made.
     pub own_headers: Option<crate::dkim::Headers>,
+    /// The app's own check is still to be made: the window asks for it.
+    pub own_due: bool,
     /// The letter's From is the one trusted address alone, as both readers of its headers see it.
     pub sole_from: bool,
+    /// The server of the mailbox says the sender signed in to the same organization.
+    pub internal: bool,
     /// The mailbox's setting: trust the sender by address where nothing could be checked.
     pub by_address: bool,
 }
@@ -109,6 +123,25 @@ pub struct Evidence {
 /// The ladder: one rule, one place. `evidence` says what each party found, this says what it
 /// means.
 pub fn decide(evidence: &Evidence) -> Verdict {
+    let verdict = weigh(evidence);
+    // The mailbox's setting trusts the sender by address where nothing could be learned about
+    // the sender at all: the letter carries no signature, or the key could not be asked for.
+    // An explicit «no» of the server is not overridden (0.8.13, 6.1 Б).
+    if evidence.by_address
+        && matches!(verdict.reason, Reason::Unsigned | Reason::Unchecked)
+    {
+        return Verdict {
+            step: Step::AddressOnly,
+            confirmed: true,
+            logo: false,
+            reason: Reason::AddressOnly,
+        };
+    }
+    verdict
+}
+
+/// The ladder without the mailbox's setting.
+fn weigh(evidence: &Evidence) -> Verdict {
     if !evidence.sole_from {
         return Verdict {
             step: Step::None,
@@ -117,9 +150,11 @@ pub fn decide(evidence: &Evidence) -> Verdict {
             reason: Reason::AmbiguousFrom,
         };
     }
-    // The server's «no» stays a «no»: its own check of the sender failed.
+    // The server's «no» stays a «no»: its own check of the sender failed. A server that said
+    // nothing at all is not a «no»: the app's own check stands then.
     if let Some(check) = &evidence.server
         && !check.passed()
+        && !check.no_verdict()
     {
         return Verdict {
             step: Step::None,
@@ -145,6 +180,15 @@ pub fn decide(evidence: &Evidence) -> Verdict {
                 reason: Reason::Server,
             };
         }
+    }
+    // A colleague of the same organization: the server of the mailbox says so itself.
+    if evidence.internal {
+        return Verdict {
+            step: Step::Internal,
+            confirmed: true,
+            logo: false,
+            reason: Reason::Server,
+        };
     }
     // The server said nothing usable: the app's own check decides.
     if let Some(signature) = evidence.own_full {
@@ -205,15 +249,16 @@ pub fn decide(evidence: &Evidence) -> Verdict {
             },
         };
     }
-    // Nothing could be checked: the mailbox's setting may still trust the address.
-    if evidence.by_address {
+    // The app's own check is still to be made: the window asks for it.
+    if evidence.own_due {
         return Verdict {
-            step: Step::AddressOnly,
-            confirmed: true,
+            step: Step::None,
+            confirmed: false,
             logo: false,
-            reason: Reason::AddressOnly,
+            reason: Reason::Checking,
         };
     }
+    // Nothing could be checked: the server does not tell, and the app has no way in.
     Verdict {
         step: Step::None,
         confirmed: false,
@@ -291,6 +336,29 @@ mod tests {
         assert_eq!(v.step, Step::OwnHeaders);
         assert!(v.confirmed);
         assert!(!v.logo);
+    }
+
+    #[test]
+    fn a_colleague_is_confirmed_without_a_logo() {
+        let mut e = evidence(None);
+        e.internal = true;
+        let v = decide(&e);
+        assert_eq!(v.step, Step::Internal);
+        assert!(v.confirmed);
+        assert!(!v.logo);
+    }
+
+    #[test]
+    fn the_check_yet_to_be_made_asks_for_it() {
+        let mut e = evidence(None);
+        e.own_due = true;
+        assert_eq!(decide(&e).reason, Reason::Checking);
+    }
+
+    #[test]
+    fn nothing_to_check_is_no_check() {
+        let e = evidence(None);
+        assert_eq!(decide(&e).reason, Reason::NoCheck);
     }
 
     #[test]

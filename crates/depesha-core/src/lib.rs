@@ -28,6 +28,7 @@ pub mod port;
 pub mod query;
 pub mod quota;
 pub mod say;
+pub mod sender;
 pub mod smtp;
 pub mod snippet;
 pub mod snooze;

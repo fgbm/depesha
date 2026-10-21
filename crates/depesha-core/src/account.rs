@@ -105,6 +105,12 @@ pub struct Account {
     /// What an answer does with a letter of the inbox: off until the user switches it on.
     #[serde(default, skip_serializing_if = "Waiting::is_off")]
     pub waiting: Waiting,
+    /// Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б): the server
+    /// said nothing about the sender and the letter carries no signature, so only the address
+    /// the user trusts is left. Off until the user switches it on: a letter with the address of
+    /// a trusted sender and no signature is not from that sender.
+    #[serde(default, skip_serializing_if = "is_no")]
+    pub trust_by_address: bool,
 }
 
 /// The inbox as a queue: an answer takes the letter (its whole conversation) to a folder
@@ -196,6 +202,10 @@ fn is_yes(v: &bool) -> bool {
 
 fn is_zero(v: &u64) -> bool {
     *v == 0
+}
+
+fn is_no(v: &bool) -> bool {
+    !*v
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

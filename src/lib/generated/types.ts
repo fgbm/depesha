@@ -71,7 +71,14 @@ quota_limit_mb?: number,
 /**
  * What an answer does with a letter of the inbox: off until the user switches it on.
  */
-waiting?: Waiting, };
+waiting?: Waiting, 
+/**
+ * Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б): the server
+ * said nothing about the sender and the letter carries no signature, so only the address
+ * the user trusts is left. Off until the user switches it on: a letter with the address of
+ * a trusted sender and no signature is not from that sender.
+ */
+trust_by_address?: boolean, };
 
 export type AccountState = "connecting" | "online" | "error" | "paused";
 
@@ -153,7 +160,14 @@ quota_limit_mb?: number,
 /**
  * What an answer does with a letter of the inbox: off until the user switches it on.
  */
-waiting?: Waiting, };
+waiting?: Waiting, 
+/**
+ * Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б): the server
+ * said nothing about the sender and the letter carries no signature, so only the address
+ * the user trusts is left. Off until the user switches it on: a letter with the address of
+ * a trusted sender and no signature is not from that sender.
+ */
+trust_by_address?: boolean, };
 
 export type Act = "reply" | "reply_all" | "forward";
 
@@ -1184,7 +1198,7 @@ export type UnsubscribeWay = { "kind": "one-click", host: string, } | { "kind": 
 
 export type Unsubscribed = { "kind": "done" } | { "kind": "mail-sent", to: string, } | { "kind": "confirm", plan: UnsubscribePlan, reason: string, };
 
-export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from";
+export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from" | "address_only" | "no_check";
 
 export type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
 

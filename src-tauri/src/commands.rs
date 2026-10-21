@@ -20,6 +20,7 @@ use depesha_core::ews::{self, EwsDetection};
 use depesha_core::message::{self, MessageView, Unsubscribe};
 use depesha_core::port::MailQueue;
 use depesha_core::query::SearchQuery;
+use depesha_core::sender;
 use depesha_core::smtp;
 use depesha_core::snooze;
 use depesha_core::store::{
@@ -679,7 +680,7 @@ pub struct OpenedMessage {
     why_unverified: Option<Unverified>,
 }
 
-/// Why a trusted sender is not confirmed (#167).
+/// Why a trusted sender is not confirmed (0.8.13).
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -697,6 +698,11 @@ pub enum Unverified {
     /// The letter's From is not the one trusted address alone, as both readers of its headers
     /// see it: a second From, or a header one of them reads and the other does not.
     AmbiguousFrom,
+    /// The mailbox's setting trusts the sender by address: the address is not checked.
+    AddressOnly,
+    /// The mailbox's server cannot be asked about the sender, and the app's own check has no
+    /// way in.
+    NoCheck,
 }
 
 impl From<dkim::Signature> for Unverified {
@@ -709,42 +715,195 @@ impl From<dkim::Signature> for Unverified {
     }
 }
 
-/// Whether a trusted sender is confirmed, and why not: the server's verdict, else the app's
-/// own DKIM check of this letter if one was made (`known`), else whether one can be made. The
+impl From<dkim::Headers> for Unverified {
+    fn from(s: dkim::Headers) -> Self {
+        match s {
+            dkim::Headers::Unsigned => Self::Unsigned,
+            dkim::Headers::Unchecked => Self::Unchecked,
+            dkim::Headers::Rejected => Self::Signature,
+            dkim::Headers::Valid => Self::Checking,
+        }
+    }
+}
+
+impl From<sender::Reason> for Unverified {
+    fn from(r: sender::Reason) -> Self {
+        match r {
+            sender::Reason::Server => Self::Server,
+            sender::Reason::Unsigned => Self::Unsigned,
+            sender::Reason::Signature => Self::Signature,
+            sender::Reason::Unchecked => Self::Unchecked,
+            sender::Reason::AmbiguousFrom => Self::AmbiguousFrom,
+            sender::Reason::Checking => Self::Checking,
+            sender::Reason::AddressOnly => Self::AddressOnly,
+            sender::Reason::NoCheck => Self::NoCheck,
+        }
+    }
+}
+
+/// What the app knows about the sender of this letter: the server's answer, the app's own
+/// check if one was made, and the letter's own headers.
+struct Evidence<'a> {
+    raw: &'a [u8],
+    auth: &'a message::Authenticity,
+    sender: &'a str,
+    /// The app's own check of the whole letter, if one was made.
+    own_full: Option<dkim::Signature>,
+    /// The app's own check of the signature over the original headers of the letter.
+    own_headers: Option<dkim::Headers>,
+    /// The app's own check is still to be made.
+    own_due: bool,
+    /// The mailbox's setting: trust the sender by address where nothing could be checked.
+    by_address: bool,
+}
+
+impl<'a> Evidence<'a> {
+    /// The evidence the ladder needs.
+    fn of(
+        raw: &'a [u8],
+        auth: &'a message::Authenticity,
+        sender: &'a str,
+        own_full: Option<dkim::Signature>,
+        own_headers: Option<dkim::Headers>,
+        own_due: bool,
+        by_address: bool,
+    ) -> Self {
+        Self {
+            raw,
+            auth,
+            sender,
+            own_full,
+            own_headers,
+            own_due,
+            by_address,
+        }
+    }
+
+    /// The ladder's evidence.
+    fn ladder(&self) -> sender::Evidence {
+        sender::Evidence {
+            server: self.auth.check.clone(),
+            own_full: self.own_full,
+            own_headers: self.own_headers,
+            own_due: self.own_due,
+            sole_from: message::sole_from(self.raw).is_some_and(|from| from == self.sender.trim().to_lowercase()),
+            internal: self.auth.internal,
+            by_address: self.by_address,
+        }
+    }
+}
+
+/// Whether a trusted sender is confirmed, and why not: the ladder of evidence (0.8.13). The
 /// letter must have one From, the trusted `sender`, as both readers of its headers see it: the
 /// server vouches for the From it read, the reader shows and trusts the one it read (#167).
-fn sender_verdict(
-    raw: &[u8],
-    auth: &message::Authenticity,
-    sender: &str,
-    known: Option<dkim::Signature>,
-) -> Option<Unverified> {
-    if message::sole_from(raw).is_none_or(|from| from != sender.trim().to_lowercase()) {
-        return Some(Unverified::AmbiguousFrom);
-    }
-    if auth.verified() {
-        return None;
-    }
-    if !auth.check.as_ref().is_some_and(avatar::SenderCheck::no_verdict) {
-        return Some(Unverified::Server);
-    }
-    match known {
-        Some(s) if s.passed() => None,
-        Some(s) => Some(s.into()),
-        None => Some(dkim::offline_verdict(raw, sender).map_or(Unverified::Checking, Unverified::from)),
-    }
+fn sender_verdict(evidence: &Evidence<'_>) -> sender::Verdict {
+    sender::decide(&evidence.ladder())
 }
 
 /// The app's own check may ask DNS about this letter: its sender is trusted (`listed`), and
 /// nothing short of the check decides. Asking for a key tells its owner the letter is read.
-fn own_check_due(
+fn own_check_due(listed: bool, evidence: &Evidence<'_>) -> bool {
+    listed && sender_verdict(evidence).reason == sender::Reason::Checking
+}
+
+/// What the app knows about the sender of this letter: the server's answer, the app's own
+/// check if one was made, and the original headers of a letter of Exchange.
+fn evidence_of<'a>(
+    state: &AppState,
+    row: &MessageRow,
+    raw: &'a [u8],
+    auth: &'a message::Authenticity,
+    sender: &'a str,
     listed: bool,
-    raw: &[u8],
-    auth: &message::Authenticity,
-    sender: &str,
-    known: Option<dkim::Signature>,
-) -> bool {
-    listed && sender_verdict(raw, auth, sender, known) == Some(Unverified::Checking)
+) -> CmdResult<Evidence<'a>> {
+    let own_full = state.signatures.known(row.id, raw, sender);
+    // The original headers of a letter of Exchange (0.8.13, ступень 4): the block
+    // `PR_TRANSPORT_MESSAGE_HEADERS` the server kept aside of the letter it assembled again.
+    let original = match state.store.ews_headers(row.id)? {
+        Some(headers) if !headers.trim().is_empty() => Some(headers),
+        _ => None,
+    };
+    let own_headers = original
+        .as_ref()
+        .and_then(|headers| state.signatures.known_headers(row.id, headers.as_bytes(), sender));
+    let headers_checked = original.is_some();
+    // The app's own check of the whole letter is due when the server stayed silent and the
+    // letter carries a signature of the sender's organization. With the original headers of
+    // Exchange at hand, the check over them is the one to make.
+    let own_due = listed
+        && !auth.verified()
+        && !auth.check.as_ref().is_some_and(|c| !c.no_verdict())
+        && own_full.is_none()
+        && (headers_checked || dkim::offline_verdict(raw, sender).is_none());
+    let by_address = state.account(&row.account_id)?.trust_by_address;
+    Ok(Evidence::of(
+        raw,
+        auth,
+        sender,
+        own_full,
+        own_headers,
+        own_due,
+        by_address,
+    ))
+}
+
+/// One line in the log about the sender of a letter (0.8.13): what the ladder decided, what
+/// the server said and what the app's own check found. Domains and selectors only, no address
+/// of a person.
+fn log_sender_check(
+    state: &AppState,
+    row: &MessageRow,
+    kind: &str,
+    from_domain: &str,
+    listed: bool,
+    evidence: &Evidence<'_>,
+    verdict: &sender::Verdict,
+) {
+    let server = match &evidence.auth.check {
+        Some(check) => check.to_string(),
+        None => "none".to_owned(),
+    };
+    let own = match (evidence.own_full, evidence.own_headers) {
+        (Some(s), _) => format!("full:{}", signature_outcome(s)),
+        (None, Some(h)) => format!("headers:{}", headers_outcome(h)),
+        (None, None) if evidence.own_due => "due".to_owned(),
+        _ => "none".to_owned(),
+    };
+    tracing::debug!(
+        id = row.id,
+        kind,
+        folder = %row.folder,
+        %from_domain,
+        listed,
+        step = verdict.step.code(),
+        verdict = if verdict.confirmed { "confirmed" } else { "unconfirmed" },
+        %server,
+        %own,
+        "sender check"
+    );
+    let _ = state;
+}
+
+/// The outcome of the app's own check of the whole letter, as the log names it.
+fn signature_outcome(signature: dkim::Signature) -> &'static str {
+    match signature {
+        dkim::Signature::Aligned => "pass",
+        dkim::Signature::Unsigned => "unsigned",
+        dkim::Signature::NotAligned => "from_mismatch",
+        dkim::Signature::Invalid => "bad_signature",
+        dkim::Signature::Unchecked => "no_key",
+    }
+}
+
+/// The outcome of the app's own check of the signature over the original headers, as the log
+/// names it.
+fn headers_outcome(headers: dkim::Headers) -> &'static str {
+    match headers {
+        dkim::Headers::Valid => "pass",
+        dkim::Headers::Unsigned => "unsigned",
+        dkim::Headers::Rejected => "bad_signature",
+        dkim::Headers::Unchecked => "no_key",
+    }
 }
 
 async fn raw_of(state: &AppState, row: &MessageRow, gate: Option<(String, u64)>) -> CmdResult<Vec<u8>> {
@@ -808,26 +967,18 @@ pub async fn message_open(
     let listed = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
     // Anyone can write a trusted address into From: the trust holds only for a sender
     // the receiving server vouches for.
-    let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
+    let account = state.account(&row.account_id)?;
+    let auth = message::authenticity(&raw, &Receiver::of(&account));
     let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
+    let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    let verdict = sender_verdict(&evidence);
     let why_unverified = listed
-        .then(|| sender_verdict(&raw, &auth, &sender, state.signatures.known(row.id, &raw, &sender)))
-        .flatten();
-    let trusted_sender = listed && why_unverified.is_none();
-    // Why a sender is or is not believed (#167): ids, domains and result words, no address.
-    let kind = box_kind(&state.account(&row.account_id)?);
-    match &auth.check {
-        Some(check) => tracing::debug!(
-            id = row.id, kind, folder = %row.folder, %from_domain, listed, internal = auth.internal,
-            "sender check: {check}"
-        ),
-        None => tracing::debug!(
-            id = row.id, kind, folder = %row.folder, listed, "sender check: the letter has no readable From"
-        ),
-    }
-    if listed && auth.check.as_ref().is_some_and(avatar::SenderCheck::no_verdict) {
-        tracing::debug!(id = row.id, ?why_unverified, "sender check: own DKIM check");
-    }
+        .then(|| Unverified::from(verdict.reason))
+        .filter(|_| !verdict.confirmed);
+    let trusted_sender = listed && verdict.confirmed;
+    // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
+    let kind = box_kind(&account);
+    log_sender_check(&state, &row, &kind, &from_domain, listed, &evidence, &verdict);
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
     let mark = draft_mark(&raw, in_drafts);
@@ -841,7 +992,7 @@ pub async fn message_open(
             message::draft_act(&raw),
         )?;
     }
-    view.authenticated = auth.dmarc;
+    view.authenticated = verdict.logo;
     // An invitation's version says what it changes: the card compares it with the same meeting
     // of an earlier letter of the conversation, when that letter is in the cache.
     if let Some(notice) = view.calendar.as_mut()
@@ -852,7 +1003,7 @@ pub async fn message_open(
     }
     // The list shows a brand logo by this verdict (#108): a letter cached before it was kept
     // learns it here.
-    if let Err(e) = state.store.note_verdict(row.id, auth.dmarc) {
+    if let Err(e) = state.store.note_verdict(row.id, verdict.logo) {
         tracing::warn!("the verdict of a letter was not kept: {e}");
     }
     // The same for the importance (#72): the headers of a cached letter are not fetched again.
@@ -925,13 +1076,31 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
         return Ok(false);
     }
     let raw = raw_of(&state, &row, None).await?;
-    let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
-    let known = state.signatures.known(row.id, &raw, &sender);
-    if !own_check_due(listed, &raw, &auth, &sender, known) {
-        return Ok(sender_verdict(&raw, &auth, &sender, known).is_none());
+    let account = state.account(&row.account_id)?;
+    let auth = message::authenticity(&raw, &Receiver::of(&account));
+    let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    if !own_check_due(listed, &evidence) {
+        return Ok(sender_verdict(&evidence).confirmed);
     }
+    // The original headers of Exchange (0.8.13, ступень 4): the signature over them proves who
+    // wrote the letter, though not what its body says. The body of the letter is the one
+    // Exchange assembled again.
+    if let Some(headers) = state.store.ews_headers(row.id)?
+        && !headers.trim().is_empty()
+    {
+        let received = row.date;
+        let bytes = headers.as_bytes();
+        let verdict = if dkim::not_a_replay(bytes, &account.email, received) {
+            state.signatures.check_headers_remembered(row.id, bytes, &sender).await
+        } else {
+            dkim::Headers::Rejected
+        };
+        tracing::debug!(id = row.id, outcome = headers_outcome(verdict), "sender check: own check of the original headers done");
+        return Ok(verdict.passed());
+    }
+    // The whole letter, when its bytes are the ones the sender signed.
     let verdict = state.signatures.check_letter(row.id, &raw, &sender).await;
-    tracing::debug!(id = row.id, ?verdict, "sender check: own DKIM check done");
+    tracing::debug!(id = row.id, outcome = signature_outcome(verdict), "sender check: own DKIM check done");
     Ok(verdict.passed())
 }
 
@@ -4923,6 +5092,16 @@ mod tests {
         .into_bytes()
     }
 
+    /// The evidence of a letter of a trusted sender, as the ladder needs it.
+    fn evidence<'a>(
+        raw: &'a [u8],
+        auth: &'a message::Authenticity,
+        sender: &'a str,
+        own_full: Option<dkim::Signature>,
+    ) -> Evidence<'a> {
+        Evidence::of(raw, auth, sender, own_full, None, false, false)
+    }
+
     #[test]
     fn the_servers_no_stays_a_no_whatever_the_own_check_found() {
         let raw = letter(
@@ -4932,8 +5111,10 @@ mod tests {
         let auth = message::authenticity(&raw, &yandex());
         let sender = "security@bank.ru";
         let known = Some(dkim::Signature::Aligned);
-        assert_eq!(sender_verdict(&raw, &auth, sender, known), Some(Unverified::Server));
-        assert!(!own_check_due(true, &raw, &auth, sender, None));
+        let verdict = sender_verdict(&evidence(&raw, &auth, sender, known));
+        assert!(!verdict.confirmed);
+        assert_eq!(verdict.reason, sender::Reason::Server);
+        assert!(!own_check_due(true, &evidence(&raw, &auth, sender, known)));
     }
 
     #[test]
@@ -4942,19 +5123,19 @@ mod tests {
         let raw = letter("", "From: Bank <security@bank.ru>\r\n");
         let auth = message::authenticity(&raw, &yandex());
         let sender = "security@bank.ru";
-        assert_eq!(sender_verdict(&raw, &auth, sender, None), Some(Unverified::Checking));
-        assert!(own_check_due(true, &raw, &auth, sender, None));
-        assert!(!own_check_due(false, &raw, &auth, sender, None));
+        let mut ev = evidence(&raw, &auth, sender, None);
+        ev.own_due = true;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        assert!(!own_check_due(false, &ev));
         // A signature of another organization: the answer is known without asking anyone.
         let tracker = String::from_utf8(raw.clone())
             .unwrap()
             .replace("d=bank.ru", "d=t.tracker.example");
         let auth = message::authenticity(tracker.as_bytes(), &yandex());
-        assert_eq!(
-            sender_verdict(tracker.as_bytes(), &auth, sender, None),
-            Some(Unverified::Signature)
-        );
-        assert!(!own_check_due(true, tracker.as_bytes(), &auth, sender, None));
+        let ev = evidence(tracker.as_bytes(), &auth, sender, Some(dkim::Signature::NotAligned));
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Signature);
+        assert!(!own_check_due(true, &ev));
     }
 
     #[test]
@@ -4970,54 +5151,60 @@ mod tests {
             let shown = message::parse_summary(&raw).from.map(|a| a.email).unwrap_or_default();
             let auth = message::authenticity(&raw, &yandex());
             for sender in [shown.as_str(), "attacker@gmail.com", "friend@gmail.com"] {
-                let verdict = sender_verdict(&raw, &auth, sender, None);
-                assert_eq!(verdict, Some(Unverified::AmbiguousFrom), "{from} as {sender}");
-                assert!(!own_check_due(true, &raw, &auth, sender, None));
+                let verdict = sender_verdict(&evidence(&raw, &auth, sender, None));
+                assert_eq!(verdict.reason, sender::Reason::AmbiguousFrom, "{from} as {sender}");
+                assert!(!own_check_due(true, &evidence(&raw, &auth, sender, None)));
             }
         }
         // One From: the server's word holds.
         let dmarc = "Authentication-Results: mx.yandex.net; dmarc=pass header.from=gmail.com\r\n";
         let raw = letter(dmarc, "From: Friend <friend@gmail.com>\r\n");
         let auth = message::authenticity(&raw, &yandex());
-        assert_eq!(sender_verdict(&raw, &auth, "friend@gmail.com", None), None);
-        assert_eq!(sender_verdict(&raw, &auth, "Friend@Gmail.com", None), None);
+        assert!(sender_verdict(&evidence(&raw, &auth, "friend@gmail.com", None)).confirmed);
+        assert!(sender_verdict(&evidence(&raw, &auth, "Friend@Gmail.com", None)).confirmed);
         assert_eq!(
-            sender_verdict(&raw, &auth, "other@gmail.com", None),
-            Some(Unverified::AmbiguousFrom)
+            sender_verdict(&evidence(&raw, &auth, "other@gmail.com", None)).reason,
+            sender::Reason::AmbiguousFrom
         );
     }
 
     #[test]
-    fn a_passed_signature_of_the_server_needs_the_own_check() {
-        // Yandex vouches for a signature of `bank.ru`; the From it read stands below a bare LF
-        // line, where the reader and the check see the body (#167).
-        let raw = "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\n"
-            .to_owned()
-            + SIGNATURE
-            + "From: Bank <noreply@bank.ru>\r\n\r\n<img src=\"https://bank.ru/p.png\">\r\n";
-        let raw = raw.as_bytes();
-        let sender = "security@bank.ru";
-        assert_eq!(message::sole_from(raw).as_deref(), Some(sender));
-        let auth = message::authenticity(raw, &yandex());
-        assert!(!auth.verified());
-        let verdict = sender_verdict(raw, &auth, sender, None);
-        assert!(verdict.is_some(), "{verdict:?}");
-        assert_eq!(
-            sender_verdict(raw, &auth, sender, Some(dkim::Signature::Invalid)),
-            Some(Unverified::Signature)
-        );
-        // The own check of a signature of the sender's organization confirms it.
+    fn a_passed_signature_of_the_server_confirms_the_sender() {
+        // 0.8.13, 2.1 Б: the server of the mailbox checked the signature on the original bytes
+        // when it took the letter, and its word is enough.
         let raw = letter(
             "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\n",
             "From: Bank <security@bank.ru>\r\n",
         );
         let auth = message::authenticity(&raw, &yandex());
-        assert_eq!(sender_verdict(&raw, &auth, sender, None), Some(Unverified::Checking));
-        assert!(own_check_due(true, &raw, &auth, sender, None));
-        assert_eq!(
-            sender_verdict(&raw, &auth, sender, Some(dkim::Signature::Aligned)),
-            None
-        );
+        let sender = "security@bank.ru";
+        let verdict = sender_verdict(&evidence(&raw, &auth, sender, None));
+        assert!(verdict.confirmed, "{verdict:?}");
+        assert_eq!(verdict.step, sender::Step::ServerSignature);
+        assert!(verdict.logo);
+        // The own check of the letter is not made: the server's word stands.
+        assert!(!own_check_due(true, &evidence(&raw, &auth, sender, None)));
+        // A signature of another organization is not about the From: no confirmation.
+        let tracker = String::from_utf8(raw.clone())
+            .unwrap()
+            .replace("d=bank.ru", "d=t.tracker.example");
+        let auth = message::authenticity(tracker.as_bytes(), &yandex());
+        let verdict = sender_verdict(&evidence(tracker.as_bytes(), &auth, sender, None));
+        assert!(!verdict.confirmed, "{verdict:?}");
+    }
+
+    #[test]
+    fn the_own_check_of_the_letter_confirms_the_sender() {
+        // The server stayed silent: the app's own check of the letter decides.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let mut ev = evidence(&raw, &auth, sender, Some(dkim::Signature::Aligned));
+        ev.own_due = false;
+        let verdict = sender_verdict(&ev);
+        assert!(verdict.confirmed, "{verdict:?}");
+        assert_eq!(verdict.step, sender::Step::OwnFull);
+        assert!(verdict.logo);
     }
 
     #[test]
@@ -5030,13 +5217,13 @@ mod tests {
         );
         let auth = message::authenticity(&raw, &yandex());
         let start = std::time::Instant::now();
-        let verdict = sender_verdict(&raw, &auth, "security@bank.ru", None);
+        let verdict = sender_verdict(&evidence(&raw, &auth, "security@bank.ru", None));
         assert!(
             start.elapsed() < std::time::Duration::from_secs(1),
             "{:?}",
             start.elapsed()
         );
-        assert_eq!(verdict, Some(Unverified::AmbiguousFrom));
+        assert_eq!(verdict.reason, sender::Reason::AmbiguousFrom);
     }
 
     use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};

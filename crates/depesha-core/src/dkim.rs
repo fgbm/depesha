@@ -263,6 +263,7 @@ impl ResolverCache<Box<str>, Txt> for TxtCache {
 }
 
 type Remembered = ([u8; 32], String, Signature, Instant);
+type RememberedHeaders = ([u8; 32], String, Headers, Instant);
 
 fn digest(raw: &[u8]) -> [u8; 32] {
     let mut out = [0; 32];
@@ -289,6 +290,9 @@ pub struct Verifier {
     /// `(digest of the letter, From address, verdict, when)` by letter id. The digest: a
     /// deleted letter's id may be given to a new one.
     letters: Mutex<HashMap<i64, Remembered>>,
+    /// The same for the check of the original headers of a letter of Exchange (0.8.13,
+    /// ступень 4), by letter id.
+    headers: Mutex<HashMap<i64, RememberedHeaders>>,
     /// [`LIMIT`]; shorter in a test of the path that runs out of time.
     limit: Duration,
 }
@@ -300,6 +304,7 @@ impl Default for Verifier {
             build: system,
             cache: Arc::default(),
             letters: Mutex::default(),
+            headers: Mutex::default(),
             limit: LIMIT,
         }
     }
@@ -322,6 +327,27 @@ impl Verifier {
         let (hash, from, verdict, at) = letters.get(&id)?;
         let fresh = *verdict != Signature::Unchecked || at.elapsed() < RETRY;
         (*hash == digest(raw) && from.eq_ignore_ascii_case(address.trim()) && fresh).then_some(*verdict)
+    }
+
+    /// The verdict [`Verifier::check_headers`] gave for these headers and this From address,
+    /// unless it was [`Headers::Unchecked`] long enough ago to ask DNS again.
+    pub fn known_headers(&self, id: i64, headers: &[u8], address: &str) -> Option<Headers> {
+        let remembered = self.headers.lock().ok()?;
+        let (hash, from, verdict, at) = remembered.get(&id)?;
+        let fresh = *verdict != Headers::Unchecked || at.elapsed() < RETRY;
+        (*hash == digest(headers) && from.eq_ignore_ascii_case(address.trim()) && fresh).then_some(*verdict)
+    }
+
+    /// [`Verifier::check_headers`], remembered for [`Verifier::known_headers`].
+    pub async fn check_headers_remembered(&self, id: i64, headers: &[u8], address: &str) -> Headers {
+        let verdict = self.check_headers(headers, address).await;
+        if let Ok(mut remembered) = self.headers.lock() {
+            if remembered.len() >= LETTERS {
+                remembered.clear();
+            }
+            remembered.insert(id, (digest(headers), address.trim().to_owned(), verdict, Instant::now()));
+        }
+        verdict
     }
 
     /// [`Verifier::check`], remembered for [`Verifier::known`].
@@ -538,6 +564,47 @@ async fn check_signature(
         Ok(()) => Check::Pass,
         Err(_) => Check::Fail,
     }
+}
+
+/// How close the time of a letter must be to the time it was received, for a letter that
+/// comes with original headers only (0.8.13, ступень 4). A letter of another time cannot be
+/// this letter: the signature of a letter the sender sent long ago proves nothing about the
+/// body of a letter that came now.
+pub const REPLAY_HOURS: i64 = 24;
+
+/// Whether a letter with original headers only may be taken for the letter that was received
+/// (0.8.13, ступень 4). Two things keep a signed letter of another time from being used here:
+/// the address of the mailbox must stand in the signed `To` or `Cc`, and the time of the
+/// letter (`t=` or `Date`) must be close to the time it was received.
+pub fn not_a_replay(headers: &[u8], mailbox: &str, received: i64) -> bool {
+    let summary = crate::message::parse_summary(headers);
+    let mailbox = mailbox.trim().to_lowercase();
+    let addressed = summary
+        .to
+        .iter()
+        .chain(&summary.cc)
+        .any(|a| a.email.trim().to_lowercase() == mailbox);
+    if !addressed {
+        return false;
+    }
+    // The time of the signature, or the date of the letter.
+    let signed_at = signed_time(headers).or(summary.date);
+    let Some(signed_at) = signed_at else {
+        return false;
+    };
+    let limit = REPLAY_HOURS * 3600;
+    (signed_at - received).abs() <= limit
+}
+
+/// The time of the signature (`t=`), when it has one.
+fn signed_time(headers: &[u8]) -> Option<i64> {
+    let message = AuthenticatedMessage::parse(headers)?;
+    message
+        .dkim_headers
+        .iter()
+        .map(|h| h.header.t)
+        .find(|t| *t > 0)
+        .map(|t| t as i64)
 }
 
 /// The public key of a signature, from DNS.

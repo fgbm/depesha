@@ -519,6 +519,7 @@ mod tests {
             quota_warn: true,
             quota_limit_mb: 0,
             waiting: Waiting::default(),
+            trust_by_address: false,
         }
     }
 

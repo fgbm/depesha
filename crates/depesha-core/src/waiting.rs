@@ -756,6 +756,7 @@ mod tests {
             quota_warn: true,
             quota_limit_mb: 0,
             waiting,
+            trust_by_address: false,
         }
     }
 
