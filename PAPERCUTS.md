@@ -72,3 +72,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-21 14:55 — claude-opus-5-5
 
 `tauri build` в worktree → общий сервер sccache запущен чужой сессией с `TMPDIR=~/.cache/qs-vitest-tmp`, которого уже нет: каждый rustc падает «Failed to create temp dir». Собрал с `RUSTC_WRAPPER=` без sccache. Сервер sccache стоит перезапускать со стабильным `TMPDIR`.
+
+## 2026-10-21 15:55 — claude-opus-5-5
+
+Тест «какие имена DKIM-проверка спросила у DNS» (#167) → `mail_auth::ResolverCache::get<Q: ?Sized>` обобщён по типу ключа, имя в строку не достать (ни `downcast`, ни `Debug`). Обход: писать в тестовом поле `TxtCache` хеш имени через `RandomState::hash_one`, а сверять по `hash_one(&str)` и по числу запросов (`dkim.rs`).

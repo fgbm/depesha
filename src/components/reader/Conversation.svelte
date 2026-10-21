@@ -9,6 +9,7 @@
   import ThreadLetter from "./ThreadLetter.svelte";
   import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
+  import { senderChecked } from "../../lib/reader.svelte";
   import { tn } from "../../lib/i18n.svelte";
   import type { MessageRow, OpenedMessage } from "../../lib/types";
 
@@ -71,8 +72,18 @@
     app.reader.saw([m.id]);
     if (bodies.has(m.id)) return;
     void api.open(m.id, false)
-      .then((o) => (bodies = new Map(bodies).set(m.id, o)))
+      .then((o) => {
+        bodies = new Map(bodies).set(m.id, o);
+        if (o.why_unverified === "checking") void checkSender(m.id);
+      })
       .catch((e) => app.ui.fail(e));
+  }
+
+  /** A trusted sender the mailbox's server said nothing about: checked as in the pane (#167). */
+  async function checkSender(id: number) {
+    const answer = await senderChecked(id, () => false, () => bodies.has(id));
+    const body = bodies.get(id);
+    if (answer && body) bodies = new Map(bodies).set(id, { ...body, ...answer });
   }
 
   /** Answering a letter unfolded here: it becomes the letter the pane has open, and the pane

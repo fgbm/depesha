@@ -1103,7 +1103,7 @@ export type UnsubscribeWay = { "kind": "one-click", host: string, } | { "kind": 
 
 export type Unsubscribed = { "kind": "done" } | { "kind": "mail-sent", to: string, } | { "kind": "confirm", plan: UnsubscribePlan, reason: string, };
 
-export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked";
+export type Unverified = "server" | "checking" | "unsigned" | "signature" | "unchecked" | "ambiguous_from";
 
 export type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
 

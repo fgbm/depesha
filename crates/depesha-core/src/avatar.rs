@@ -32,7 +32,7 @@ pub fn logo_domain(email: &str) -> Option<String> {
 
 /// The registrable domain of an ASCII lower-case host by the public suffix list, `None` for a
 /// public suffix itself and for a name under a private one (`x.github.io`, `eu.org`).
-fn registrable(host: &str) -> Option<String> {
+pub(crate) fn registrable(host: &str) -> Option<String> {
     let registrable = psl::domain(host.as_bytes())?;
     // A top-level name the list does not know (`.example`) is a suffix of the default rule.
     if registrable.suffix().typ() == Some(psl_types::Type::Private) {
@@ -392,7 +392,9 @@ pub struct Receiver {
     /// header, and renames the ones that came with the letter.
     pub exchange_online: bool,
     /// Exchange (Web Services): its own `X-MS-Exchange-Organization-*` headers are
-    /// stripped from mail that comes from outside, so `AuthAs: Internal` is its word.
+    /// stripped from mail that comes from outside, so `AuthAs: Internal` is its word. An
+    /// Exchange of the firm's own (not Exchange Online) strips no `Authentication-Results`
+    /// that claim its name, so none of them is believed there.
     pub exchange: bool,
 }
 
@@ -623,6 +625,9 @@ pub enum SenderCheck {
     },
     /// The result word was not `pass`.
     DmarcNot(String),
+    /// No `dmarc=` result, no passed `dkim`/`spf` about the From domain, and a `dkim=fail` or
+    /// `permerror` of the From domain's organization: the server's «no».
+    DkimFailed,
     /// `dmarc=pass`, but about another organization than the From domain.
     NotAligned {
         header_from_domain: Option<String>,
@@ -671,6 +676,7 @@ impl std::fmt::Display for SenderCheck {
                 write!(f, "the server did not check DMARC; {via} passed for the From domain")
             }
             Self::DmarcNot(word) => write!(f, "dmarc={word}"),
+            Self::DkimFailed => f.write_str("the server did not check DMARC; DKIM of the From domain failed"),
             Self::NotAligned {
                 header_from_domain,
                 from_domain,
@@ -712,12 +718,16 @@ fn loggable(id: Option<&str>) -> String {
 /// [`dmarc_passed`] with the reason of the answer.
 pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> SenderCheck {
     let mut seen = Vec::new();
+    // An Exchange of the firm's own writes no `Authentication-Results`, and removes none that
+    // came with the letter: a sender writes one under the firm's name as easily (#35).
+    let believed = !receiver.exchange || receiver.exchange_online;
     for (i, header) in auth_results.iter().enumerate() {
         let r = results(header);
-        let ours = match &r.authserv_id {
-            Some(id) => receiver.owns(id),
-            None => receiver.exchange_online && i == 0,
-        };
+        let ours = believed
+            && match &r.authserv_id {
+                Some(id) => receiver.owns(id),
+                None => receiver.exchange_online && i == 0,
+            };
         if !ours {
             if seen.len() < MAX_SEEN {
                 seen.push(loggable(r.authserv_id.as_deref()));
@@ -749,7 +759,8 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
 /// passed DKIM signature is about the From domain's organization (relaxed alignment, the
 /// default of DMARC; #167), or a passed SPF check about exactly the From domain. Not a DMARC
 /// verdict: the sender's `adkim`/`aspf` and policy are unknown. An explicit
-/// `dmarc=none`/`fail` never gets here.
+/// `dmarc=none`/`fail` never gets here, and a failed signature of the sender's organization
+/// without a pass is a «no» the app's own check does not overrule.
 fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
     let passed_for = |list: &[(String, Option<String>)], same: fn(&str, &str) -> bool| {
         list.iter()
@@ -759,6 +770,10 @@ fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
         SenderCheck::AlignedWithoutDmarc { via: "dkim" }
     } else if passed_for(&r.spf, same_domain) {
         SenderCheck::AlignedWithoutDmarc { via: "spf" }
+    } else if r.dkim.iter().any(|(word, d)| {
+        matches!(word.as_str(), "fail" | "permerror") && d.as_deref().is_some_and(|d| aligned(d, from_domain))
+    }) {
+        SenderCheck::DkimFailed
     } else if r.dkim.iter().chain(&r.spf).any(|(word, _)| word == "pass") {
         SenderCheck::NotAlignedWithoutDmarc
     } else {
@@ -1412,10 +1427,17 @@ mod tests {
             "a.github.io",
             &yandex
         ));
-        // Failed or soft-failed checks are no pass.
+        // Failed or soft-failed checks are no pass; a failed signature of the sender is a no.
         assert_eq!(
             check(
                 "mx.yandex.net; dkim=fail header.i=@github.com; spf=softfail smtp.mail=a@github.com".into(),
+                "github.com"
+            ),
+            SenderCheck::DkimFailed
+        );
+        assert_eq!(
+            check(
+                "mx.yandex.net; dkim=none; spf=softfail smtp.mail=a@github.com".into(),
                 "github.com"
             ),
             SenderCheck::NoDmarc
@@ -1709,6 +1731,47 @@ mod tests {
             "bank.ru",
             &yandex
         ));
+    }
+
+    #[test]
+    fn an_exchange_of_its_own_believes_no_authentication_results() {
+        // Nobody strips a forged header on the way into the firm's own Exchange (#35): a name
+        // under the firm's domain is anyone's to write.
+        let on_prem = ews("me@contoso.example", "https://mail.contoso.example/EWS/Exchange.asmx");
+        let forged = vec!["mx.contoso.example; dmarc=pass header.from=bank.ru".to_owned()];
+        assert!(!dmarc_passed(&forged, "bank.ru", &on_prem));
+        assert!(matches!(
+            check_sender(&forged, "bank.ru", &on_prem),
+            SenderCheck::NoOwnHeader { .. }
+        ));
+        let raw = letter_with(
+            &[],
+            "Authentication-Results: mx.contoso.example; dmarc=pass header.from=bank.ru\r\n",
+            "security@bank.ru",
+        );
+        assert!(!crate::message::authenticity(&raw, &on_prem).dmarc);
+    }
+
+    #[test]
+    fn a_failed_signature_of_the_senders_organization_is_the_servers_no() {
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru").with_delivery(delivery("yandex.net"));
+        for word in ["fail", "permerror"] {
+            for d in ["bank.ru", "em.bank.ru"] {
+                let check = check_sender(
+                    &[format!("mx.yandex.net; dkim={word} header.d={d}")],
+                    "bank.ru",
+                    &yandex,
+                );
+                assert!(!check.passed() && !check.no_verdict(), "{word} {d}: {check}");
+            }
+        }
+        // A failed signature of someone else says nothing about the sender.
+        let other = check_sender(
+            &["mx.yandex.net; dkim=fail header.d=list.example".into()],
+            "bank.ru",
+            &yandex,
+        );
+        assert!(other.no_verdict(), "{other}");
     }
 
     #[tokio::test]

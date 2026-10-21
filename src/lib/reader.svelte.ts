@@ -106,18 +106,9 @@ export class Reader {
    * pictures and the line about them change; nothing else of the open is repeated.
    */
   private async checkSender(id: number, seq: number) {
-    // A failed check is no confirmation: the line below says the signature was not checked.
-    await api.checkSender(id).catch(() => false);
-    if (seq !== this.openSeq) return;
-    // The letter stays shown as it was opened; the line then says the check got no answer.
-    const fresh = await api.open(id, this.allowRemote).catch(() => null);
+    const answer = await senderChecked(id, () => this.allowRemote, () => seq === this.openSeq);
     const opened = this.opened;
-    if (seq !== this.openSeq || opened?.row.id !== id) return;
-    if (!fresh) {
-      this.opened = { ...opened, why_unverified: "unchecked" };
-      return;
-    }
-    this.opened = { ...opened, view: fresh.view, trusted_sender: fresh.trusted_sender, sender_unverified: fresh.sender_unverified, why_unverified: fresh.why_unverified === "checking" ? "unchecked" : fresh.why_unverified };
+    if (answer && opened?.row.id === id) this.opened = { ...opened, ...answer };
   }
 
   private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
@@ -237,6 +228,22 @@ export class Reader {
       this.openError = { kind: "not-found", message: t("window.gone") };
     }
   }
+}
+
+/**
+ * The app's own check of a letter's sender (#167), then the letter read again for its answer:
+ * what of the opened letter changes, or `null` once the letter is no longer `current`. A check
+ * without an answer is no confirmation, and never stays «checking».
+ */
+export async function senderChecked(id: number, allowRemote: () => boolean, current: () => boolean): Promise<Partial<OpenedMessage> | null> {
+  // A failed check is no confirmation: the line below says the signature was not checked.
+  await api.checkSender(id).catch(() => false);
+  if (!current()) return null;
+  // The letter stays shown as it was opened; the line then says the check got no answer.
+  const fresh = await api.open(id, allowRemote()).catch(() => null);
+  if (!current()) return null;
+  if (!fresh) return { why_unverified: "unchecked" };
+  return { view: fresh.view, trusted_sender: fresh.trusted_sender, sender_unverified: fresh.sender_unverified, why_unverified: fresh.why_unverified === "checking" ? "unchecked" : fresh.why_unverified };
 }
 
 /** The line about a trusted sender who is not confirmed, by why (#167). */

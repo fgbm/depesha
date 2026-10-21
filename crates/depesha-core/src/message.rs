@@ -543,6 +543,49 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
     }
 }
 
+/// The letter's only From address, lowercase, when the two readers of its headers agree on it
+/// (#167). `mail-parser` gives the address the reader shows and the trust list matches;
+/// `mail-auth` gives the From a DKIM signature covers. They part on odd headers: `mail-parser`
+/// takes the last From, reads `Fr om:` as From and skips a line without a colon, where
+/// `mail-auth` ends the headers. A letter they read differently confirms nobody.
+pub fn sole_from(raw: &[u8]) -> Option<String> {
+    sole_from_in(raw, &mail_auth::AuthenticatedMessage::parse(raw)?)
+}
+
+/// [`sole_from`] with the letter `mail-auth` already read.
+pub(crate) fn sole_from_in(raw: &[u8], signed: &mail_auth::AuthenticatedMessage<'_>) -> Option<String> {
+    let name_is_from = |name: &[u8]| {
+        let mut letters = name.iter().filter(|c| !c.is_ascii_whitespace());
+        b"from"
+            .iter()
+            .all(|f| letters.next().is_some_and(|c| c.eq_ignore_ascii_case(f)))
+            && letters.next().is_none()
+    };
+    let [address] = signed.from.as_slice() else {
+        return None;
+    };
+    if signed.headers.iter().filter(|(name, _)| name_is_from(name)).count() != 1 {
+        return None;
+    }
+    let msg = MessageParser::default().parse_headers(raw)?;
+    let mut froms = msg
+        .root_part()
+        .headers()
+        .iter()
+        .filter(|h| h.name == mail_parser::HeaderName::From);
+    let (Some(header), None) = (froms.next(), froms.next()) else {
+        return None;
+    };
+    let mail_parser::HeaderValue::Address(Address::List(list)) = &header.value else {
+        return None;
+    };
+    let [one] = list.as_slice() else {
+        return None;
+    };
+    let shown = one.address.as_deref()?.trim().to_lowercase();
+    (!shown.is_empty() && shown == *address).then_some(shown)
+}
+
 /// mail-parser converts text/plain to HTML when there is no HTML part;
 /// only show HTML that the sender actually wrote.
 fn is_real_html(msg: &Message<'_>) -> bool {

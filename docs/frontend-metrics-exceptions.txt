@@ -62,3 +62,5 @@ function	src/components/Preferences.svelte::undoKey	14	Ctrl+Z на найден�
 function	src/components/Preferences.svelte::onNavKey	30	клавиши меню по таблице экрана 7: → раскрывает свёрнутый пункт, ← сворачивает и возвращает на пункт, Enter ведёт в страницу (0.8.12)
 function	src/components/Preferences.svelte::onSearchKey	7	↓ из пустого поиска — на первую строку страницы (0.8.12, 4.3 А)
 function	src/components/prefs/SettingsPage.svelte::enterRow	11	Enter на строке-ссылке найденного открывает её место (0.8.12, 4.1 Б)
+component	src/components/reader/Conversation.svelte	140	своя проверка отправителя у письма, раскрытого в ленте переписки (#167): вызов и функция checkSender
+function	src/components/reader/Conversation.svelte::toggle	17	письмо с «проверяем отправителя» запускает свою проверку подписи (#167)
