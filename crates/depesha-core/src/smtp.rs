@@ -215,8 +215,8 @@ fn alternatives(draft: &Draft, sent: bool) -> (SinglePart, Vec<Part>) {
 
 /// The pictures of a Markdown text stood for by the word, in the plain part: `![alt](cid:…)`
 /// and `![alt](data:…)` become «[Picture]» or «[Picture: alt]». A picture of the letter
-/// outside (`https:`) stays a link: it is not the letter's own picture, and the reader
-/// without HTML may follow it.
+/// outside (`https:`) stands for the word too, and its address stands after it as a link
+/// stands in the text part («text <address>»): the reader without HTML may follow it.
 ///
 /// The word is the one the caller brings (`Draft::picture_word`); the core knows no
 /// language, and an empty word is the English one.
@@ -245,16 +245,16 @@ fn pictures_as_words(text: &str, word: &str) -> String {
         let alt = image[START.len()..mid].trim();
         let url = image[mid + 2..close].trim();
         out.push_str(&rest[..at]);
-        if is_own_picture(url) {
-            out.push('[');
-            out.push_str(word);
-            if !alt.is_empty() {
-                out.push_str(": ");
-                out.push_str(alt);
-            }
-            out.push(']');
-        } else {
-            out.push_str(&image[..close + 1]);
+        out.push('[');
+        out.push_str(word);
+        if !alt.is_empty() {
+            out.push_str(": ");
+            out.push_str(alt);
+        }
+        out.push(']');
+        // The address of the letter's own picture is a service address: nothing to follow.
+        if !is_own_picture(url) {
+            out.push_str(&format!(" <{url}>"));
         }
         rest = &image[close + 1..];
     }
@@ -1612,10 +1612,10 @@ mod tests {
         assert!(!plain.contains("[Picture"), "{plain}");
     }
 
-    /// A picture outside the letter (over https) stays a link: the text part shows it as
-    /// the text part shows any other link.
+    /// A picture outside the letter (over https) stands for the word too, and its address
+    /// stands after it as a link stands in the text part.
     #[test]
-    fn a_picture_of_the_letter_outside_stays_a_link() {
+    fn a_picture_of_the_letter_outside_stands_for_the_word_and_keeps_its_address() {
         let text = "![Схема](https://example.com/p.png)\n";
         let raw = String::from_utf8(
             build_sent(&letter(BodyFormat::Markdown, text, None))
@@ -1624,8 +1624,11 @@ mod tests {
         )
         .unwrap();
         let plain = crate::message::parse_view(raw.as_bytes(), false).unwrap().text.unwrap();
-        assert!(plain.contains("https://example.com/p.png"), "{plain}");
-        assert!(!plain.contains("[Picture"), "{plain}");
+        assert!(
+            plain.contains("[Picture: Схема] <https://example.com/p.png>"),
+            "{plain}"
+        );
+        assert!(!plain.contains("!["), "{plain}");
     }
 
     #[test]
