@@ -1213,6 +1213,9 @@ function	src/lib/quota.ts::gb	4
 function	src/lib/quota.ts::usedOf	3
 function	src/lib/quota.ts::wholePercent	3
 function	src/lib/quote.ts::splitQuote	16
+function	src/lib/reader.svelte.test.ts::unconfirmed#1	1
+function	src/lib/reader.svelte.test.ts::unconfirmed#2	1
+function	src/lib/reader.svelte.ts::unverifiedKey	14
 function	src/lib/reader.svelte.ts::shownConversation	10
 function	src/lib/recipients.test.ts::people	2
 function	src/lib/recipients.ts::foldsRecipients	3
