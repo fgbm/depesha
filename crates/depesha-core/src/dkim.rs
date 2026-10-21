@@ -1588,6 +1588,9 @@ mod tests {
             .join("tests/dkim-vectors")
             .join(name);
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        // A checkout may give the file CRLF line endings where the letter was written with LF:
+        // the signature covers the bytes the sender wrote, so they are put back as they are.
+        let text = text.replace("\r\n", "\n");
         let (records, letter) = text
             .split_once("\n\n")
             .unwrap_or_else(|| panic!("{name}: the records and the letter"));

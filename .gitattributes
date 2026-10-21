@@ -1,0 +1,4 @@
+# Letters under `tests/` are read byte for byte: a `DKIM-Signature` covers line endings as much
+# as anything else, and a checkout that converts them makes the signature fail.
+crates/depesha-core/tests/sender/** -text
+crates/depesha-core/tests/dkim-vectors/* -text
