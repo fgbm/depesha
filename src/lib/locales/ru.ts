@@ -643,6 +643,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "reader.remoteWhy": "По внешним картинкам отправитель узнаёт, что вы открыли письмо.",
   "reader.unverifiedSender": "{email} в доверенных, но не подтверждено, что письмо пришло с этого адреса.",
   "reader.checkingSender": "{email} в доверенных, проверяем отправителя…",
+  "reader.boxName": "Ящик {name}",
   "reader.serverNo": "{box} не подтвердил, что письмо от {email}.",
   "reader.serverUnsigned": "{box} не подтвердил, что письмо от {email}: письмо не подписано.",
   "reader.serverBadSignature": "{box} не подтвердил, что письмо от {email}: подпись не сошлась.",

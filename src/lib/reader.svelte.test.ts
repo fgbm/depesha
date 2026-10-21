@@ -9,7 +9,7 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
-import { unverifiedKey, unverifiedTip } from "./reader.svelte";
+import { boxName, unverifiedKey, unverifiedTip } from "./reader.svelte";
 import { api, flush, opened, resetFakes, row, rows } from "./testing";
 
 /** Letters the backend was told were read. */
@@ -213,6 +213,17 @@ describe("a failing backend is told, not swallowed (#147)", () => {
 });
 
 describe("the line about a sender who is not confirmed (0.8.13)", () => {
+  it("names the mailbox so that the verb agrees with it whatever it is called", () => {
+    // The name is the user's own: it goes in quotes, and the word in front of it is in the
+    // locale. A mailbox named «Работа» is not a word the verb could agree with.
+    expect(boxName("Работа", "anna@example.org")).toBe("«Работа»");
+    expect(boxName("  Работа  ", "anna@example.org")).toBe("«Работа»");
+    // Without a name of its own the mailbox is the domain of the address.
+    expect(boxName("", "anna@example.org")).toBe("example.org");
+    expect(boxName(undefined, "anna@example.org")).toBe("example.org");
+    expect(boxName("", "anna")).toBe("anna");
+  });
+
   it("names the reason and the mailbox, and keeps the detail in the tip", () => {
     // The line says who did not confirm the sender; the tip says what the server said.
     expect(unverifiedKey("server")).toBe("reader.serverNo");

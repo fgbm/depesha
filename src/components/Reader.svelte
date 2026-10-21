@@ -8,7 +8,7 @@
   import { layout } from "../lib/layout.svelte";
   import { viewTitle } from "../lib/titles";
   import { app } from "../lib/store.svelte";
-  import { unverifiedKey, unverifiedTip } from "../lib/reader.svelte";
+  import { boxName as boxInLine, unverifiedKey, unverifiedTip } from "../lib/reader.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
@@ -68,7 +68,7 @@
   const account = $derived(msg ? app.mailboxes.account(msg.row.account_id) : undefined);
   /** The name of the mailbox the letter came to: the line names it (0.8.13). */
   const boxName = $derived(
-    account ? account.label?.trim() || account.email.split("@")[1] || account.email : "",
+    account ? t("reader.boxName", { name: boxInLine(account.label, account.email) }) : "",
   );
   const isDraft = $derived(msg ? app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);

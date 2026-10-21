@@ -247,6 +247,18 @@ export async function senderChecked(id: number, allowRemote: () => boolean, curr
 }
 
 /**
+ * The name of the mailbox for the line about a sender who is not confirmed (0.8.13).
+ *
+ * The name is the user's own, so it goes in quotes and the word in front of it is in the
+ * locale: a mailbox named «Работа» is not a word the verb could agree with.
+ */
+export function boxName(label: string | undefined, email: string): string {
+  const name = label?.trim();
+  if (name) return `«${name}»`;
+  return email.split("@")[1] || email;
+}
+
+/**
  * The line about a trusted sender who is not confirmed, by why (0.8.13). The line names the
  * mailbox: the same reason means different things on different servers, and the old text
  * ("the mailbox's server does not check senders") was untrue on Yandex.

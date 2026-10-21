@@ -651,6 +651,7 @@ export const en = {
   "reader.remoteWhy": "Remote images tell the sender that you opened the message.",
   "reader.unverifiedSender": "{email} is trusted, but this letter is not confirmed to come from that address.",
   "reader.checkingSender": "{email} is trusted, checking the sender…",
+  "reader.boxName": "Mailbox {name}",
   "reader.serverNo": "{box} did not confirm that the letter is from {email}.",
   "reader.serverUnsigned": "{box} did not confirm that the letter is from {email}: the letter is not signed.",
   "reader.serverBadSignature": "{box} did not confirm that the letter is from {email}: the signature does not match.",
