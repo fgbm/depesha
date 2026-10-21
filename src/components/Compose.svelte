@@ -446,7 +446,18 @@
             </div>
           {/if}
           {#if hasQuote && fmt.quoteOpen}
-            <textarea class="quote-text" bind:value={fmt.quote} readonly={fmt.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+            <!-- The blank lines before the quote stay in the letter, not on the screen. -->
+            {@const lead = /^\n*/.exec(fmt.quote)?.[0] ?? ""}
+            {@const shownQuote = fmt.quote.slice(lead.length)}
+            <textarea
+              class="quote-text"
+              value={shownQuote}
+              oninput={(e) => (fmt.quote = lead + e.currentTarget.value)}
+              rows={shownQuote.split("\n").length}
+              readonly={fmt.switching}
+              spellcheck="false"
+              aria-label={t("compose.quote")}
+            ></textarea>
           {/if}
         {/if}
         {#if !fmt.signature && fmt.signatures.length}
@@ -838,15 +849,18 @@
     color: var(--ink);
   }
 
-  /* The opened quote, with a grey line at its left: part of the quote, not a list cursor. */
+  /* The opened quote: the letter's own text, told apart by the grey line at its left alone. */
   .quote-text {
     flex: none;
-    height: 96px;
-    margin: 2px 18px 10px;
+    max-height: 40vh;
+    margin: 8px 18px 10px;
     padding: 0 0 0 14px;
     border-left: 3px solid var(--line);
-    font-size: 12.5px;
-    color: var(--muted);
+  }
+
+  .body-area.signed .sig-plain:has(+ .quote-text) {
+    margin-bottom: 0;
+    padding-bottom: 0;
   }
 
   /* The tick of the current format in the «⋯» menu. */

@@ -262,3 +262,26 @@ describe("the dots under the text of the letter", () => {
     send.mockRestore();
   });
 });
+
+describe("the opened quote of a plain reply (А27)", () => {
+  it("starts with its first line, as tall as its text, and keeps the letter's text when edited", () => {
+    const { win, target } = open(true, true);
+    dots(target)!.click();
+    flushSync();
+    const field = quote(target)!;
+    expect(field.value).toBe(QUOTE);
+    expect(field.rows).toBe(2);
+    field.value = "Иван писал(а):\n> Пришлите акт.";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(win.draft.text.endsWith("\n\nИван писал(а):\n> Пришлите акт.")).toBe(true);
+  });
+
+  it("is of the size and colour of the text, told apart by the grey line alone", () => {
+    const css = readFileSync("src/components/Compose.svelte", "utf8");
+    const rule = /\n {2}\.quote-text \{([^}]*)\}/.exec(css)![1];
+    expect(rule).not.toMatch(/font-size|color:|(^|\s)height:|background/);
+    expect(rule).toContain("border-left: 3px solid var(--line)");
+    expect(rule).toMatch(/margin: 8px/);
+  });
+});
