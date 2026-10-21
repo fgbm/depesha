@@ -53,3 +53,14 @@ describe("the menu of a signature (#120, 9)", () => {
     expect(items.flatMap((i) => [...i.querySelectorAll(".hint")].map((h) => h.textContent))).toEqual([]);
   });
 });
+
+describe("the list of the signatures as the mockup draws it (0.8.12, screen 8)", () => {
+  it("has no note under it: which signature goes where is said by its badge", () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    view = mount(SignaturesField, { target, props: { form: new AccountForm(acc, vi.fn()) } });
+    flushSync();
+    expect(target.querySelector(".hint")).toBeNull();
+    expect(target.textContent).not.toContain("Подпись по умолчанию ставится");
+  });
+});

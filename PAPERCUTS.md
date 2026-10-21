@@ -76,3 +76,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-21 15:55 — claude-opus-5-5
 
 Тест «какие имена DKIM-проверка спросила у DNS» (#167) → `mail_auth::ResolverCache::get<Q: ?Sized>` обобщён по типу ключа, имя в строку не достать (ни `downcast`, ни `Debug`). Обход: писать в тестовом поле `TxtCache` хеш имени через `RandomState::hash_one`, а сверять по `hash_one(&str)` и по числу запросов (`dkim.rs`).
+
+## 2026-10-21 16:40 — claude-opus-5-5
+
+Кадры настроек на своём Xvfb `:117` → после первого прогона съёмки Xvfb умирал, а следующий прогон падал «Failed to initialize GTK» и «HeadersTimeoutError». Причина — сброс сервера, когда отключается последний клиент. Помог флаг `-noreset`; стоит дописать его в команду Xvfb в `e2e/README.md`.

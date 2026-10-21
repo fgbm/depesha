@@ -156,7 +156,6 @@
   <div class="add">
     <button class="btn" onclick={add}><Plus size={15} /> {t("account.signatures.add")}</button>
   </div>
-  <p class="muted hint">{t("account.signatures.hint")}</p>
 </div>
 
 <style>
@@ -173,8 +172,7 @@
     color: var(--muted);
   }
 
-  .empty,
-  .hint {
+  .empty {
     margin: 0;
     font-size: 12px;
     line-height: 1.45;

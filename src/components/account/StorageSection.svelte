@@ -2,7 +2,6 @@
   // The mailbox's room on the server, as the server reports it (QUOTA) or as counted from
   // its folders, with the mailbox's own limit for the warnings; and, apart, what its mail
   // takes on this computer, which is never shown as the server's.
-  import HardDrive from "@lucide/svelte/icons/hard-drive";
   import Search from "@lucide/svelte/icons/search";
   import Trash from "@lucide/svelte/icons/trash-2";
   import { onMount } from "svelte";
@@ -182,16 +181,20 @@
 </SettingsRow>
 <FieldError {form} keys={["quota_warn", "quota_limit_mb"]} />
 
+<!-- The folder sizes and the cache are rows too: the control in its column, the note in one line (0.8.12, screen 8). -->
 {#if !account.ews}
-  <div class="block">
-    <h4>{t("storage.folders")} <span class="tag">{t("storage.estimateBadge")}</span></h4>
-    {#if info?.counting}
-      <div class="row">
-        <span>{t("storage.counting", { done: info.counting[0], total: info.counting[1] })}</span>
-        <button class="btn" data-action="sizes-stop" onclick={() => rooms.stop(account.id)}>{t("storage.stop")}</button>
-      </div>
-      <p class="hint muted">{t("storage.countingNote")}</p>
-    {:else if sizes}
+  {#if info?.counting}
+    <SettingsRow id="acc-sizes" kind="field" label={t("storage.folders")} hint={t("storage.countingNote")}>
+      <span>{t("storage.counting", { done: info.counting[0], total: info.counting[1] })}</span>
+      <button class="btn" data-action="sizes-stop" onclick={() => rooms.stop(account.id)}>{t("storage.stop")}</button>
+    </SettingsRow>
+  {:else if sizes}
+    <SettingsRow
+      id="acc-sizes"
+      kind="field"
+      label={t("storage.folders")}
+      desc={sizes.method === "status" ? t("storage.countedStatus", { when: when(sizes.counted) }) : t("storage.countedFetch", { when: when(sizes.counted) })}
+    >
       <table class="sizes">
         <tbody>
           {#each sizes.folders as f (f.folder)}
@@ -218,27 +221,20 @@
           </tr>
         </tfoot>
       </table>
-      <div class="row">
-        <span class="muted small">{sizes.method === "status" ? t("storage.countedStatus", { when: when(sizes.counted) }) : t("storage.countedFetch", { when: when(sizes.counted) })}</span>
-        <span class="spacer"></span>
-        <button class="btn" onclick={findLarge}><Search size={14} />{t("storage.findLarge")}</button>
-        <button class="btn" data-action="sizes-count" onclick={() => rooms.count(account.id)}>{t("storage.recount")}</button>
-      </div>
-    {:else}
-      <div class="row">
-        <button class="btn" data-action="sizes-count" onclick={() => rooms.count(account.id)}>{t("storage.count")}</button>
-        <span class="muted small">{t("storage.onRequest")}</span>
-      </div>
-      <p class="hint muted">{t("storage.countNote")}</p>
-    {/if}
-  </div>
+      <button class="btn" onclick={findLarge}><Search size={14} />{t("storage.findLarge")}</button>
+      <button class="btn" data-action="sizes-count" onclick={() => rooms.count(account.id)}>{t("storage.recount")}</button>
+    </SettingsRow>
+  {:else}
+    <SettingsRow id="acc-sizes" kind="field" label={t("storage.folders")} desc={t("storage.onRequest")}>
+      <button class="btn" data-action="sizes-count" onclick={() => rooms.count(account.id)}>{t("storage.count")}</button>
+    </SettingsRow>
+  {/if}
 {/if}
 
-<div class="block local">
-  <h4><HardDrive size={14} />{t("storage.local")}</h4>
-  <div class="row"><span>{t("storage.cache")}</span><b>{gb(info?.cache_bytes ?? 0)}</b></div>
-  <p class="hint muted">{t("storage.cacheNote")} <button class="link" onclick={() => app.ui.openSettings("storage")}>{t("storage.offlineLink")}</button></p>
-</div>
+<SettingsRow id="acc-cache" kind="field" label={t("storage.cache")} desc={t("storage.cacheNote")}>
+  <b>{gb(info?.cache_bytes ?? 0)}</b>
+  <button class="link" onclick={() => app.ui.openSettings("storage")}>{t("storage.offlineLink")}</button>
+</SettingsRow>
 
 <style>
   .own.bad {
@@ -260,15 +256,6 @@
 
   .room[data-level="3"] {
     --fill: var(--bad);
-  }
-
-  .tag {
-    padding: 0 6px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 400;
   }
 
   /* The bar keeps to the column of the controls, as in the mockup. */
@@ -342,8 +329,7 @@
     background: color-mix(in srgb, var(--bad) 8%, transparent);
   }
 
-  .actions,
-  .row {
+  .actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -359,34 +345,10 @@
     font-size: 12.5px;
   }
 
-  .block h4 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 6px 0 6px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-  }
-
   .own {
     width: 64px;
     padding: 3px 6px;
     text-align: right;
-  }
-
-  .hint {
-    margin: 4px 0 0;
-    font-size: 12px;
-    line-height: 1.45;
-  }
-
-  .small {
-    font-size: 12px;
-  }
-
-  .spacer {
-    flex: 1;
   }
 
   .link {
@@ -434,10 +396,5 @@
   tfoot td {
     border-top: 1px solid var(--line);
     padding-top: 6px;
-  }
-
-  .local .row {
-    justify-content: flex-start;
-    gap: 12px;
   }
 </style>

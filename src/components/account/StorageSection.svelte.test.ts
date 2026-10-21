@@ -76,3 +76,22 @@ describe("the choice of the limit for the warnings", () => {
     expect(form.quotaWarn).toBe(true);
   });
 });
+
+describe("the room of the mailbox as rows of the page (0.8.12, screen 8)", () => {
+  const row = (id: string) => target.querySelector<HTMLElement>(`.rw[data-settings='${id}']`);
+
+  it("draws the folder sizes and the cache as rows with the control in the column, not as blocks under headings", () => {
+    expect(target.querySelector("h4")).toBeNull();
+    expect(row("acc-sizes")?.querySelector(".t")?.textContent).toContain("Размер папок");
+    expect(row("acc-sizes")?.querySelector(".c [data-action='sizes-count']")?.textContent).toBe("Посчитать");
+    expect(row("acc-cache")?.querySelector(".t")?.textContent).toContain("Кэш Депеши");
+    expect(row("acc-cache")?.querySelector(".c")?.textContent).toContain("0 МБ");
+    expect(row("acc-cache")?.textContent).toContain("не входит в квоту");
+  });
+
+  it("says in one line that the server reports no quota", () => {
+    const hint = row("acc-room")!.querySelectorAll(".h");
+    expect(hint).toHaveLength(1);
+    expect(hint[0].textContent!.length).toBeLessThanOrEqual(40);
+  });
+});

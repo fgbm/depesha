@@ -77,6 +77,12 @@ describe("a page of rows (#102)", () => {
     expect(page("later")).not.toContain("Рабочих дней нет");
   });
 
+  it("says what «Take the letter out of the inbox» does in one line, as the mockup does (0.8.12, screen 8)", () => {
+    const html = page("later");
+    const row = html.slice(html.indexOf('data-row="waiting"'));
+    expect(row).toContain("Письмо, на которое вы ответили из «Входящих», уходит в архив.</div>");
+  });
+
   it("says «system» of the theme only when the theme follows the system", () => {
     expect(page("look", { theme: "system" })).toContain("вслед за режимом системы");
     expect(page("look", { theme: "dark" })).not.toContain("вслед за режимом системы");

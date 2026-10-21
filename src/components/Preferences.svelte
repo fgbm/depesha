@@ -60,7 +60,7 @@
   /** Folded by ← though open, and unfolded by → though not: the hand's say over 6.2 А. */
   let folded = $state<string[]>([]);
   let unfolded = $state<string[]>([]);
-  const isOpen = (entry: string) => kidsOf(entry).length > 0 && ((litParent === entry && !folded.includes(entry)) || unfolded.includes(entry));
+  const isOpen = (entry: string) => kidsOf(entry).length > 0 && ((!searching && litParent === entry && !folded.includes(entry)) || unfolded.includes(entry));
   /** Every entry of the menu as it is drawn now, top to bottom: ↑/↓ and Ctrl+PgUp/PgDn walk it. */
   const pages = $derived(MENU.flatMap((g) => g.pages.flatMap((p) => [p, ...(isOpen(p) ? kidsOf(p) : [])])));
 
@@ -95,6 +95,8 @@
 
   // ---- The search over the settings (#68): it looks in the declared catalog, not the drawn window. ----
   let query = $state("");
+  /** While the search is on, the rows found stand in place of the open page: no entry is lit or unfolded for it. */
+  const searching = $derived(!!query.trim());
   let searchInput = $state<HTMLInputElement | null>(null);
   let contentEl = $state<HTMLElement | null>(null);
   /** The row a hit opened the page at, lit a moment. */
@@ -394,7 +396,7 @@
               class="tab"
               role="tab"
               data-page={id}
-              aria-selected={lit === id}
+              aria-selected={!searching && lit === id}
               aria-expanded={kids.length ? open : undefined}
               tabindex={lit === id ? 0 : -1}
               onclick={() => turn(id)}
@@ -405,7 +407,7 @@
             {#if open}
               {#each kids as kid, i (kid)}
                 {@const acc = kid.startsWith("account:") ? app.mailboxes.accounts.find((a) => `account:${a.id}` === kid) : undefined}
-                <button class="tab kid" role="tab" data-page={kid} aria-selected={lit === kid} tabindex={lit === kid ? 0 : -1} onclick={() => turn(kid)}>
+                <button class="tab kid" role="tab" data-page={kid} aria-selected={!searching && lit === kid} tabindex={lit === kid ? 0 : -1} onclick={() => turn(kid)}>
                   {#if acc}<span class="kdot" style:background={accountColor(acc, i)}></span>{/if}<span>{entryTitle(kid)}</span>
                 </button>
               {/each}

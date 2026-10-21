@@ -413,6 +413,17 @@ describe("the search over the plugins' groups (0.8.2)", () => {
     await vi.waitFor(() => expect(scroll.mock.contexts).toContain(grp()));
     await vi.waitFor(() => expect(grp().classList.contains("flash")).toBe(true));
   });
+
+  it("lights no entry of the menu and unfolds none while it is on: the page left open is not what is shown (0.8.12, screen 8)", () => {
+    open("plugin:templates");
+    expect(target.querySelector(".tab[aria-selected='true']")).not.toBeNull();
+    find("вложен");
+    expect(target.querySelector(".tab[aria-selected='true']")).toBeNull();
+    expect(target.querySelector(".tab[data-page='plugins']")!.getAttribute("aria-expanded")).toBe("false");
+    expect(target.querySelector(".tab[data-page='plugin:templates']")).toBeNull();
+    find("");
+    expect(target.querySelector(".tab[data-page='plugin:templates']")!.getAttribute("aria-selected")).toBe("true");
+  });
 });
 
 const mailbox = (id: string, label: string, email: string, color: string) =>

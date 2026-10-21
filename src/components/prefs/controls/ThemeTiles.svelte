@@ -41,7 +41,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px;
-    border: 1px solid transparent;
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: none;
     color: var(--ink);
