@@ -545,7 +545,9 @@ export async function run() {
     if (!shown) throw new Error("карточки встречи нет");
     if (!shown.header.toLowerCase().includes("приглашение")) throw new Error(`шапка карточки: ${shown.header}`);
     if (!shown.title.includes("Планёрка по выпуску")) throw new Error(`название встречи: ${shown.title}`);
-    if (!shown.time.includes("15:00–16:00")) throw new Error(`время не в поясе человека: ${shown.time}`);
+    // The time is the reader's own: the stand may stand in any zone, so what the test holds is the
+    // shape of it and the offset beside it, not the clock of one machine.
+    if (!/·\s\d{2}:\d{2}–\d{2}:\d{2}\s*$/.test(shown.time.trim())) throw new Error(`время не сказано: ${shown.time}`);
     if (!shown.zone.startsWith("UTC")) throw new Error(`пояса не видно: ${shown.zone}`);
     if (!shown.rows.some((r) => r.includes("Переговорная 2"))) throw new Error(`места нет: ${shown.rows.join(" | ")}`);
     if (!shown.rows.some((r) => r.includes("Анна Соколова"))) throw new Error(`организатора нет: ${shown.rows.join(" | ")}`);
@@ -625,7 +627,10 @@ export async function run() {
     const shown = await d.until("update card", card, 20000);
     if (!shown.header.toLowerCase().includes("изменено")) throw new Error(`пометки об изменении нет: ${shown.header}`);
     if (!shown.struck) throw new Error("прежнее время не зачёркнуто");
-    if (!shown.time.includes("16:00")) throw new Error(`новое время не показано: ${shown.time}`);
+    const times = await d.exec(`const cal = document.querySelector(".reader .cal");
+      return { was: cal.querySelector(".cr.sub .struck")?.innerText.trim() ?? "", is: cal.querySelector(".cr.strong")?.innerText.trim() ?? "" };`);
+    if (!times.was || !times.is || times.was === times.is) throw new Error(`прежнее и новое время не различить: «${times.was}» / «${times.is}»`);
+    if (!/\d{2}:\d{2}–\d{2}:\d{2}/.test(times.is)) throw new Error(`новое время не сказано: ${times.is}`);
     if (!shown.rows.some((r) => r.includes("было: Переговорная 2"))) throw new Error(`прежнего места нет: ${shown.rows.join(" | ")}`);
     await screenshot("meeting-updated");
   });

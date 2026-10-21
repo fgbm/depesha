@@ -1,9 +1,18 @@
 // The words and the local time of a meeting card (0.8.13, decision 3.1 А): a time written in a
 // Windows zone of an Exchange invitation is the same instant as in the reader's own zone, and a
 // rule of `RRULE` reads as a person says it.
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+
+// The reader's own clock is half of what the card says: a CI machine may stand in any zone, so
+// the test takes one and says which. It is put back, as the worker may run another file after it.
+const TZ = process.env.TZ;
+process.env.TZ = "Europe/Moscow";
+afterAll(() => {
+  process.env.TZ = TZ;
+});
+
 import { i18n } from "./i18n.svelte";
-import { answersLine, dayLabel, instant, otherZone, repeatLabel, whenLabel, zoneCaption } from "./meeting";
+import { answersLine, dayLabel, instant, localCaption, otherZone, repeatLabel, whenLabel, zoneCaption } from "./meeting";
 import type { Attendee, Meeting, Repeat, Wall } from "./types";
 
 const wall = (over: Partial<Wall> = {}): Wall => ({
@@ -73,18 +82,18 @@ describe("the time of a meeting", () => {
     expect(zoneCaption(wall({ zone: null, offset: null }))).toBe("");
   });
 
-  it("says the organizer's time only when the reader is in another zone", () => {
-    // The stand's clock may be anywhere: the reader's zone is taken as it is.
-    const reader = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    expect(otherZone(meeting()) === null).toBe(reader === "Europe/Moscow");
-    const elsewhere = otherZone(
-      meeting({ start: wall({ zone: "Asia/Yekaterinburg", offset: 5 * 3600 }), end: wall({ hour: 16, zone: "Asia/Yekaterinburg", offset: 5 * 3600 }) }),
-    );
-    if (reader !== "Asia/Yekaterinburg") {
-      // The organizer's own clock: the reader may be anywhere.
-      expect(elsewhere?.range).toBe("15:00–16:00");
-      expect(elsewhere?.caption).toBe("UTC+5");
-    }
+  it("names the reader's own offset beside the time and the organizer's beside theirs", () => {
+    expect(localCaption(meeting())).toBe("UTC+3");
+    const elsewhere = meeting({
+      start: wall({ zone: "Asia/Yekaterinburg", offset: 5 * 3600 }),
+      end: wall({ hour: 16, zone: "Asia/Yekaterinburg", offset: 5 * 3600 }),
+    });
+    expect(localCaption(elsewhere)).toBe("UTC+3");
+    // The organizer's own clock, said in their own offset: the invitation was written in it.
+    expect(otherZone(elsewhere)?.range).toBe("15:00–16:00");
+    expect(otherZone(elsewhere)?.caption).toBe("UTC+5");
+    // The reader and the meeting in one zone: no second time at all.
+    expect(otherZone(meeting())).toBeNull();
   });
 
   it("keeps the day of a date with no zone wherever the reader is", () => {

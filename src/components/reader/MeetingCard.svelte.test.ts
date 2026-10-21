@@ -2,7 +2,16 @@
 // The card of a meeting invitation (0.8.13): an invitation, its update, its cancellation, an
 // answer to it, a meeting of the whole day, several meetings in one file, and a file that did
 // not read — each says what the decisions 1.1 А–8.1 А ask, in the reader's own language.
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The reader's own zone is part of what the card says: pinned, so the words are the same on any
+// machine the test runs on (`process.env.TZ` is read at every use on Linux).
+const TZ = process.env.TZ;
+process.env.TZ = "Europe/Moscow";
+afterAll(() => {
+  process.env.TZ = TZ;
+});
+
 
 vi.mock("@tauri-apps/api/event", () => import("../../lib/testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/window", () => import("../../lib/testing").then((m) => m.windowModule));

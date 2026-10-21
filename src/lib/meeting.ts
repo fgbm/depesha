@@ -106,6 +106,15 @@ export function whenLabel(m: Meeting): string {
   return `${dayLabel(start)} · ${from}–${to}`;
 }
 
+/** «UTC+3» for a count of seconds east of UTC. */
+function offsetText(seconds: number): string {
+  const sign = seconds < 0 ? "-" : "+";
+  const minutes = Math.abs(Math.round(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `UTC${sign}${hours}${rest ? `:${String(rest).padStart(2, "0")}` : ""}`;
+}
+
 /** «UTC+3»: how far the meeting's own zone is from UTC, at the meeting itself. */
 export function zoneCaption(w: Wall): string {
   const start = instant(w);
@@ -118,12 +127,21 @@ export function zoneCaption(w: Wall): string {
       seconds = w.offset ?? null;
     }
   }
-  if (seconds === null) return "";
-  const sign = seconds < 0 ? "-" : "+";
-  const minutes = Math.abs(Math.round(seconds / 60));
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `UTC${sign}${hours}${rest ? `:${String(rest).padStart(2, "0")}` : ""}`;
+  return seconds === null ? "" : offsetText(seconds);
+}
+
+/** «UTC+5»: how far the reader's own clock is from UTC at the meeting. The time beside it is the
+ *  reader's, so the offset must be the reader's too: the meeting's own offset goes with the
+ *  organizer's line. */
+export function localCaption(m: Meeting): string {
+  const start = instant(m.start);
+  if (start === null || !m.start.zone) return "";
+  try {
+    return offsetText(zoneOffset(readerZone(), start) / 1000);
+  } catch {
+    // No reader's zone to speak of: the time stands without an offset.
+    return "";
+  }
 }
 
 /** The organizer's time, when the reader is in another zone than the meeting: what the card

@@ -32,9 +32,6 @@ async function open(subject) {
   await sleep(400);
 }
 
-/** The time the open letter's card shows, as the page has it. */
-const cardTime = () => d.exec("return document.querySelector('.reader .cal .cr.strong')?.innerText ?? ''");
-
 /** Waits until the list shows the conversation of two letters: the cache has the update by then,
  *  and the row of the conversation stands for its newest letter. */
 const twoLetters = (subject) =>
@@ -47,15 +44,15 @@ const twoLetters = (subject) =>
     return badge === "2" ? true : null;
   }, 30000);
 
-/** Opens the later letter of the conversation: its row stands for the newest letter. */
-async function openLater(subject, time) {
+/** Opens the later letter of the conversation — the update, whose card says «Изменено». */
+async function openLater(subject) {
   await d.button("Входящие");
   await rowBySubject(subject, 30000);
   await twoLetters(subject);
   await openBySubject(subject);
-  await d.until(`card of ${subject}`, () => d.exec("return !!document.querySelector('.reader .cal')"), 20000);
-  const shown = await cardTime();
-  if (!shown.includes(time)) throw new Error(`карточка показала не обновление: «${shown}»`);
+  await d.until("the card of the update", async () =>
+    (await d.exec("return document.querySelector('.reader .cal-h')?.innerText ?? ''")).toLowerCase().includes("изменено"),
+  20000);
   await sleep(500);
 }
 
@@ -97,7 +94,7 @@ try {
   await open(UPDATE);
   helper("deliver-invite-update", UPDATE);
   await d.until("update arrives", async () => helper("count", "INBOX", UPDATE) === "2", 30000);
-  await openLater(UPDATE, "16:00");
+  await openLater(UPDATE);
   await shot("05-updated-light");
   await theme("dark");
   await shot("06-updated-dark");

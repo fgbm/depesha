@@ -24,10 +24,10 @@
     instant,
     isUpdate,
     kindLabel,
+    localCaption,
     otherZone,
     repeatLabel,
     whenLabel,
-    zoneCaption,
   } from "../../lib/meeting";
   import type { Key } from "../../lib/i18n.svelte";
   import type { AttachmentInfo, Notice } from "../../lib/types";
@@ -123,7 +123,7 @@
       {/if}
       <div class="cr strong" class:struck={cancelled}>
         <Clock size={14} />
-        <span>{whenLabel(meeting)} <span class="tz">{zoneCaption(meeting.start)}</span></span>
+        <span>{whenLabel(meeting)} <span class="tz">{localCaption(meeting)}</span></span>
       </div>
       {#if organizerZone}
         <div class="cr sub">
