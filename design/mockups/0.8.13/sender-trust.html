@@ -1,0 +1,1090 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Когда отправитель подтверждён (0.8.13)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.13: когда Депеша считает доверенного отправителя подтверждённым.
+   Исследование — docs/research/sender-trust.md. Код приложения не тронут.
+   Файл самодостаточный, без сети. Переменные — «Чернила» из src/app.css,
+   светлая и тёмная. Строка над письмом повторяет .remote из Reader.svelte,
+   нынешние подписи — из src/lib/locales/ru.ts.
+   ============================================================================ */
+.theme {
+  --paper: #f6f8fb; --paper-2: #edf1f6; --ink: #141a23; --muted: #5a6473; --line: #dce2ea;
+  --hover: #e8eef6; --selected: #d7e3f2; --accent: #1c4f8f; --accent-ink: #fff; --accent-text: #1c4f8f;
+  --link: #1a5aa8; --bad: #a62a24; --ok: #1a6b45; --warn: #8a5300;
+  color: var(--ink); font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px;
+}
+body.night .theme {
+  --paper: #11151b; --paper-2: #171c24; --ink: #e2e8f0; --muted: #a5b0be; --line: #262e39;
+  --hover: #1c232c; --selected: #32414d; --accent: #2b62a6; --accent-text: #8ab4ea; --link: #8ab4ea;
+  --bad: #e8796f; --ok: #5fb98a; --warn: #e0a83c;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 0 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+body.night, html:has(body.night) { background: #8f8a80; }
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 28px 0 6px; }
+h2.screen { font-size: 21px; margin: 48px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.q { font-size: 16px; margin: 34px 0 4px; }
+h3.q .n, h3.v .n { display: inline-block; background: #1f2a37; color: #fff; border-radius: 5px; padding: 0 8px; margin-right: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v { font-size: 16px; margin: 18px 0 6px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+h3.v .n { background: #fff; color: #1d232b; border: 1px solid #b5ae9f; }
+h3.v em { font-style: normal; font-weight: 400; color: #4d555f; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 1000px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.ctx b, .lead b { color: #1d232b; }
+.note { font-size: 12.5px; color: #4d555f; margin: 6px 0 0; line-height: 1.5; max-width: 1000px; }
+.note b { color: #1d232b; }
+.pc { margin: 6px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 1000px; }
+.pc li { margin: 2px 0; }
+.plus { color: #2e7d4f; font-weight: 700; }
+.minus { color: #b3261e; font-weight: 700; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 6px 16px; align-items: center; flex-wrap: wrap; background: #1f2a37; color: #d5dde6; border-radius: 0 0 8px 8px; padding: 8px 14px; font-size: 12.5px; }
+.ctl .cg { display: flex; gap: 3px; align-items: center; }
+.ctl .cg > span { color: #8c99a8; margin-right: 3px; }
+.ctl a { color: #d5dde6; }
+.ctl button { font: inherit; font-size: 12px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 1px 8px; cursor: pointer; }
+.ctl button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+.dtable { border-collapse: collapse; width: 100%; font-size: 12.5px; background: #f6f3ee; border-radius: 8px; overflow: hidden; margin: 8px 0; }
+.dtable th, .dtable td { text-align: left; padding: 5px 9px; border-bottom: 1px solid #e0d9cc; vertical-align: top; line-height: 1.4; }
+.dtable th { background: #e7e1d6; font-weight: 600; font-size: 12px; }
+.dtable .y { color: #2e7d4f; font-weight: 600; }
+.dtable .n0 { color: #b3261e; font-weight: 600; }
+/* ряд мини-окон чтения: один ящик — одно окно */
+.row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; align-items: start; }
+.row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
+.row4 > *, .row3 > * { min-width: 0; }
+.cap { font-size: 11.5px; font-weight: 600; color: #3c444e; margin: 0 0 4px; }
+.cap span { font-weight: 400; color: #5d6670; }
+.rd { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.rd .hd { display: flex; gap: 9px; align-items: center; padding: 10px 12px 6px; }
+.av { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: #8592a3; }
+.av.logo { border-radius: 7px; background: #1f6feb; font-size: 10.5px; letter-spacing: .02em; }
+.av.logo.vk { background: #0077ff; }
+.who { min-width: 0; line-height: 1.25; }
+.who b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who small { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rd .sj { padding: 0 12px 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.remote { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 5px; margin: 0 12px 8px; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.remote svg { flex: none; align-self: center; }
+.remote .lk { color: var(--link); cursor: default; }
+.remote.quiet { flex-wrap: nowrap; align-items: flex-start; }
+.remote.quiet svg { align-self: flex-start; margin-top: 2px; }
+.remote.quiet span { min-width: 0; }
+.remote .tip { border-bottom: 1px dotted var(--muted); }
+.card { margin: 0 12px 12px; background: var(--paper-2); border-radius: 6px; padding: 8px; }
+.pic { height: 54px; border-radius: 4px; display: grid; place-items: center; font-size: 11px; }
+.pic.on { background: linear-gradient(120deg, #3b82c4, #7cc0a8); color: #fff; font-weight: 600; }
+.pic.off { border: 1px dashed var(--line); color: var(--muted); background: var(--paper); }
+.tx { height: 6px; border-radius: 3px; background: var(--line); margin: 7px 0 0; }
+.tx.s { width: 70%; }
+.tip-box { font-size: 11px; color: var(--muted); margin: 4px 12px 10px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-2); }
+.sw { display: inline-block; width: 26px; height: 15px; border-radius: 8px; background: var(--accent); position: relative; vertical-align: -3px; }
+.sw::after { content: ""; position: absolute; top: 2px; right: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; }
+.set { margin: 0 12px 10px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.set small { display: block; color: var(--muted); font-size: 10.5px; }
+pre.log { background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 10px 12px; font-size: 11.5px; overflow-x: auto; margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="ctl">
+  <div class="cg"><span>Тема</span><button data-theme-btn="light" class="on">Светлая</button><button data-theme-btn="night">Тёмная</button></div>
+  <div class="cg"><span>Экраны</span><a href="#s1">1 Как сейчас</a>&nbsp;·&nbsp;<a href="#s2">2 Принцип</a>&nbsp;·&nbsp;<a href="#s3">3 Яндекс</a>&nbsp;·&nbsp;<a href="#s4">4 Exchange</a>&nbsp;·&nbsp;<a href="#s5">5 Логотип</a>&nbsp;·&nbsp;<a href="#s6">6 Текст</a>&nbsp;·&nbsp;<a href="#s7">7 Нельзя проверить</a>&nbsp;·&nbsp;<a href="#s8">8 Проверка</a>&nbsp;·&nbsp;<a href="#s9">Итог</a>&nbsp;·&nbsp;<a href="#sq">Вопросы</a></div>
+</div>
+<div class="doc">
+
+<h1>Когда отправитель подтверждён</h1>
+<p class="lead">Оператор: «эта проблема возникает снова и снова, мы делаем её практически вслепую». На 0.8.12 доверенные отправители снова «не подтверждены»: Timeweb Cloud на рабочих Exchange в своей сети и Atomic Heart на Яндексе. Страница предлагает одно правило вместо череды починок. Исследование с источниками — <code>docs/research/sender-trust.md</code>.</p>
+<div class="ctx"><b>Что выяснилось.</b>
+<ul class="pc">
+<li><b>Exchange в своей сети</b> отдаёт по EWS письмо, собранное заново из своей базы. Подпись DKIM покрывает исходное тело, и хэш тела не сходится почти у каждого письма. Своя проверка там не пройдёт никогда — дело в устройстве подхода, а не в ошибке. Исходные заголовки Exchange хранит отдельно (<code>PR_TRANSPORT_MESSAGE_HEADERS</code>), исходного тела нет.</li>
+<li><b>Яндекс</b> пишет <code>dkim=pass</code> подписи организации отправителя, но без <code>dmarc=</code>. Депеша этому не верит и проверяет подпись сама. Если своя проверка не прошла, строка говорит «сервер ящика не проверяет отправителей» — на Яндексе это неправда.</li>
+<li><b>Другие клиенты</b> не ставят показ картинок в зависимость от своей проверки подписи. Thunderbird, Outlook, Fastmail, FairEmail доверяют по адресу. Gmail, Apple, Proton прячут прочтение через свой сервер-посредник. Подлинность — отдельный знак: щит FairEmail, галочка BIMI в Gmail.</li>
+<li><b>Цена ошибок разная.</b> Ложное «подтверждено» для картинок — подделка узнаёт о прочтении, как после «Показать». Ложное «не подтверждено» — человек привыкает жать «Показать» на всё. Для логотипа наоборот: ложный знак подлинности помогает фишингу.</li>
+</ul></div>
+<p class="note">В каждом варианте нарисована строка над письмом и письмо на трёх ящиках оператора: Gmail, Яндекс, Exchange в своей сети. Отправитель везде в доверенных («Всегда для …» уже нажато). Логотип в кружке — BIMI; буква в сером кружке — логотипа нет. Цветная полоса — внешняя картинка показана, рамка — скрыта.</p>
+
+<h2 class="screen" id="s1">Экран 1. Как сейчас (0.8.12)</h2>
+<div class="row4" id="now"></div>
+<p class="note">Строки взяты из <code>src/lib/locales/ru.ts</code> (<code>reader.badSignature</code>, <code>reader.unsignedSender</code>). На Gmail всё верно: сервер написал <code>dmarc=pass</code>. На Яндексе и Exchange строка одна и та же, хотя причины разные.</p>
+
+<h2 class="screen" id="s2">Экран 2. Общее правило</h2>
+<h3 class="q" data-q="1.1"><span class="n">1.1</span>Что решает, показать ли картинки доверенного отправителя</h3>
+<p class="note">Последняя колонка — подделка: письмо без подписи с адресом <code>info@timeweb.cloud</code> в <code>From</code>, пришло на Exchange в своей сети. На Gmail и Яндексе такую подделку отвергает или помечает сервер: у <code>timeweb.cloud</code> политика <code>p=reject</code>.</p>
+<h3 data-q="1.1" data-variant="А" class="v"><span class="n">А</span><em>как сейчас: только подтверждённая подлинность, своя проверка подписи везде, где сервер не дал ответа</em></h3>
+<div class="row4" id="v11a"></div>
+<h3 data-q="1.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>лестница доказательств: решает тот, кто видел письмо целым — сервер ящика, где он проверяет; своя проверка — где сервер молчит</em></h3>
+<div class="row4" id="v11b"></div>
+<ul class="pc">
+<li>Ступени: 1 — <code>dmarc=pass</code> сервера; 2 — <code>dkim=pass</code> или <code>spf=pass</code> организации отправителя от того же сервера (вопрос 2.1); 3 — своя полная проверка, если байты исходные; 4 — на Exchange своя проверка по исходным заголовкам (вопрос 3.1); иначе — картинки скрыты.</li>
+<li><span class="plus">+</span> Одно правило на все ящики, каждая ступень объяснима одной строкой журнала. <span class="plus">+</span> Подделка без подписи картинок не получает. <span class="minus">−</span> Ступень 4 надо написать заново.</li>
+</ul>
+<h3 data-q="1.1" data-variant="В" class="v"><span class="n">В</span><em>по адресу, как Thunderbird и Outlook: картинки скрыты только при явном «нет» сервера; подлинность нужна лишь логотипу</em></h3>
+<div class="row4" id="v11c"></div>
+<ul class="pc"><li><span class="plus">+</span> Меньше всего кода, больше никогда не «не подтверждено» без причины. <span class="minus">−</span> Отмена решения #35: на Exchange в своей сети подделка под доверенный адрес узнаёт о прочтении.</li></ul>
+
+<h2 class="screen" id="s3">Экран 3. Яндекс: <code>dkim=pass</code> без <code>dmarc=</code></h2>
+<h3 class="q" data-q="2.1"><span class="n">2.1</span>Чему верить, если сервер подтвердил подпись, но не DMARC</h3>
+<p class="note">Яндекс пишет <code>dkim=pass header.i=@vkplay.ru</code> и не пишет <code>dmarc=</code>. Вторая колонка — письмо с подписью с длиной тела (<code>l=</code>): Яндекс её принимает, библиотека Депеши отбрасывает. Третья — подделка без подписи.</p>
+<h3 data-q="2.1" data-variant="А" class="v"><span class="n">А</span><em>как сейчас: ждать своей проверки подписи, её «нет» побеждает</em></h3>
+<div class="row3" id="v21a"></div>
+<h3 data-q="2.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>выровненный <code>dkim=pass</code> или <code>spf=pass</code> сервера подтверждает сам; своей проверки на Яндексе нет</em></h3>
+<div class="row3" id="v21b"></div>
+<ul class="pc"><li><span class="plus">+</span> Сервер проверил хэш тела по исходным байтам при приёме — это сильнее, чем проверка Депеши позже. <span class="plus">+</span> Нет запроса ключа в DNS, отправитель не узнаёт о прочтении от проверки. <span class="minus">−</span> Остаётся риск, что сервер прочёл <code>From</code> иначе. Его закрывает уже готовая проверка: <code>From</code> в письме один (<code>sole_from</code>).</li></ul>
+<h3 data-q="2.1" data-variant="В" class="v"><span class="n">В</span><em>своя проверка остаётся, но сервер побеждает, если она упала по времени: истёк <code>x=</code>, ключ сменили</em></h3>
+<div class="row3" id="v21c"></div>
+<ul class="pc"><li><span class="minus">−</span> Причину Atomic Heart по журналу не узнать: если она не во времени, строка останется. <span class="minus">−</span> Ещё одна развилка в коде, которую надо держать.</li></ul>
+
+<h2 class="screen" id="s4">Экран 4. Exchange в своей сети</h2>
+<h3 class="q" data-q="3.1"><span class="n">3.1</span>Как подтверждать отправителя на Exchange в своей сети (EWS)</h3>
+<p class="note">Колонки: Timeweb Cloud с подписью <code>d=timeweb.cloud</code>; письмо доверенного отправителя без подписи; подделка под <code>info@timeweb.cloud</code> без подписи.</p>
+<h3 data-q="3.1" data-variant="А" class="v"><span class="n">А</span><em>как сейчас: своя проверка по письму из EWS — хэш тела не сходится почти всегда</em></h3>
+<div class="row3" id="v31a"></div>
+<h3 data-q="3.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>своя проверка подписи по исходным заголовкам (<code>0x007D</code>), без хэша тела; адрес ящика в подписанных <code>To</code> или <code>Cc</code>, дата близка к получению</em></h3>
+<div class="row3" id="v31b"></div>
+<ul class="pc"><li><span class="plus">+</span> Подпись заголовков доказывает, что <code>From</code>, тема и дата от организации отправителя. <span class="minus">−</span> Тело не проверено: тот, у кого есть настоящее подписанное письмо на этот же ящик, может подменить картинки. Поэтому логотип на этой ступени не показывается (вопрос 4.1). <span class="minus">−</span> До работы надо проверить на письме Timeweb, что Exchange хранит заголовки без изменений.</li></ul>
+<h3 data-q="3.1" data-variant="В" class="v"><span class="n">В</span><em>по адресу, с тихой пометкой «сервер ящика не даёт проверить отправителя»</em></h3>
+<div class="row3" id="v31c"></div>
+<ul class="pc"><li><span class="plus">+</span> Без нового кода проверки. <span class="minus">−</span> Подделка получает картинки — на этом ящике решение #35 не действует.</li></ul>
+
+<h2 class="screen" id="s5">Экран 5. Логотип BIMI</h2>
+<h3 class="q" data-q="4.1"><span class="n">4.1</span>Когда показывать логотип отправителя</h3>
+<p class="note">Здесь во всех колонках письмо Timeweb Cloud: у <code>timeweb.cloud</code> есть запись BIMI. Логотип — знак подлинности, поэтому его ступень не ниже, чем у картинок.</p>
+<h3 data-q="4.1" data-variant="А" class="v"><span class="n">А</span><em>как сейчас: только <code>dmarc=pass</code> сервера ящика</em></h3>
+<div class="row3" id="v41a"></div>
+<h3 data-q="4.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>ступени 1–3: <code>dmarc=pass</code>, выровненная подпись от сервера или своя полная проверка; не по одним заголовкам</em></h3>
+<div class="row3" id="v41b"></div>
+<h3 data-q="4.1" data-variant="В" class="v"><span class="n">В</span><em>логотипов нет совсем, только буквы</em></h3>
+<div class="row3" id="v41c"></div>
+
+<h2 class="screen" id="s6">Экран 6. Строка, когда подтвердить не вышло</h2>
+<h3 class="q" data-q="5.1"><span class="n">5.1</span>Что говорит строка над письмом</h3>
+<p class="note">Колонки: Gmail — сервер написал <code>dmarc=fail</code>; Яндекс — подделка без подписи; Exchange — подпись есть, но заголовки изменены и проверка не прошла.</p>
+<h3 data-q="5.1" data-variant="А" class="v"><span class="n">А</span><em>как сейчас: длинная техническая причина, одна и та же на разных ящиках</em></h3>
+<div class="row3" id="v51a"></div>
+<h3 data-q="5.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>коротко и по ящику: кто не подтвердил; подробность — в подсказке при наведении</em></h3>
+<div class="row3" id="v51b"></div>
+<h3 data-q="5.1" data-variant="В" class="v"><span class="n">В</span><em>без причины: «не подтверждено», причина только в журнале</em></h3>
+<div class="row3" id="v51c"></div>
+
+<h2 class="screen" id="s7">Экран 7. Если подтвердить нельзя никак</h2>
+<h3 class="q" data-q="6.1"><span class="n">6.1</span>Письмо доверенного отправителя без подписи, сервер молчит</h3>
+<p class="note">Колонки: Яндекс — письмо без подписи от доверенного адреса; Exchange — то же; Exchange — подделка без подписи.</p>
+<h3 data-q="6.1" data-variant="А" class="v rec"><span class="n">А</span><em>как сейчас: картинки скрыты, «Показать» одним щелчком</em></h3>
+<div class="row3" id="v61a"></div>
+<h3 data-q="6.1" data-variant="Б" class="v"><span class="n">Б</span><em>переключатель у ящика «Доверять по адресу, если проверить нельзя» (выключен); включён — картинки и тихая пометка</em></h3>
+<div class="row3" id="v61b"></div>
+<ul class="pc"><li><span class="minus">−</span> Ещё одна настройка с риском, который трудно объяснить одной строкой.</li></ul>
+<h3 data-q="6.1" data-variant="В" class="v"><span class="n">В</span><em>предзагрузка, как Proton и Apple: картинки доверенных адресов скачиваются при получении письма</em></h3>
+<div class="row3" id="v61c"></div>
+<ul class="pc"><li><span class="plus">+</span> Время прочтения не уходит. <span class="minus">−</span> Своего сервера-посредника у Депеши нет: адрес IP и факт «ящик живой» уходят при каждом письме, в том числе при подделке и при письме, которое человек не откроет. <span class="minus">−</span> Хранилище и трафик картинок — большая работа.</li></ul>
+
+<h2 class="screen" id="s8">Экран 8. Как проверять до выпуска</h2>
+<h3 class="q" data-q="7.1"><span class="n">7.1</span>Чем проверять правку проверки отправителя до метки выпуска</h3>
+<h3 data-q="7.1" data-variant="А" class="v"><span class="n">А</span><em>корпус обезличенных заголовков настоящих писем и таблица ожиданий в автотестах</em></h3>
+<table class="dtable" style="max-width:1000px">
+  <tr><th>Ящик</th><th>Отправитель</th><th>Ступень</th><th>Картинки</th><th>Логотип</th></tr>
+  <tr><td>Gmail</td><td>Timeweb Cloud</td><td>1 <code>dmarc=pass</code></td><td class="y">да</td><td class="y">да</td></tr>
+  <tr><td>Яндекс</td><td>Atomic Heart</td><td>2 <code>dkim=pass</code> сервера</td><td class="y">да</td><td>нет записи BIMI</td></tr>
+  <tr><td>Яндекс</td><td>подделка под GitHub без подписи</td><td>—</td><td class="n0">нет</td><td class="n0">нет</td></tr>
+  <tr><td>Exchange в своей сети</td><td>Timeweb Cloud</td><td>4 подпись заголовков</td><td class="y">да</td><td class="n0">нет</td></tr>
+  <tr><td>Exchange в своей сети</td><td>сотрудник организации</td><td><code>AuthAs: Internal</code></td><td class="y">да</td><td class="n0">нет</td></tr>
+</table>
+<p class="note">Подпись при обезличивании ломается, поэтому в корпусе два слоя: заголовки после обезличивания и решение, записанное до него. Тест проверяет разбор заголовков и выбор ступени; подпись проверяют тесты с ключами в <code>dkim.rs</code>.</p>
+<h3 data-q="7.1" data-variant="Б" class="v rec"><span class="n">Б</span><em>то же, и перед меткой оператор открывает по письму каждой строки таблицы на своих ящиках; одна строка журнала на письмо</em></h3>
+<pre class="log">sender check: box=yandex-imap step=2 verdict=confirmed server=dkim:pass:vkplay.ru dmarc=none own=skipped
+sender check: box=exchange-ews step=4 verdict=unconfirmed server=none own=headers:invalid sig=d=timeweb.cloud,s=dkim,a=rsa-sha256,c=relaxed/relaxed,x=-,l=-,from_in_h=yes</pre>
+<p class="note">Строка пишется один раз на письмо, без адреса ящика человека. По ней видно ящик, ступень, ответ сервера и причину своей проверки. Сбор корпуса: команда «Сохранить заголовки для отладки» в меню письма; для Exchange — с блоком <code>0x007D</code>.</p>
+<h3 data-q="7.1" data-variant="В" class="v"><span class="n">В</span><em>только журнал: причина видна после жалобы, корпуса нет</em></h3>
+
+<h2 class="screen" id="s9">Итог по рекомендациям</h2>
+<div class="row4" id="sum"></div>
+<p class="note">Gmail и Яндекс — ответ сервера, своя проверка не нужна. Exchange в своей сети — подпись заголовков: картинки есть, логотипа нет. Подделка без подписи — картинки скрыты, строка называет ящик.</p>
+
+<h2 class="screen" id="sq">Вопросы</h2>
+<table class="dtable qt">
+  <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую</th></tr>
+  <tr data-q="1.1" data-q-title="Общее правило для картинок" data-variants="А,Б,В" data-recommended="Б"><td>1.1</td><td>Что решает, показать ли картинки доверенного отправителя</td><td>А строго, как сейчас · Б лестница доказательств · В по адресу, «нет» только от сервера</td><td>Б</td></tr>
+  <tr data-q="2.1" data-q-title="Яндекс: dkim=pass без dmarc=" data-variants="А,Б,В" data-recommended="Б"><td>2.1</td><td>Чему верить, если сервер подтвердил подпись, но не DMARC</td><td>А ждать своей проверки · Б выровненная подпись сервера подтверждает сама · В сервер побеждает при сбое по времени</td><td>Б</td></tr>
+  <tr data-q="3.1" data-q-title="Exchange в своей сети" data-variants="А,Б,В" data-recommended="Б"><td>3.1</td><td>Как подтверждать отправителя на Exchange в своей сети</td><td>А своя проверка по письму из EWS · Б подпись по исходным заголовкам · В по адресу с пометкой</td><td>Б</td></tr>
+  <tr data-q="4.1" data-q-title="Логотип BIMI" data-variants="А,Б,В" data-recommended="Б"><td>4.1</td><td>Когда показывать логотип отправителя</td><td>А только <code>dmarc=pass</code> сервера · Б ступени 1–3 · В без логотипов</td><td>Б</td></tr>
+  <tr data-q="5.1" data-q-title="Строка, когда не подтверждено" data-variants="А,Б,В" data-recommended="Б"><td>5.1</td><td>Что говорит строка над письмом</td><td>А как сейчас · Б коротко, по ящику, подробность в подсказке · В без причины</td><td>Б</td></tr>
+  <tr data-q="6.1" data-q-title="Если подтвердить нельзя" data-variants="А,Б,В" data-recommended="А"><td>6.1</td><td>Письмо без подписи, сервер молчит</td><td>А картинки скрыты · Б переключатель у ящика · В предзагрузка при получении</td><td>А</td></tr>
+  <tr data-q="7.1" data-q-title="Проверка до выпуска" data-variants="А,Б,В" data-recommended="Б"><td>7.1</td><td>Чем проверять правку до метки выпуска</td><td>А корпус в автотестах · Б корпус, прогон оператора, строка журнала · В только журнал</td><td>Б</td></tr>
+</table>
+
+</div>
+
+<script>
+(function () {
+  var IMG_OFF = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/></svg>';
+  var INFO = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>';
+
+  var S = {
+    tw: { name: "Timeweb Cloud", email: "info@timeweb.cloud", subj: "Счёт за октябрь", logo: "TW", cls: "" },
+    ah: { name: "Atomic Heart", email: "noreply@atomicheart.vkplay.ru", subj: "Новое обновление уже в игре", letter: "A" },
+    fake: { name: "Timeweb Cloud", email: "info@timeweb.cloud", subj: "Срочно: оплатите сервер", logo: "TW" },
+    gh: { name: "GitHub", email: "noreply@github.com", subj: "[depesha] New issue", letter: "G" },
+    pal: { name: "Пётр Лаптев", email: "p.laptev@partner.example", subj: "Договор, правки", letter: "П" }
+  };
+
+  // box: caption; s: sender; logo: show the BIMI logo; img: pictures shown;
+  // line: null (no line) or { hidden: true|false, text, tip, lk }; extra: html under the line.
+  function rd(o) {
+    var s = S[o.s];
+    var av = o.logo && s.logo ? '<span class="av logo">' + s.logo + "</span>" : '<span class="av">' + (s.letter || s.name[0]) + "</span>";
+    var line = "";
+    if (o.line) {
+      var l = o.line;
+      if (l.hidden) {
+        line = '<div class="remote">' + IMG_OFF + "<span>Внешние картинки скрыты.</span><span class=\"lk\">Показать</span>" +
+          (l.text ? '<span aria-hidden="true">·</span><span' + (l.tip ? ' class="tip" title="' + l.tip + '"' : "") + ">" + l.text + "</span>" : "") + "</div>";
+      } else {
+        line = '<div class="remote quiet">' + INFO + "<span" + (l.tip ? ' class="tip" title="' + l.tip + '"' : "") + ">" + l.text + "</span></div>";
+      }
+    }
+    var tip = o.tipShown ? '<div class="tip-box">' + o.tipShown + "</div>" : "";
+    var pic = o.img ? '<div class="pic on">картинка письма</div>' : '<div class="pic off">картинка скрыта</div>';
+    return '<div><p class="cap">' + o.box + (o.sub ? " <span>· " + o.sub + "</span>" : "") + '</p><div class="theme"><div class="rd"><div class="hd">' + av +
+      '<div class="who"><b>' + s.name + "</b><small>" + s.email + '</small></div></div><div class="sj">' + s.subj + "</div>" + (o.extra || "") + line + tip +
+      '<div class="card">' + pic + '<div class="tx"></div><div class="tx s"></div></div></div></div></div>';
+  }
+  function put(id, list) { document.getElementById(id).innerHTML = list.map(rd).join(""); }
+
+  var BAD = function (e) { return e + " в доверенных, но сервер ящика не проверяет отправителей, а подпись письма не подтверждает этот адрес."; };
+  var UNSIGNED = function (e) { return e + " в доверенных, но сервер ящика не проверяет отправителей, а письмо не подписано."; };
+  var G = "Gmail", Y = "Яндекс", X = "Exchange в своей сети";
+
+  // Screen 1: now.
+  put("now", [
+    { box: G, sub: "Timeweb Cloud", s: "tw", logo: true, img: true },
+    { box: Y, sub: "Atomic Heart", s: "ah", img: false, line: { hidden: true, text: BAD("noreply@atomicheart.vkplay.ru") } },
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: false, line: { hidden: true, text: BAD("info@timeweb.cloud") } },
+    { box: X, sub: "подделка без подписи", s: "fake", img: false, line: { hidden: true, text: UNSIGNED("info@timeweb.cloud") } }
+  ]);
+
+  // 1.1
+  put("v11a", [
+    { box: G, sub: "Timeweb Cloud", s: "tw", logo: true, img: true },
+    { box: Y, sub: "Atomic Heart", s: "ah", img: false, line: { hidden: true, text: BAD("noreply@atomicheart.vkplay.ru") } },
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: false, line: { hidden: true, text: BAD("info@timeweb.cloud") } },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: UNSIGNED("info@timeweb.cloud") } }
+  ]);
+  put("v11b", [
+    { box: G, sub: "ступень 1", s: "tw", logo: true, img: true },
+    { box: Y, sub: "ступень 2", s: "ah", img: true },
+    { box: X, sub: "ступень 4", s: "tw", img: true },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: "Exchange не подтвердил, что письмо от info@timeweb.cloud: письмо не подписано.", tip: "Сервер ящика не проверяет отправителей. Подписи DKIM в письме нет." } }
+  ]);
+  put("v11c", [
+    { box: G, sub: "Timeweb Cloud", s: "tw", logo: true, img: true },
+    { box: Y, sub: "Atomic Heart", s: "ah", img: true },
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: true },
+    { box: X, sub: "подделка", s: "fake", img: true }
+  ]);
+
+  // 2.1 Yandex
+  put("v21a", [
+    { box: Y, sub: "Atomic Heart", s: "ah", img: false, line: { hidden: true, text: BAD("noreply@atomicheart.vkplay.ru") } },
+    { box: Y, sub: "подпись с l=", s: "gh", img: false, line: { hidden: true, text: BAD("noreply@github.com") } },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: UNSIGNED("noreply@github.com") } }
+  ]);
+  put("v21b", [
+    { box: Y, sub: "Atomic Heart", s: "ah", img: true },
+    { box: Y, sub: "подпись с l=", s: "gh", img: true },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: "Яндекс не подтвердил, что письмо от noreply@github.com: письмо не подписано." } }
+  ]);
+  put("v21c", [
+    { box: Y, sub: "Atomic Heart, если истёк x=", s: "ah", img: true },
+    { box: Y, sub: "подпись с l=", s: "gh", img: false, line: { hidden: true, text: BAD("noreply@github.com") } },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: UNSIGNED("noreply@github.com") } }
+  ]);
+
+  // 3.1 Exchange
+  put("v31a", [
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: false, line: { hidden: true, text: BAD("info@timeweb.cloud") } },
+    { box: X, sub: "без подписи", s: "pal", img: false, line: { hidden: true, text: UNSIGNED("p.laptev@partner.example") } },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: UNSIGNED("info@timeweb.cloud") } }
+  ]);
+  put("v31b", [
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: true },
+    { box: X, sub: "без подписи", s: "pal", img: false, line: { hidden: true, text: "Exchange не подтвердил, что письмо от p.laptev@partner.example: письмо не подписано." } },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: "Exchange не подтвердил, что письмо от info@timeweb.cloud: письмо не подписано." } }
+  ]);
+  var NOCHECK = { hidden: false, text: "Адрес не проверен: сервер ящика не даёт проверить отправителя.", tip: "Exchange в своей сети не проверяет DKIM и DMARC и отдаёт письмо в изменённом виде." };
+  put("v31c", [
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: true, line: NOCHECK },
+    { box: X, sub: "без подписи", s: "pal", img: true, line: NOCHECK },
+    { box: X, sub: "подделка", s: "fake", img: true, line: NOCHECK }
+  ]);
+
+  // 4.1 logo: Timeweb everywhere
+  put("v41a", [
+    { box: G, sub: "dmarc=pass", s: "tw", logo: true, img: true },
+    { box: Y, sub: "dkim=pass без dmarc=", s: "tw", img: true },
+    { box: X, sub: "подпись заголовков", s: "tw", img: true }
+  ]);
+  put("v41b", [
+    { box: G, sub: "dmarc=pass", s: "tw", logo: true, img: true },
+    { box: Y, sub: "dkim=pass без dmarc=", s: "tw", logo: true, img: true },
+    { box: X, sub: "подпись заголовков", s: "tw", img: true }
+  ]);
+  put("v41c", [
+    { box: G, sub: "dmarc=pass", s: "tw", img: true },
+    { box: Y, sub: "dkim=pass без dmarc=", s: "tw", img: true },
+    { box: X, sub: "подпись заголовков", s: "tw", img: true }
+  ]);
+
+  // 5.1 text
+  put("v51a", [
+    { box: G, sub: "dmarc=fail", s: "fake", img: false, line: { hidden: true, text: "info@timeweb.cloud в доверенных, но не подтверждено, что письмо пришло с этого адреса." } },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: UNSIGNED("noreply@github.com") } },
+    { box: X, sub: "заголовки изменены", s: "tw", img: false, line: { hidden: true, text: BAD("info@timeweb.cloud") } }
+  ]);
+  put("v51b", [
+    { box: G, sub: "dmarc=fail", s: "fake", img: false, line: { hidden: true, text: "Gmail не подтвердил, что письмо от info@timeweb.cloud.", tip: "Сервер Gmail: dmarc=fail для timeweb.cloud." } },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: "Яндекс не подтвердил, что письмо от noreply@github.com: письмо не подписано.", tip: "Сервер Яндекса не нашёл подписи github.com, своей проверки на Яндексе нет." } },
+    { box: X, sub: "заголовки изменены", s: "tw", img: false, line: { hidden: true, text: "Не удалось подтвердить, что письмо от info@timeweb.cloud.", tip: "" }, tipShown: "Подсказка при наведении: «Exchange не проверяет отправителей. Подпись timeweb.cloud не сошлась с заголовками письма»." }
+  ]);
+  put("v51c", [
+    { box: G, sub: "dmarc=fail", s: "fake", img: false, line: { hidden: true, text: "Не подтверждено, что письмо от info@timeweb.cloud." } },
+    { box: Y, sub: "подделка без подписи", s: "gh", img: false, line: { hidden: true, text: "Не подтверждено, что письмо от noreply@github.com." } },
+    { box: X, sub: "заголовки изменены", s: "tw", img: false, line: { hidden: true, text: "Не подтверждено, что письмо от info@timeweb.cloud." } }
+  ]);
+
+  // 6.1 nothing can confirm
+  var YU = "Яндекс не подтвердил, что письмо от p.laptev@partner.example: письмо не подписано.";
+  var XU = function (e) { return "Exchange не подтвердил, что письмо от " + e + ": письмо не подписано."; };
+  put("v61a", [
+    { box: Y, sub: "без подписи", s: "pal", img: false, line: { hidden: true, text: YU } },
+    { box: X, sub: "без подписи", s: "pal", img: false, line: { hidden: true, text: XU("p.laptev@partner.example") } },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: XU("info@timeweb.cloud") } }
+  ]);
+  var SET = '<div class="set"><span>Доверять по адресу, если проверить нельзя<small>Настройки ящика → Письма. Подделка адреса тоже получит картинки.</small></span><span class="sw"></span></div>';
+  var BYADDR = { hidden: false, text: "Адрес не проверен: письмо не подписано." };
+  put("v61b", [
+    { box: Y, sub: "без подписи, переключатель выключен", s: "pal", img: false, line: { hidden: true, text: YU } },
+    { box: X, sub: "без подписи, переключатель включён", s: "pal", img: true, line: BYADDR, extra: SET },
+    { box: X, sub: "подделка, переключатель включён", s: "fake", img: true, line: BYADDR }
+  ]);
+  var PRE = { hidden: false, text: "Картинки скачаны при получении письма: время прочтения отправитель не узнал." };
+  put("v61c", [
+    { box: Y, sub: "без подписи", s: "pal", img: true, line: PRE },
+    { box: X, sub: "без подписи", s: "pal", img: true, line: PRE },
+    { box: X, sub: "подделка", s: "fake", img: true, line: PRE }
+  ]);
+
+  // Summary
+  put("sum", [
+    { box: G, sub: "Timeweb Cloud", s: "tw", logo: true, img: true },
+    { box: Y, sub: "Atomic Heart", s: "ah", img: true },
+    { box: X, sub: "Timeweb Cloud", s: "tw", img: true },
+    { box: X, sub: "подделка", s: "fake", img: false, line: { hidden: true, text: "Exchange не подтвердил, что письмо от info@timeweb.cloud: письмо не подписано.", tip: "Сервер ящика не проверяет отправителей. Подписи DKIM в письме нет." } }
+  ]);
+
+  document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.body.classList.toggle("night", b.dataset.themeBtn === "night");
+      document.querySelectorAll("[data-theme-btn]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    });
+  });
+})();
+</script>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+@media (max-width: 1099px) { html.mk-open body { margin-right: 0; } }
+html.mk-noting, html.mk-noting * { cursor: crosshair !important; }
+html.mk-noting .mk-panel, html.mk-noting .mk-panel *, html.mk-noting .mk-tab { cursor: default !important; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
+  doc.addEventListener("click", function (e) {
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы · " + done + "/" + total;
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
