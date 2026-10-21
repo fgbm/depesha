@@ -98,3 +98,18 @@ describe("the search while an operator is typed (А2)", () => {
     setView.mockRestore();
   });
 });
+
+describe("the folders the box suggests (А11)", () => {
+  it("show a folder with a role by the sidebar's name and keep the server's in the hint", () => {
+    app.mailboxes.folders = [{ account_id: "a", name: "INBOX", display_name: "INBOX", delimiter: "/", role: "inbox" }] as never;
+    const props = $state<{ input: HTMLInputElement | null }>({ input: null });
+    view = mount(SearchBox, { target: document.body, props });
+    flushSync();
+    props.input!.value = "в:";
+    props.input!.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const row = document.querySelector<HTMLElement>(".sg")!;
+    expect(row.querySelector("code")?.textContent).toBe("в:Входящие");
+    expect(row.title).toBe("INBOX");
+  });
+});

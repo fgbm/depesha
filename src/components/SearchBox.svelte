@@ -186,7 +186,7 @@
       {:else}
         {#each typed as item, i (i)}
           {#if item.kind === "completion"}
-            <button class="sg" class:active={i === active} id={optionId(i)} role="option" aria-selected={i === active} tabindex="-1" onpointermove={() => (active = i)} onclick={() => pick(item, false)}>
+            <button class="sg" class:active={i === active} id={optionId(i)} role="option" aria-selected={i === active} tabindex="-1" title={item.c.title} onpointermove={() => (active = i)} onclick={() => pick(item, false)}>
               {#if item.c.kind === "year"}<Calendar size={14} />{:else if item.c.kind === "folder"}<Folder size={14} />{:else if item.c.kind === "size"}<HardDrive size={14} />{/if}
               <code>{item.c.token}</code>
               <span class="detail">{item.c.detail}</span>

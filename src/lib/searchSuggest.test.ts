@@ -63,6 +63,15 @@ describe("search suggestions", () => {
     expect(applyCompletion("в:отправ", completions("в:отправ", c)[1])).toBe("в:Отправленные/* ");
   });
 
+  it("name a folder with a role as the sidebar does, the server's name in its hint (А11)", () => {
+    i18n.lang = "ru";
+    const c = { ...ctx("ru"), folders: [{ ...folder("INBOX"), role: "inbox" as const }, { ...folder("Trash"), role: "trash" as const }, folder("Работа")] };
+    const found = completions("в:", c);
+    expect(found.map((x) => x.token)).toEqual(["в:Входящие", "в:Корзина", "в:Работа"]);
+    expect(found.map((x) => x.title)).toEqual(["INBOX", "Trash", undefined]);
+    expect(completions("в:вход", c).map((x) => x.token)).toEqual(["в:Входящие"]);
+  });
+
   it("offer thresholds and mailboxes", () => {
     expect(completions("larger:2", ctx("en")).map((c) => c.token)).toEqual(["larger:25M"]);
     expect(completions("account:iv", ctx("en")).map((c) => c.token)).toEqual(["account:ivan@example.org"]);

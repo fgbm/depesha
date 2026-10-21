@@ -2,9 +2,10 @@
 // then its value: a year with its exact range, a folder alone or with its subfolders,
 // a size, a mailbox. Pure functions over the text; the box draws and applies them.
 
-import { size } from "./format";
+import { roleLabel, size } from "./format";
 import { locale, t, tn, type Lang } from "./i18n.svelte";
 import { folderOperator, recentYears } from "./largeMail";
+import type { FolderRole } from "./types";
 
 /** Operators of the search (query.rs) as the cheat sheet and completion offer them. */
 export const OPERATORS: Record<Lang, string[]> = {
@@ -31,12 +32,14 @@ export interface Completion {
   detail: string;
   /** A whole value: a space follows it and the next word starts. */
   done: boolean;
+  /** The server's name of a folder shown by its role. */
+  title?: string;
 }
 
 export interface SuggestContext {
   lang: Lang;
   now: Date;
-  folders: { name: string; display_name: string; delimiter: string | null }[];
+  folders: { name: string; display_name: string; delimiter: string | null; role?: FolderRole | null }[];
   accounts: { email: string; label?: string }[];
   /** Label names across the mailboxes, for `метка:` (#42, frame 6): optional. */
   labels?: string[];
@@ -127,16 +130,20 @@ export function awaitsValue(text: string, offered: Completion[]): boolean {
 /** Each matching folder twice: alone, and with its subfolders when it has any. */
 function folderCompletions(key: string, value: string, ctx: SuggestContext): Completion[] {
   const v = value.toLowerCase();
-  const names = new Map<string, { display_name: string; delimiter: string | null }>();
+  const names = new Map<string, SuggestContext["folders"][number]>();
   for (const f of ctx.folders) if (!names.has(f.name)) names.set(f.name, f);
   const out: Completion[] = [];
   const lang = key.toLowerCase() === "in" ? "en" : "ru";
   for (const [name, f] of names) {
-    if (!name.toLowerCase().includes(v) && !f.display_name.toLowerCase().includes(v)) continue;
+    // The search takes a role's word for its folder (store.rs role_word), so the sidebar's name serves.
+    const shown = f.role ? roleLabel(f.role) : f.display_name;
+    const title = f.role ? f.display_name : undefined;
+    if (![name, f.display_name, shown].some((n) => n.toLowerCase().includes(v))) continue;
+    if (out.some((c) => c.token === folderOperator(shown, false, lang))) continue;
     const prefix = f.delimiter ? name + f.delimiter : null;
     const inside = prefix ? [...names.keys()].filter((n) => n.startsWith(prefix)).length : 0;
-    out.push({ kind: "folder", token: folderOperator(f.display_name, false, lang), detail: t("suggest.folderOnly"), done: true });
-    if (inside) out.push({ kind: "folder", token: folderOperator(f.display_name, true, lang), detail: tn("suggest.folderTree", inside), done: true });
+    out.push({ kind: "folder", token: folderOperator(shown, false, lang), detail: t("suggest.folderOnly"), done: true, title });
+    if (inside) out.push({ kind: "folder", token: folderOperator(shown, true, lang), detail: tn("suggest.folderTree", inside), done: true, title });
     if (out.length >= MAX) break;
   }
   return out.slice(0, MAX);
