@@ -65,6 +65,17 @@ fn all(cfg: &Config) -> Decls {
     decl::<depesha_core::message::AttachmentInfo>(cfg, &mut out);
     decl::<depesha_core::message::MessageView>(cfg, &mut out);
     decl::<depesha_core::message::BodyView>(cfg, &mut out);
+    decl::<depesha_core::calendar::Notice>(cfg, &mut out);
+    decl::<depesha_core::calendar::Method>(cfg, &mut out);
+    decl::<depesha_core::calendar::Problem>(cfg, &mut out);
+    decl::<depesha_core::calendar::Meeting>(cfg, &mut out);
+    decl::<depesha_core::calendar::Wall>(cfg, &mut out);
+    decl::<depesha_core::calendar::Party>(cfg, &mut out);
+    decl::<depesha_core::calendar::Attendee>(cfg, &mut out);
+    decl::<depesha_core::calendar::Role>(cfg, &mut out);
+    decl::<depesha_core::calendar::Participation>(cfg, &mut out);
+    decl::<depesha_core::calendar::Repeat>(cfg, &mut out);
+    decl::<depesha_core::calendar::Frequency>(cfg, &mut out);
     decl::<depesha_core::oauth::OAuthClient>(cfg, &mut out);
     decl::<depesha_core::quota::Quota>(cfg, &mut out);
     decl::<depesha_core::quota::FolderSize>(cfg, &mut out);

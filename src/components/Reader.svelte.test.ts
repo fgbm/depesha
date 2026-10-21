@@ -21,7 +21,7 @@ const row = (id: number) => ({ id, account_id: "a", folder: "INBOX", from: { nam
 const opened = (id: number): OpenedMessage =>
   ({
     row: row(id),
-    view: { summary: { message_id: null, subject: `Тема ${id}`, from: { name: "Иван", email: "ivan@x.example" }, to: [], cc: [], date: 1000 }, attachments: [], text: "text", views: ["text"] },
+    view: { summary: { message_id: null, subject: `Тема ${id}`, from: { name: "Иван", email: "ivan@x.example" }, to: [], cc: [], date: 1000 }, attachments: [], text: "text", views: ["text"], calendar: null },
   }) as unknown as OpenedMessage;
 
 let view: ReturnType<typeof mount> | null = null;

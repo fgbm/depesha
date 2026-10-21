@@ -55,7 +55,7 @@ function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessag
       text: "Добрый день!\n> старая цитата",
       html: null,
       has_remote_content: false, authenticated: false,
-      send_at: null, format: null, acts_on: null, markdown: null, views: ["text"],
+      send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], calendar: null,
       attachments: [
         { index: 0, name: "счёт.pdf", mime: "application/pdf", size: 10, content_id: null, inline: false },
         { index: 1, name: "logo.png", mime: "image/png", size: 5, content_id: "logo", inline: true },

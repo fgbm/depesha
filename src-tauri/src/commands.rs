@@ -13,6 +13,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{self, Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
 use depesha_core::avatar::Receiver;
+use depesha_core::calendar::{Meeting, Method, Notice};
 use depesha_core::domain::Addr;
 use depesha_core::domain::{Act, ActsOn, BodyFormat, Draft, FlagChange, FolderRole, OutgoingAttachment};
 use depesha_core::ews::{self, EwsDetection};
@@ -841,6 +842,14 @@ pub async fn message_open(
         )?;
     }
     view.authenticated = auth.dmarc;
+    // An invitation's version says what it changes: the card compares it with the same meeting
+    // of an earlier letter of the conversation, when that letter is in the cache.
+    if let Some(notice) = view.calendar.as_mut()
+        && notice.sequence > 0
+        && notice.method == Method::Request
+    {
+        notice.previous = previous_meeting(&state.store, &row, notice).map(Box::new);
+    }
     // The list shows a brand logo by this verdict (#108): a letter cached before it was kept
     // learns it here.
     if let Err(e) = state.store.note_verdict(row.id, auth.dmarc) {
@@ -867,6 +876,40 @@ pub async fn message_open(
         why_unverified,
     })
 }
+
+/// The same meeting in an earlier letter of the conversation, with a smaller `SEQUENCE`: what
+/// the meeting card shows as «was → is». Only letters already downloaded are read, and the
+/// newest of them wins: an update may follow several others.
+fn previous_meeting(store: &depesha_core::store::Store, row: &MessageRow, notice: &Notice) -> Option<Meeting> {
+    let uid = notice.events.first()?.uid.as_deref()?;
+    let sequence = notice.sequence;
+    let mut found: Option<(i64, Meeting)> = None;
+    // A conversation may be long: reading all of it to compare one meeting is not worth it.
+    let mut read = 0;
+    for earlier in store.thread(&row.account_id, &row.thread).ok()? {
+        if earlier.id == row.id || earlier.date >= row.date || read >= PREVIOUS_LETTERS {
+            continue;
+        }
+        let Some(raw) = store.body(earlier.id).ok().flatten() else {
+            continue;
+        };
+        read += 1;
+        let Some(previous) = depesha_core::calendar::from_message(&raw) else {
+            continue;
+        };
+        for meeting in previous.events {
+            let same = meeting.uid.as_deref() == Some(uid) && meeting.sequence < sequence;
+            if same && found.as_ref().is_none_or(|(date, _)| earlier.date > *date) {
+                found = Some((earlier.date, meeting));
+            }
+        }
+    }
+    found.map(|(_, meeting)| meeting)
+}
+
+/// How many earlier letters of a conversation the card reads looking for the version it
+/// updates.
+const PREVIOUS_LETTERS: u32 = 20;
 
 /// The app's own DKIM check of a letter from a trusted sender whose mailbox server gave no
 /// verdict (#167); `true` when the sender is confirmed. The window opens the letter again to
@@ -4036,6 +4079,97 @@ pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResul
 #[cfg(test)]
 mod tests {
     use depesha_core::removed;
+
+    /// A letter of the conversation that holds `invite` as its `.ics` file, put into the cache
+    /// with its body, as a sync would leave it.
+    fn invited_letter(store: &depesha_core::store::Store, uid: u32, date: i64, invite: &str) {
+        use depesha_core::domain::{Flags, Folder, FolderRole};
+        use depesha_core::message::Summary;
+        use depesha_core::store::NewMessage;
+        store
+            .upsert_folders(
+                "a",
+                &[Folder {
+                    name: "INBOX".to_owned(),
+                    display_name: "Inbox".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: Some(FolderRole::Inbox),
+                    selectable: true,
+                    hidden: false,
+                }],
+            )
+            .unwrap();
+        let raw = format!(
+            "From: a@example.org\r\nTo: b@example.org\r\nSubject: invitation\r\n\
+             Message-ID: <m{uid}@example.org>\r\nMIME-Version: 1.0\r\n\
+             Content-Type: multipart/mixed; boundary=\"m\"\r\n\r\n--m\r\n\
+             Content-Type: text/plain\r\n\r\nSee the invitation.\r\n--m\r\n\
+             Content-Type: text/calendar; name=\"invite.ics\"\r\n\
+             Content-Disposition: attachment; filename=\"invite.ics\"\r\n\r\n{invite}\r\n--m--\r\n"
+        );
+        let summary = Summary {
+            message_id: Some(format!("<m{uid}@example.org>")),
+            // One conversation: every letter names the same root (the thread is the root's key).
+            references: vec!["root@example.org".to_owned()],
+            subject: "invitation".to_owned(),
+            date: Some(date),
+            ..Summary::default()
+        };
+        let id = store
+            .insert_message(
+                "a",
+                "INBOX",
+                &NewMessage {
+                    uid,
+                    summary: &summary,
+                    fallback_date: date,
+                    size: raw.len() as u32,
+                    flags: Flags::default(),
+                    keywords: Vec::new(),
+                },
+            )
+            .unwrap();
+        store.save_body(id, raw.as_bytes(), "See the invitation.").unwrap();
+    }
+
+    fn invitation(sequence: u32, hour: u32, location: &str) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+             UID:meeting@example.org\r\nSEQUENCE:{sequence}\r\nSUMMARY:Встреча\r\n\
+             DTSTART;TZID=Europe/Moscow:20261106T{hour:02}0000\r\nDTEND;TZID=Europe/Moscow:20261106T{hour:02}3000\r\n\
+             LOCATION:{location}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        )
+    }
+
+    /// An update is compared with the version the reader was sent before (7.1 А): the newest
+    /// earlier letter of the conversation that holds the same meeting.
+    #[test]
+    fn an_update_finds_the_meeting_of_an_earlier_letter() {
+        let store = depesha_core::store::Store::open_in_memory().unwrap();
+        invited_letter(&store, 1, 1_000, &invitation(0, 15, "Переговорная 2"));
+        invited_letter(&store, 2, 2_000, &invitation(1, 15, "Переговорная 4"));
+        invited_letter(&store, 3, 3_000, &invitation(2, 16, "Переговорная 4"));
+        let rows = store.thread("a", "root@example.org").unwrap();
+        let now = rows.last().unwrap().clone();
+        let notice = depesha_core::calendar::from_message(&store.body(now.id).unwrap().unwrap()).unwrap();
+        let previous = previous_meeting(&store, &now, &notice).expect("the version before");
+        // The newest of the earlier letters, not the first one sent.
+        assert_eq!(previous.sequence, 1);
+        assert_eq!(previous.start.hour, 15);
+        assert_eq!(previous.location.as_deref(), Some("Переговорная 4"));
+
+        // A meeting of another `UID` is another meeting: nothing to compare with.
+        invited_letter(
+            &store,
+            4,
+            4_000,
+            &invitation(0, 9, "Зал").replace("meeting@example.org", "other@example.org"),
+        );
+        let rows = store.thread("a", "root@example.org").unwrap();
+        let now = rows.last().unwrap().clone();
+        let notice = depesha_core::calendar::from_message(&store.body(now.id).unwrap().unwrap()).unwrap();
+        assert!(previous_meeting(&store, &now, &notice).is_none());
+    }
     /// The word a picture stands for in the plain part of the letter that goes out is the
     /// one of the language of the interface.
     #[test]

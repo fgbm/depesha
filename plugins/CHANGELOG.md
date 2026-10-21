@@ -2,6 +2,10 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
+## 0.8.13
+
+- `MessageView` has `calendar` (0.8.13): the meeting invitation the letter holds, or `null` when it holds none — the name of the meeting without the word its client put in front, its times as the wall clock the file wrote plus the zone it names, the place, the link to the meeting online, the organizer, those invited with their answers, and the rule it repeats by. `previous` is the same meeting of an earlier letter of the conversation, and `Problem` says why a file that is a calendar could not be read. The card of the reading pane shows it; a plugin that only reads a letter is unaffected, one that builds a `MessageView` in a test must give the field.
+
 ## 0.8.12
 
 - `OpenedMessage` has `why_unverified` (#167): why a trusted sender is not confirmed (`server`, `checking`, `unsigned`, `signature`, `unchecked`, `ambiguous_from` — the letter's From is not the one trusted address alone), `null` when `sender_unverified` is false. `checking` means the app checks the letter's DKIM signature in the background; the open letter is updated when the answer comes. A plugin that only reads the message is unaffected; one that builds it (a test fixture) must give the field.

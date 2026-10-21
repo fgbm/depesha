@@ -10,6 +10,7 @@ use mail_parser::{Address, Message, MessageParser, MessagePart, MimeHeaders};
 use serde::{Deserialize, Serialize};
 
 use crate::avatar::Receiver;
+use crate::calendar::Notice;
 use crate::domain::{Act, ActsOn, Addr, BodyFormat, Importance};
 
 use crate::{Error, Result};
@@ -201,6 +202,10 @@ pub struct MessageView {
     /// The forms the letter came in, in the order it offers them: the sender's favourite last.
     #[serde(default)]
     pub views: Vec<BodyView>,
+    /// The meeting invitation the letter holds (`text/calendar` or a `.ics` file), as the reading
+    /// pane's card shows it; none when the letter holds no calendar.
+    #[serde(default)]
+    pub calendar: Option<Notice>,
 }
 
 /// A form of the letter's text: one part of its `multipart/alternative`.
@@ -422,6 +427,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     };
     let views = views_of(&msg, markdown_ids.first().copied());
     let text = msg.body_text(0).map(Cow::into_owned);
+    let calendar = crate::calendar::of_message(&msg);
 
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
@@ -442,6 +448,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         acts_on,
         markdown,
         views,
+        calendar,
     })
 }
 
@@ -1010,6 +1017,13 @@ fn attachments_of(msg: &Message<'_>, markdown: &[u32]) -> Vec<AttachmentInfo> {
         .iter()
         .enumerate()
         .filter(|(_, id)| !markdown.contains(id))
+        .filter(|&(_, &id)| {
+            // A calendar that is one of the letter's alternative forms is no file of it: the
+            // meeting card speaks for it, and there is nothing to save.
+            msg.parts
+                .get(id as usize)
+                .is_none_or(|part| crate::calendar::calendar_part(part) != Some(false))
+        })
         .filter_map(|(i, &id)| Some(attachment_info(msg, i as u32, msg.parts.get(id as usize)?)))
         .collect()
 }
@@ -1088,6 +1102,36 @@ Content-Disposition: attachment; filename=\"c.txt\"\r\n\r\nplain\r\n--b--\r\n");
         assert_eq!(info.size, cp1251.len());
         assert_eq!(attachment(&raw, 1).unwrap().1, &cp1251[..5]);
         assert_eq!(attachment(&raw, 2).unwrap().1, b"plain");
+    }
+
+    /// An invitation is read into the view as a meeting, and its file stays among the files to
+    /// save. A `text/calendar` that is one of the letter's own forms is no file of it (0.8.13).
+    #[test]
+    fn an_invitation_comes_as_a_meeting_and_its_file() {
+        let head = "From: a@example.org\r\nTo: b@example.org\r\nSubject: s\r\nMIME-Version: 1.0\r\n";
+        let calendar = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+SUMMARY:Встреча\r\nDTSTART:20261106T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let attached = format!(
+            "{head}Content-Type: multipart/mixed; boundary=\"m\"\r\n\r\n--m\r\nContent-Type: text/plain\r\n\r\nHi\r\n\
+--m\r\nContent-Type: text/calendar; name=\"invite.ics\"\r\n\
+Content-Disposition: attachment; filename=\"invite.ics\"\r\n\r\n{calendar}--m--\r\n"
+        );
+        let view = parse_view(attached.as_bytes(), false).unwrap();
+        let notice = view.calendar.clone().expect("a meeting");
+        assert_eq!(notice.file, Some(0));
+        assert_eq!(notice.events[0].title, "Встреча");
+        let names: Vec<&str> = view.attachments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["invite.ics"]);
+
+        let alternative = format!(
+            "{head}Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n--b\r\n\
+Content-Type: text/plain\r\n\r\nHi\r\n--b\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n\
+{calendar}--b--\r\n"
+        );
+        let view = parse_view(alternative.as_bytes(), false).unwrap();
+        assert_eq!(view.calendar.as_ref().and_then(|c| c.file), None);
+        // The letter's other form is no attachment with an invented name: the card speaks for it.
+        assert!(view.attachments.is_empty(), "{:?}", view.attachments);
     }
 
     #[test]

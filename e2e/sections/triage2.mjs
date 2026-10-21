@@ -1,7 +1,28 @@
 // Section "triage2" of the run: the second half of "triage" (see e2e/shard.mjs for the split into parts).
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { screens, d, helper, screenshot, step, rowBySubject, openBySubject, reloadWindow, openFolder, textOf, invoke, idOf, press, composeClosed, section, stamp } from "../kit.mjs";
+import { screens, d, helper, profile, screenshot, step, rowBySubject, openBySubject, reloadWindow, openFolder, textOf, invoke, idOf, press, composeClosed, section, stamp } from "../kit.mjs";
+
+/** What the card of the open letter says, as the page draws it (0.8.13, 4.5). */
+const card = () =>
+  d.exec(`const cal = document.querySelector(".reader .cal");
+    if (!cal) return null;
+    return {
+      header: cal.querySelector(".cal-h")?.innerText.trim() ?? "",
+      title: cal.querySelector(".cal-t")?.innerText.trim() ?? "",
+      time: cal.querySelector(".cr.strong")?.innerText.trim() ?? "",
+      zone: cal.querySelector(".tz")?.innerText.trim() ?? "",
+      rows: [...cal.querySelectorAll(".cr")].map((r) => r.innerText.trim()),
+      note: cal.querySelector(".note")?.innerText.trim() ?? "",
+      off: cal.classList.contains("off"),
+      quiet: cal.classList.contains("quiet"),
+      struck: !!cal.querySelector(".struck"),
+      actions: [...cal.querySelectorAll(".cal-a .btn")].map((b) => b.getAttribute("aria-label") ?? b.innerText.trim()),
+    };`);
+
+/** The names of the files the letter shows in its row of attachments. */
+const files = () => d.exec("return [...document.querySelectorAll('.reader .files .fname')].map((n) => n.innerText.trim())");
 
 export async function run() {
   section("triage2");
@@ -509,4 +530,121 @@ export async function run() {
     await d.until("card closed", async () => (await d.findAll(".pcard")).length === 0);
     await d.exec("document.documentElement.dataset.theme = arguments[0]", was);
   });
+
+  // The meeting card (0.8.13): four letters delivered and opened, about 17 s each on the stand.
+  // The weight of this section in e2e/shard.mjs is still the one measured on `main` before these
+  // steps: measure it again on the next green run of `main`, as the weights are measured there.
+  await step("4.5.5", "приглашение в календарь: карточка встречи на месте чипа `.ics` — время в поясе человека, место, организатор, участники; «Добавить в календарь» и «Сохранить .ics»", async () => {
+    const subj = `Планёрка по выпуску ${stamp}`;
+    helper("deliver-invite", subj);
+    await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+    await d.button("Входящие");
+    await rowBySubject(subj, 20000);
+    await openBySubject(subj);
+    const shown = await d.until("meeting card", card, 20000);
+    if (!shown) throw new Error("карточки встречи нет");
+    if (!shown.header.toLowerCase().includes("приглашение")) throw new Error(`шапка карточки: ${shown.header}`);
+    if (!shown.title.includes("Планёрка по выпуску")) throw new Error(`название встречи: ${shown.title}`);
+    if (!shown.time.includes("15:00–16:00")) throw new Error(`время не в поясе человека: ${shown.time}`);
+    if (!shown.zone.startsWith("UTC")) throw new Error(`пояса не видно: ${shown.zone}`);
+    if (!shown.rows.some((r) => r.includes("Переговорная 2"))) throw new Error(`места нет: ${shown.rows.join(" | ")}`);
+    if (!shown.rows.some((r) => r.includes("Анна Соколова"))) throw new Error(`организатора нет: ${shown.rows.join(" | ")}`);
+    if (!shown.actions.includes("Добавить в календарь")) throw new Error(`действий нет: ${shown.actions.join(" | ")}`);
+    if (!shown.actions.includes("Сохранить .ics")) throw new Error(`сохранения нет: ${shown.actions.join(" | ")}`);
+    // The file's chip gave its place to the card (1.1 А).
+    if ((await files()).includes("invite.ics")) throw new Error("чип «invite.ics» остался рядом с карточкой");
+    // The name of the meeting carries no word the sender's client put in front of it.
+    if (shown.title.includes("Canceled")) throw new Error(`в названии остался префикс: ${shown.title}`);
+    await screenshot("meeting-card");
+
+    // The description: the first lines, then «Ещё».
+    const faded = await d.exec("return document.querySelector('.reader .cal-d p')?.classList.contains('fade') ?? null");
+    if (faded !== true) throw new Error("описание не обрезано");
+    await d.click(await d.xpath("//div[contains(@class,'cal-d')]//button[normalize-space(.)='Ещё']"));
+    await d.until("description open", async () => (await d.exec("return document.querySelector('.reader .cal-d p')?.classList.contains('fade')")) === false);
+
+    // The participants unfold with the keyboard as well: the button says so and shows them.
+    await d.click(await d.xpath("//div[contains(@class,'cal')]//button[normalize-space(.)='Показать']"));
+    const people = await d.until("attendees", () => d.exec("return document.querySelector('.reader .cal .people')?.innerText ?? null"));
+    if (!people.includes("Олег Тимофеев")) throw new Error(`участников не видно: ${people}`);
+
+    // The invitation goes to the calendar of the system, as the attachment's «Open» did: the
+    // command writes the file out before it hands it over, and that file is what a test stand
+    // can see — the stand has no calendar application to open it with.
+    await d.click(await d.xpath("//div[contains(@class,'cal-a')]//button[contains(normalize-space(.),'Добавить в календарь')]"));
+    const written = (name) => {
+      try {
+        return execFileSync("find", [join(profile, "cache"), "-name", name], { encoding: "utf-8" }).trim() !== "";
+      } catch {
+        return false;
+      }
+    };
+    await d.until("the file went to the system", async () => written("invite.ics"), 15000);
+  });
+
+  await step("4.5.6", "отмена встречи: красная рамка, зачёркнутое время, «Отменена организатором»; добавить в календарь нечего", async () => {
+    const subj = `Отмена встречи ${stamp}`;
+    helper("deliver-invite-cancel", subj);
+    await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+    await d.button("Входящие");
+    await rowBySubject(subj, 20000);
+    await openBySubject(subj);
+    const shown = await d.until("cancel card", card, 20000);
+    if (!shown.off) throw new Error("карточка не в красной рамке");
+    if (!shown.struck) throw new Error("время не зачёркнуто");
+    if (!shown.header.toLowerCase().includes("отменена")) throw new Error(`пометки об отмене нет: ${shown.header}`);
+    if (!shown.rows.some((r) => r.includes("Отменена организатором"))) throw new Error(`кто отменил — не сказано: ${shown.rows.join(" | ")}`);
+    if (shown.actions.some((a) => a.includes("Добавить в календарь"))) throw new Error("отменённую встречу предлагают добавить");
+    await screenshot("meeting-cancelled");
+  });
+
+  await step("4.5.7", "обновление приглашения: «Изменено», прежнее время зачёркнуто рядом с новым, прежнее место — мелко", async () => {
+    const subj = `Перенос встречи ${stamp}`;
+    helper("deliver-invite", subj);
+    await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+    // The invitation was read when it came: its text is in the cache, and the update is compared
+    // with it (7.1 А). A letter never opened has no cached text, and the card says only «Изменено».
+    await d.button("Входящие");
+    await rowBySubject(subj, 20000);
+    await openBySubject(subj);
+    await d.until("invitation read", card, 20000);
+    helper("deliver-invite-update", subj);
+    await d.until("update in inbox", async () => helper("count", "INBOX", subj) === "2", 30000);
+    // The conversation of two letters: its row stands for the newest one, and that is the update.
+    await d.button("Входящие");
+    await rowBySubject(subj, 30000);
+    await d.until("conversation of two", async () => {
+      const badge = await d.exec(
+        `const row = [...document.querySelectorAll(".list .row")].find((r) => r.innerText.includes(arguments[0]));
+         return row?.querySelector(".count")?.innerText.trim() ?? "";`,
+        subj,
+      );
+      return badge === "2" ? true : null;
+    }, 30000);
+    await openBySubject(subj);
+    const shown = await d.until("update card", card, 20000);
+    if (!shown.header.toLowerCase().includes("изменено")) throw new Error(`пометки об изменении нет: ${shown.header}`);
+    if (!shown.struck) throw new Error("прежнее время не зачёркнуто");
+    if (!shown.time.includes("16:00")) throw new Error(`новое время не показано: ${shown.time}`);
+    if (!shown.rows.some((r) => r.includes("было: Переговорная 2"))) throw new Error(`прежнего места нет: ${shown.rows.join(" | ")}`);
+    await screenshot("meeting-updated");
+  });
+
+  await step("4.5.8", "файл, который не разобрался: он остаётся вложением, а карточка говорит почему и предлагает открыть как текст", async () => {
+    const subj = `Сломанное приглашение ${stamp}`;
+    helper("deliver-invite-broken", subj);
+    await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+    await d.button("Входящие");
+    await rowBySubject(subj, 20000);
+    await openBySubject(subj);
+    const shown = await d.until("broken card", card, 20000);
+    if (!shown.quiet) throw new Error("карточка не тихая: такой файл — не встреча");
+    if (!shown.header.toLowerCase().includes("вложение")) throw new Error(`шапка карточки: ${shown.header}`);
+    const says = await textOf(".reader .cal");
+    if (!says.includes("Приглашение не прочитано")) throw new Error(`причины нет: ${says}`);
+    if (!(await files()).includes("invite.ics")) throw new Error("вложение пропало: ему некуда было деться");
+    if (!shown.actions.includes("Открыть как текст")) throw new Error(`открыть как текст негде: ${shown.actions.join(" | ")}`);
+    await screenshot("meeting-broken");
+  });
 }
+

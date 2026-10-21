@@ -589,6 +589,13 @@ type AttachmentSource = {
     size: number;
 };
 
+type Attendee = {
+    name: string;
+    email: string;
+    role: Role | null;
+    status: Participation | null;
+};
+
 type BodyFormat = "plain" | "html" | "markdown";
 
 type BodyView = "text" | "html" | "markdown";
@@ -616,11 +623,29 @@ type FollowupFilter = "active" | "closed";
 
 type FollowupStatus = "waiting" | "answered" | "closed";
 
+type Frequency = "daily" | "weekly" | "monthly" | "yearly" | "other";
+
 type Importance = "low" | "normal" | "high";
 
 type Mark = {
     act: Act;
     at: number | null;
+};
+
+type Meeting = {
+    uid: string | null;
+    sequence: number;
+    title: string;
+    cancelled: boolean;
+    start: Wall;
+    end: Wall | null;
+    all_day: boolean;
+    location: string | null;
+    link: string | null;
+    organizer: Party | null;
+    attendees: Array<Attendee>;
+    repeat: Repeat | null;
+    description: string | null;
 };
 
 type MessageView = {
@@ -635,6 +660,19 @@ type MessageView = {
     acts_on: ActsOn | null;
     markdown: string | null;
     views: Array<BodyView>;
+    calendar: Notice | null;
+};
+
+type Method = "request" | "reply" | "cancel" | "publish" | "other";
+
+type Notice = {
+    method: Method;
+    cancelled: boolean;
+    sequence: number;
+    file: number | null;
+    problem: Problem | null;
+    events: Array<Meeting>;
+    previous: Meeting | null;
 };
 
 type Outgoing = {
@@ -644,11 +682,29 @@ type Outgoing = {
     scheduled: boolean;
 };
 
+type Participation = "accepted" | "declined" | "tentative" | "needs_action" | "delegated" | "other";
+
+type Party = {
+    name: string;
+    email: string;
+};
+
 type Pin = {
     id: number;
     unread: boolean;
     flagged: boolean;
 };
+
+type Problem = "not_calendar" | "no_event";
+
+type Repeat = {
+    freq: Frequency;
+    interval: number;
+    days: Array<number>;
+    month_day: number | null;
+};
+
+type Role = "chair" | "required" | "optional" | "non_participant" | "other";
 
 interface Size {
     w: number;
@@ -701,4 +757,15 @@ type Voice = {
     from: Addr;
     dmarc: boolean;
     id: number;
+};
+
+type Wall = {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    all_day: boolean;
+    zone: string | null;
+    offset: number | null;
 };

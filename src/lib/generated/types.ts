@@ -177,6 +177,8 @@ export type AttachmentSource = { "kind": "file", path: string,
  */
 name: string, size: number, } | { "kind": "message", id: number, index: number, name: string, size: number, };
 
+export type Attendee = { name: string, email: string, role: Role | null, status: Participation | null, };
+
 export type AuthMethod = { "kind": "password" } | { "kind": "oauth", provider: OAuthProvider, };
 
 export type BodyFormat = "plain" | "html" | "markdown";
@@ -500,6 +502,8 @@ archive?: boolean | null, };
 
 export type FollowupStatus = "waiting" | "answered" | "closed";
 
+export type Frequency = "daily" | "weekly" | "monthly" | "yearly" | "other";
+
 export type Importance = "low" | "normal" | "high";
 
 export type Install = "in-place" | "installer" | "package" | "unsupported";
@@ -576,6 +580,24 @@ export type Mark = { act: Act,
  * When Depesha did it; none when only the server says so: the time is unknown.
  */
 at: number | null, };
+
+export type Meeting = { uid: string | null, 
+/**
+ * The number of the invitation's version (`SEQUENCE`): a larger one is an update.
+ */
+sequence: number, 
+/**
+ * The name of the meeting, without the word the sender's client put in front of it.
+ */
+title: string, 
+/**
+ * `STATUS:CANCELLED`: the meeting is off.
+ */
+cancelled: boolean, start: Wall, end: Wall | null, all_day: boolean, location: string | null, 
+/**
+ * Where the meeting is held online, from the file or from the first link of its text.
+ */
+link: string | null, organizer: Party | null, attendees: Array<Attendee>, repeat: Repeat | null, description: string | null, };
 
 export type MessageRow = { id: number, account_id: string, folder: string, uid: number, message_id: string | null, in_reply_to: string | null, references: Array<string>, subject: string, from: Addr | null, to: Array<Addr>, cc: Array<Addr>, reply_to: Array<Addr>, date: number, size: number, flags: Flags, 
 /**
@@ -681,7 +703,14 @@ markdown: string | null,
 /**
  * The forms the letter came in, in the order it offers them: the sender's favourite last.
  */
-views: Array<BodyView>, };
+views: Array<BodyView>, 
+/**
+ * The meeting invitation the letter holds (`text/calendar` or a `.ics` file), as the reading
+ * pane's card shows it; none when the letter holds no calendar.
+ */
+calendar: Notice | null, };
+
+export type Method = "request" | "reply" | "cancel" | "publish" | "other";
 
 export type Moved = { account_id: string, from: string, to: string, message_ids: Array<string>, 
 /**
@@ -702,6 +731,26 @@ snoozed: Array<Snooze>, };
 export type NamespaceFolder = { prefix: string, delimiter: string, };
 
 export type NamespaceInfo = { personal: Array<NamespaceFolder>, other_users: Array<NamespaceFolder>, shared: Array<NamespaceFolder>, };
+
+export type Notice = { method: Method, 
+/**
+ * `METHOD:CANCEL`, or `STATUS:CANCELLED` in the meeting itself.
+ */
+cancelled: boolean, 
+/**
+ * `SEQUENCE` of the first meeting: a number above zero is at least an update.
+ */
+sequence: number, 
+/**
+ * The `.ics` attachment the calendar came as, for «Save .ics»; none when the calendar is
+ * one of the letter's alternative forms and there is no file to save.
+ */
+file: number | null, problem: Problem | null, events: Array<Meeting>, 
+/**
+ * The same meeting in an earlier letter of the conversation, with a smaller `SEQUENCE`:
+ * what the card shows as «was → is». Filled by the caller that can read earlier letters.
+ */
+previous: Meeting | null, };
 
 export type OAuthClient = { client_id: string, client_secret?: string | null, };
 
@@ -768,7 +817,17 @@ export type OutgoingAttachment = { name: string, mime: string, data: string, };
 
 export type Owner = { "kind": "mine" } | { "kind": "shared" } | { "kind": "other", "name": string };
 
+export type Participation = "accepted" | "declined" | "tentative" | "needs_action" | "delegated" | "other";
+
+export type Party = { 
+/**
+ * `CN`; empty when the file names no one, and the interface shows the address instead.
+ */
+name: string, email: string, };
+
 export type Pin = { id: number, unread: boolean, flagged: boolean, };
+
+export type Problem = "not_calendar" | "no_event";
 
 export type Quota = { 
 /**
@@ -812,11 +871,27 @@ export type QuotaView = { account_id: string, quota: QuotaSeen | null,
  */
 estimate: Estimate | null, };
 
+export type Repeat = { freq: Frequency, 
+/**
+ * `INTERVAL`: every other day, every third week; 1 when the file does not say.
+ */
+interval: number, 
+/**
+ * Days of the week the rule names, 1 is Monday and 7 is Sunday, as RFC 5545 counts them.
+ */
+days: Array<number>, 
+/**
+ * `BYMONTHDAY`: the day of the month a monthly meeting falls on.
+ */
+month_day: number | null, };
+
 export type Rights = { lookup: boolean, read: boolean, seen: boolean, write: boolean, insert: boolean, post: boolean, create_child: boolean, delete_folder: boolean, delete_messages: boolean, expunge: boolean, administer: boolean, 
 /**
  * A right the server named that Depesha does not know (shown in the details only).
  */
 other: boolean, };
+
+export type Role = "chair" | "required" | "optional" | "non_participant" | "other";
 
 export type SearchTotals = { count: number, size: number, };
 
@@ -1135,4 +1210,19 @@ folder: string,
  * "Stop waiting" takes the letters to the archive instead of back to the inbox.
  */
 stop_to_archive: boolean, };
+
+export type Wall = { year: number, month: number, day: number, hour: number, minute: number, 
+/**
+ * The date without a time: the whole day.
+ */
+all_day: boolean, 
+/**
+ * The IANA zone name the calendar's `TZID` stands for, `UTC` for a time ending in `Z`.
+ */
+zone: string | null, 
+/**
+ * What the file's own `VTIMEZONE` says the offset is, seconds east of UTC: the fallback
+ * for a zone name the interface cannot resolve.
+ */
+offset: number | null, };
 

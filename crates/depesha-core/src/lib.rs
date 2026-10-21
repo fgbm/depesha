@@ -7,6 +7,7 @@ pub mod autodetect;
 pub mod avatar;
 mod best_effort;
 mod blocking;
+pub mod calendar;
 pub mod clear;
 pub mod dkim;
 pub mod domain;

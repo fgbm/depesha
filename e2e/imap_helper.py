@@ -15,6 +15,7 @@
 
 import base64
 import email
+import hashlib
 import email.utils
 import imaplib
 import socket
@@ -136,6 +137,71 @@ def docs(when):
         )
     parts.append("--mix--\r\n")
     return "".join(parts).encode()
+
+
+# An invitation as a mailer of Exchange writes it: a Windows zone name with its own VTIMEZONE,
+# lines folded after 75 bytes (one of them inside a word), CRLF, and no empty line at the end.
+# The people, the place and the meeting are invented.
+INVITE_UID = "040000008200E00074C5B7101A82E-EXAMPLE-0001"
+
+
+def invitation(sequence=0, hour=15, location="Переговорная 2", method="REQUEST", status="CONFIRMED", broken=False):
+    """The bytes of the `.ics` of a meeting, in the shape an Exchange invitation has."""
+    if broken:
+        return "This file is not a calendar at all: no BEGIN:VCALENDAR here.\r\n"
+    return (
+        "BEGIN:VCALENDAR\r\nMETHOD:%(method)s\r\nPRODID:-//Example Org//Example Mailer//EN\r\nVERSION:2.0\r\n"
+        "BEGIN:VTIMEZONE\r\nTZID:Russian Standard Time\r\nBEGIN:STANDARD\r\nDTSTART:16010101T000000\r\n"
+        "TZOFFSETFROM:+0300\r\nTZOFFSETTO:+0300\r\nEND:STANDARD\r\nBEGIN:DAYLIGHT\r\n"
+        "DTSTART:16010101T000000\r\nTZOFFSETFROM:+0300\r\nTZOFFSETTO:+0300\r\nEND:DAYLIGHT\r\n"
+        "END:VTIMEZONE\r\nBEGIN:VEVENT\r\nORGANIZER;CN=Анна Соколова:MAILTO:anna@example.org\r\n"
+        "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=TRUE;CN=\"Иванов, Пётр\":MAILTO:petr@example.org\r\n"
+        "ATTENDEE;ROLE=OPT-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=Олег Тимофеев:MAILTO:oleg@example.org\r\n"
+        "DESCRIPTION;LANGUAGE=ru-RU:Повестка:\\nРазбор заявок\\, сверка отчётности\\; итоги.\\n"
+        "Подключиться: https://meet.example.org/room-1\r\n"
+        "UID:%(uid)s\r\n"
+        "SUMMARY;LANGUAGE=ru-RU:%(summary)sПланёрка по выпуску: сроки, заявки\r\n"
+        "DTSTART;TZID=Russian Standard Time:20261106T%(hour)02d0000\r\n"
+        "DTEND;TZID=Russian Standard Time:20261106T%(end)02d0000\r\n"
+        "LOCATION;LANGUAGE=ru-RU:%(location)s\r\nSTATUS:%(status)s\r\nSEQUENCE:%(sequence)d\r\n"
+        "X-MICROSOFT-CDO-ALLDAYEVENT:FALSE\r\nEND:VEVENT\r\nEND:VCALENDAR"
+        % {
+            "method": method,
+            "uid": INVITE_UID,
+            "summary": "Canceled: " if method == "CANCEL" else "",
+            "hour": hour,
+            "end": (hour + 1) % 24,
+            "location": location,
+            "status": status,
+            "sequence": sequence,
+        }
+    )
+
+
+def invite_mid(subject):
+    """The Message-ID of the invitation of `subject`: the same in every run of this script, so the
+    answer to it (an update) lands in the same conversation."""
+    return "<inv-" + hashlib.sha1(subject.encode()).hexdigest()[:12] + "@example.org>"
+
+
+def invite_letter(subject, mid, calendar, references=None):
+    """A letter that carries a calendar file: `multipart/mixed` with the `.ics` attached."""
+    name = "invite.ics"
+    data = calendar.encode()
+    date = email.utils.formatdate(time.time(), localtime=True)
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    extra = f"References: {references}\r\n" if references else ""
+    return (
+        f"From: =?utf-8?B?{base64.b64encode('Анна Соколова'.encode()).decode()}?= <anna@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\nMessage-ID: {mid}\r\nMIME-Version: 1.0\r\n{extra}"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        "--mix\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + base64.encodebytes("Приглашение во вложении.".encode()).decode().replace("\n", "\r\n")
+        + f'--mix\r\nContent-Type: text/calendar; charset=utf-8; name="{name}"\r\n'
+        f'Content-Disposition: attachment; filename="{name}"\r\nContent-Transfer-Encoding: base64\r\n\r\n'
+        + base64.encodebytes(data).decode().replace("\n", "\r\n")
+        + "--mix--\r\n"
+    ).encode()
 
 
 def markdown(subject):
@@ -448,6 +514,41 @@ def main():
     if cmd == "deliver-overlay":
         c = conn()
         append(c, "INBOX", overlay(sys.argv[2]))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite":
+        # An invitation, its update of the same meeting, its cancellation, and a file that is no
+        # calendar: the four states of the meeting card (0.8.13).
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation()))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-update":
+        c = conn()
+        append(
+            c,
+            "INBOX",
+            invite_letter(
+                sys.argv[2],
+                invite_mid(sys.argv[2])[:-1].replace("<inv-", "<upd-") + ">",
+                invitation(sequence=2, hour=16, location="Переговорная 4"),
+                references=invite_mid(sys.argv[2]),
+            ),
+        )
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-cancel":
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation(method="CANCEL", status="CANCELLED")))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-broken":
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation(broken=True)))
         c.logout()
         print("ok")
         return

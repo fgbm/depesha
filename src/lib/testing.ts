@@ -200,6 +200,7 @@ export function opened(r: MessageRow): OpenedMessage {
       acts_on: null,
       markdown: null,
       views: ["text"],
+      calendar: null,
     },
     trusted_sender: false,
     sender_unverified: false,

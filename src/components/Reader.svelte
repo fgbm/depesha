@@ -23,6 +23,7 @@
   import ReaderBody from "./reader/ReaderBody.svelte";
   import ReaderStates from "./reader/ReaderStates.svelte";
   import Conversation from "./reader/Conversation.svelte";
+  import MeetingCard from "./reader/MeetingCard.svelte";
   import QuickReply from "./reader/QuickReply.svelte";
   import ReplyActions from "./reader/ReplyActions.svelte";
   import { useQuickReply } from "./reader/useQuickReply.svelte";
@@ -95,6 +96,13 @@
   });
   const viewing = $derived(viewer.viewingId !== null);
   const files = $derived(viewer.files);
+  /** The meeting invitation of the letter (0.8.13): a card in place of the `.ics` chip, whose
+   *  actions the card carries. A file that did not read keeps its chip and says why in the card. */
+  const meeting = $derived(msg?.view.calendar ?? null);
+  const meetingFile = $derived(
+    meeting?.file !== null && meeting?.file !== undefined ? files.find((f) => f.index === meeting.file) : undefined,
+  );
+  const stripFiles = $derived(meetingFile && !meeting?.problem ? files.filter((f) => f !== meetingFile) : files);
 
   const banners = $derived(msg ? extensions.banners.filter((b) => b.messageId === msg.row.id) : []);
   const pluginBanners = $derived(msg ? registry.collect<PluginBanner, typeof msg>("banners", msg) : []);
@@ -177,7 +185,7 @@
         {msg}
         {picture}
         {account}
-        {files}
+        files={stripFiles}
         {viewing}
         viewingAt={viewer.at}
         onViewAttachment={(a) => viewer.viewAttachment(a)}
@@ -190,6 +198,16 @@
           {#each registry.lists.readerHeader as h (h)}<h.item.component {...h.item.props ?? {}} />{/each}
         {/snippet}
       </ReaderHeader>
+
+      {#if meeting && !viewing}
+        <MeetingCard
+          notice={meeting}
+          attachment={meetingFile}
+          onAdd={(a) => viewer.openAttachment(a)}
+          onSave={(a) => viewer.saveAttachment(a)}
+          onOpenAsText={(a) => viewer.viewAttachment(a)}
+        />
+      {/if}
 
       <ReplyActions manyRecipients={quick.manyRecipients} reply={reply} forward={onForward} />
 

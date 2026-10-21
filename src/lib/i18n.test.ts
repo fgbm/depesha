@@ -22,7 +22,7 @@ function msg(): OpenedMessage {
       subject: "Budget", from: summary.from, to: [me], cc: [], reply_to: [], date: 1790000000, size: 1,
       flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false }, has_attachments: false,
       thread: "m1@x", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null, ...rowDefaults },
-    view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, authenticated: false, attachments: [], send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], },
+    view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, authenticated: false, attachments: [], send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], calendar: null, },
     trusted_sender: false,
     sender_unverified: false,
     why_unverified: null,
