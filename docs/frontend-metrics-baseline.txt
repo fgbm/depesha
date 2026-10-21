@@ -640,8 +640,12 @@ function	src/components/reader/BulkActions.test.ts::forceIcons	7
 function	src/components/reader/BulkActions.test.ts::rect	2
 function	src/components/reader/BulkActions.test.ts::name	2
 function	src/components/reader/Conversation.svelte::toggle	14
+function	src/components/reader/Conversation.svelte::checkSender	5
 function	src/components/reader/Conversation.svelte::reply	4
 function	src/components/reader/Conversation.svelte::forward	4
+function	src/components/reader/Conversation.test.ts::row	2
+function	src/components/reader/Conversation.test.ts::opened	9
+function	src/components/reader/Conversation.test.ts::draw	8
 function	src/components/reader/LetterActions.svelte::editDraft	8
 function	src/components/reader/LetterActions.test.ts::mountActions	7
 function	src/components/reader/LetterActions.test.ts::resize	12
@@ -1226,6 +1230,7 @@ function	src/lib/quota.ts::wholePercent	3
 function	src/lib/quote.ts::splitQuote	16
 function	src/lib/reader.svelte.test.ts::unconfirmed#1	1
 function	src/lib/reader.svelte.test.ts::unconfirmed#2	1
+function	src/lib/reader.svelte.ts::senderChecked	10
 function	src/lib/reader.svelte.ts::unverifiedKey	14
 function	src/lib/reader.svelte.ts::shownConversation	10
 function	src/lib/recipients.test.ts::people	2
