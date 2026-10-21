@@ -86,8 +86,8 @@ PNG = base64.b64decode(
 )
 
 HTML = (
-    # The receiving server's verdict (the mailbox's own domain): "always for the sender" holds
-    # only for a sender the server vouches for.
+    # A verdict under the mailbox's own domain: the stand's server strips no forged copy, so the
+    # app believes none of it, and "always for the sender" keeps the trust without the pictures.
     "Authentication-Results: mx.local.test; dmarc=pass header.from=example.org\r\n"
     "From: =?utf-8?B?" + base64.b64encode("Рассылка".encode()).decode() + "?= <news@example.org>\r\n"
     "To: carol@local.test\r\nSubject: =?utf-8?B?" + base64.b64encode("HTML-письмо с картинками".encode()).decode() + "?=\r\n"
