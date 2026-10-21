@@ -2992,7 +2992,15 @@ async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Dr
         attachments,
         acts_on: d.acts_on,
         importance: d.importance,
+        // The word a picture stands for in the plain part of the letter that goes out.
+        picture_word: picture_word(),
     })
+}
+
+/// The word a picture of the letter stands for in its plain part, in the language of the
+/// interface: the core knows no language, so the edge brings the word.
+fn picture_word() -> String {
+    tr!("Picture", "Изображение")
 }
 
 fn mime_for(name: &str) -> &'static str {
@@ -4028,6 +4036,17 @@ pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResul
 #[cfg(test)]
 mod tests {
     use depesha_core::removed;
+    /// The word a picture stands for in the plain part of the letter that goes out is the
+    /// one of the language of the interface.
+    #[test]
+    fn the_word_of_a_picture_is_the_one_of_the_interface_language() {
+        use crate::lang::{Lang, pin};
+        for (lang, word) in [(Lang::En, "Picture"), (Lang::Ru, "Изображение")] {
+            pin(lang);
+            assert_eq!(super::picture_word(), word);
+        }
+    }
+
     #[test]
     fn a_draft_left_on_the_server_is_told_in_both_languages() {
         use crate::lang::{Lang, pin};

@@ -417,7 +417,8 @@ struct MailSender<'a> {
 
 impl depesha_core::port::Sender for MailSender<'_> {
     async fn send(&mut self, draft: &depesha_core::domain::Draft) -> depesha_core::Result<Vec<u8>> {
-        let msg = smtp::build(draft)?;
+        // The letter as it goes out: the plain part stands for the pictures of the text.
+        let msg = smtp::build_sent(draft)?;
         let account = &self.account;
         let msg = &msg;
         let stage = self.stage;

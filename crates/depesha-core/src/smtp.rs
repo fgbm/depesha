@@ -86,7 +86,20 @@ fn html_part(html: String) -> SinglePart {
         .body(html)
 }
 
+/// The letter as it is kept: the copy in the Drafts folder, the one that comes back into
+/// the window. Its plain part carries the pictures as they are, so the draft opens with
+/// them.
 pub fn build(draft: &Draft) -> Result<Message> {
+    build_with(draft, false)
+}
+
+/// The letter as it goes out: the plain part stands for the pictures of the text, so a
+/// reader without HTML sees a picture as a picture and not as a service address.
+pub fn build_sent(draft: &Draft) -> Result<Message> {
+    build_with(draft, true)
+}
+
+fn build_with(draft: &Draft, sent: bool) -> Result<Message> {
     let from = draft.from.as_ref().ok_or(Error::Said(Say::NoSender))?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         return Err(Error::Said(Say::NoRecipients));
@@ -124,7 +137,7 @@ pub fn build(draft: &Draft) -> Result<Message> {
         builder = builder.references(draft.references.iter().map(|r| angle(r)).collect::<Vec<_>>().join(" "));
     }
 
-    let (plain, rest) = alternatives(draft);
+    let (plain, rest) = alternatives(draft, sent);
     let body = if rest.is_empty() {
         Part::One(plain)
     } else {
@@ -170,7 +183,7 @@ impl Part {
 /// unknown `text/*` subtype as plain text, so a Markdown part last would put the bare
 /// markup in front of everyone whose client draws HTML. Clients that know Markdown find
 /// it anywhere among the parts.
-fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
+fn alternatives(draft: &Draft, sent: bool) -> (SinglePart, Vec<Part>) {
     let mut rest = Vec::new();
     let (plain, html, images) = match draft.format {
         BodyFormat::Markdown => {
@@ -180,6 +193,14 @@ fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
             // that the HTML part shows as it is and the other two as their own versions.
             let (plain, markdown, html, images) = markdown_letter(draft);
             rest.push(Part::One(markdown_part(markdown)));
+            // The plain part of the letter that goes out stands for the pictures: a reader
+            // without HTML would see a service address or a base64 wall where a picture is.
+            // The copy in the Drafts folder keeps them: it opens with the picture in it.
+            let plain = if sent {
+                pictures_as_words(&plain, &draft.picture_word)
+            } else {
+                plain
+            };
             (text_part(plain), Some(html), images)
         }
         _ => (
@@ -190,6 +211,61 @@ fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
     };
     rest.extend(html.map(|html| html_body(&html, images)));
     (plain, rest)
+}
+
+/// The pictures of a Markdown text stood for by the word, in the plain part: `![alt](cid:…)`
+/// and `![alt](data:…)` become «[Picture]» or «[Picture: alt]». A picture of the letter
+/// outside (`https:`) stays a link: it is not the letter's own picture, and the reader
+/// without HTML may follow it.
+///
+/// The word is the one the caller brings (`Draft::picture_word`); the core knows no
+/// language, and an empty word is the English one.
+fn pictures_as_words(text: &str, word: &str) -> String {
+    const START: &str = "![";
+    let word = if word.trim().is_empty() { "Picture" } else { word.trim() };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(START) {
+        let image = &rest[at..];
+        // The alt is one line without brackets, the address what stands up to ")".
+        let open = image[START.len()..]
+            .find("](")
+            .map(|i| i + START.len())
+            .filter(|&mid| !image[START.len()..mid].contains(['\n', '[']));
+        let Some(mid) = open else {
+            out.push_str(&rest[..at + START.len()]);
+            rest = &image[START.len()..];
+            continue;
+        };
+        let Some(close) = image[mid + 2..].find(')').map(|i| i + mid + 2) else {
+            out.push_str(&rest[..at + START.len()]);
+            rest = &image[START.len()..];
+            continue;
+        };
+        let alt = image[START.len()..mid].trim();
+        let url = image[mid + 2..close].trim();
+        out.push_str(&rest[..at]);
+        if is_own_picture(url) {
+            out.push('[');
+            out.push_str(word);
+            if !alt.is_empty() {
+                out.push_str(": ");
+                out.push_str(alt);
+            }
+            out.push(']');
+        } else {
+            out.push_str(&image[..close + 1]);
+        }
+        rest = &image[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A picture the letter carries itself: a part of its own (`cid:`) or its bytes (`data:`).
+fn is_own_picture(url: &str) -> bool {
+    let url = url.to_ascii_lowercase();
+    url.starts_with("cid:") || url.starts_with("data:")
 }
 
 /// The three forms a Markdown letter goes out in — plain text, the Markdown itself and the
@@ -1461,6 +1537,95 @@ mod tests {
         assert!(view.html.unwrap().contains(&format!("data:image/png;base64,{PNG}")));
         let snippet = crate::snippet::from_body(&raw);
         assert_eq!(snippet, "", "{snippet}");
+    }
+
+    /// The plain part of a Markdown letter stands for its pictures: a reader without HTML
+    /// sees a picture as a service address (`cid:…`) or a base64 wall, not a picture.
+    #[test]
+    fn the_plain_part_of_a_markdown_letter_stands_for_its_pictures() {
+        let text =
+            format!("План зала:\n\n![План зала](data:image/png;base64,{PNG})\n\n![](data:image/png;base64,{PNG})\n");
+        let raw = String::from_utf8(
+            build_sent(&letter(BodyFormat::Markdown, &text, None))
+                .unwrap()
+                .formatted(),
+        )
+        .unwrap();
+        let plain = crate::message::parse_view(raw.as_bytes(), false).unwrap().text.unwrap();
+        assert!(plain.contains("[Picture: План зала]"), "{plain}");
+        assert!(plain.contains("[Picture]"), "{plain}");
+        assert!(!plain.contains("cid:"), "{plain}");
+        assert!(!plain.contains("data:"), "{plain}");
+    }
+
+    /// The plain part stands for the pictures; the HTML part and the picture itself are
+    /// where they were: a reader that draws HTML sees the picture.
+    #[test]
+    fn the_letter_that_goes_out_keeps_its_html_and_its_picture() {
+        let text = format!("План зала:\n\n![План зала](data:image/png;base64,{PNG})\n");
+        let raw = String::from_utf8(
+            build_sent(&letter(BodyFormat::Markdown, &text, None))
+                .unwrap()
+                .formatted(),
+        )
+        .unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/alternative",
+                "text/plain",
+                "text/markdown",
+                "multipart/related",
+                "text/html",
+                "image/png"
+            ],
+            "{raw}"
+        );
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        let html = view.html.unwrap();
+        assert!(html.contains(&format!("data:image/png;base64,{PNG}")), "{html}");
+        assert!(view.attachments[0].inline, "{:?}", view.attachments[0]);
+    }
+
+    /// The same, with the word the caller brings: the core knows no language.
+    #[test]
+    fn the_word_of_the_picture_is_the_one_the_caller_brings() {
+        let text = format!("![План](data:image/png;base64,{PNG})\n");
+        let draft = Draft {
+            picture_word: "Изображение".into(),
+            ..letter(BodyFormat::Markdown, &text, None)
+        };
+        let raw = String::from_utf8(build_sent(&draft).unwrap().formatted()).unwrap();
+        let plain = crate::message::parse_view(raw.as_bytes(), false).unwrap().text.unwrap();
+        assert!(plain.contains("[Изображение: План]"), "{plain}");
+        assert!(!plain.contains("cid:"), "{plain}");
+    }
+
+    /// The copy in the Drafts folder keeps the picture in its plain part: the draft opens
+    /// with the picture in it, not with the word that stands for it.
+    #[test]
+    fn the_draft_keeps_its_picture_in_the_plain_part() {
+        let text = format!("![План](data:image/png;base64,{PNG})\n");
+        let raw = String::from_utf8(build(&letter(BodyFormat::Markdown, &text, None)).unwrap().formatted()).unwrap();
+        let plain = crate::message::parse_view(raw.as_bytes(), false).unwrap().text.unwrap();
+        assert!(plain.contains("![План](cid:"), "{plain}");
+        assert!(!plain.contains("[Picture"), "{plain}");
+    }
+
+    /// A picture outside the letter (over https) stays a link: the text part shows it as
+    /// the text part shows any other link.
+    #[test]
+    fn a_picture_of_the_letter_outside_stays_a_link() {
+        let text = "![Схема](https://example.com/p.png)\n";
+        let raw = String::from_utf8(
+            build_sent(&letter(BodyFormat::Markdown, text, None))
+                .unwrap()
+                .formatted(),
+        )
+        .unwrap();
+        let plain = crate::message::parse_view(raw.as_bytes(), false).unwrap().text.unwrap();
+        assert!(plain.contains("https://example.com/p.png"), "{plain}");
+        assert!(!plain.contains("[Picture"), "{plain}");
     }
 
     #[test]

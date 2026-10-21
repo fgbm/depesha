@@ -315,6 +315,10 @@ pub struct Draft {
     /// The window offers high only; a normal letter says nothing.
     #[serde(default, skip_serializing_if = "is_normal")]
     pub importance: Importance,
+    /// The word a picture of the letter stands for in the plain part, in the language of the
+    /// interface: the core knows no language, so the caller brings it. Empty is English.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub picture_word: String,
 }
 
 fn is_normal(i: &Importance) -> bool {
