@@ -108,3 +108,11 @@ Vale (`DepeshaRU.SentenceLength`) и `scripts/md-onelines.mjs` тянут в р�
 ## 2026-10-22 01:33 — deepseek-v4.1-flash
 
 Пересъёмка `e2e/meeting-shots.mjs` на свежем стенде → первый прогон упал на «timeout waiting for folders» сразу после мастера, второй прошёл. Разница между прогонами — `python3 e2e/imap_helper.py seed` до запуска и `DISPLAY=:1031` в окружении (сам скрипт поднимает приложению `DISPLAY` из `E2E_DISPLAY`, а xdg-desktop-portal берёт переменную оболочки и без неё ругается «cannot open display»). Причина не установлена: перед съёмкой делай seed, как `scripts/check.sh`, и выставляй `DISPLAY` в оболочке.
+
+## 2026-10-22 02:20 — deepseek-v4.1-flash
+
+Векторы DKIM в `crates/depesha-core/tests/dkim-vectors/` проходили на Linux и падали на Windows-сборке CI: checkout отдаёт файл с CRLF, а подпись покрывает байты с LF, и `split_once("\n\n")` не находит границу записей DNS. Фикстуры с подписью читаются как байты — держи их вне преобразования строк (`.gitattributes`: `-text`) и нормализуй CRLF к LF при чтении.
+
+## 2026-10-22 01:55 — deepseek-v4.1-flash
+
+`Xvfb` не в `PATH` и не в `/usr/bin`: он лежит распакованным в `~/.local/depesha-testenv/root/usr/bin/Xvfb` (как в `e2e/README.md`). Запуск `Xvfb :57` из скрипта молча не поднимает дисплей («command not found» виден только в логе фонового процесса), и прогон съёмки идёт в чужой `:99`. Проверяй `pgrep -a Xvfb` и `/tmp/.X11-unix/` перед съёмкой.
