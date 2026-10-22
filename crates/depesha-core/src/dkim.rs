@@ -591,6 +591,7 @@ impl Verifier {
         };
         let (raw, address, cache) = (raw.to_vec(), address.to_owned(), Arc::clone(&self.cache));
         let (handle, limit) = (tokio::runtime::Handle::current(), self.limit);
+        let started = Instant::now();
         let task = tokio::task::spawn_blocking(move || {
             handle.block_on(async {
                 tokio::time::timeout(limit, verify(&auth, &cache, &raw, &address, addressed.as_ref(), body))
@@ -599,7 +600,9 @@ impl Verifier {
             })
         });
         let verdict = match tokio::time::timeout(self.limit, task).await {
-            Ok(Ok(verdict)) => verdict,
+            // The work runs off the async threads, and the timer is looked at once per poll: an
+            // answer that came after the limit is no answer, however soon the runtime saw it.
+            Ok(Ok(verdict)) if started.elapsed() <= self.limit => verdict,
             _ => Signature::Unchecked,
         };
         if verdict == Signature::Unchecked
