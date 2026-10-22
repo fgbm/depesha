@@ -705,6 +705,9 @@ pub enum Unverified {
     NoKey,
     /// The server gave no verdict, and DNS did not answer for the signature's key.
     Unchecked,
+    /// The server gave no verdict, and the signature is of a letter of another time than the one
+    /// that came (0.8.13, ступень 4).
+    Replay,
     /// The letter's From is not the one trusted address alone, as both readers of its headers
     /// see it: a second From, or a header one of them reads and the other does not.
     AmbiguousFrom,
@@ -719,37 +722,14 @@ pub enum Unverified {
     NoCheck,
 }
 
-impl From<dkim::Signature> for Unverified {
-    fn from(s: dkim::Signature) -> Self {
-        match s {
-            dkim::Signature::Unsigned => Self::Unsigned,
-            dkim::Signature::Unchecked => Self::Unchecked,
-            // A key that is not there is no answer from the network, and the line says so.
-            dkim::Signature::Failed(dkim::Reason::NoKey) => Self::NoKey,
-            dkim::Signature::Aligned | dkim::Signature::NotAligned | dkim::Signature::Invalid => Self::Signature,
-            dkim::Signature::Failed(_) => Self::Signature,
-        }
-    }
-}
-
-impl From<dkim::Headers> for Unverified {
-    fn from(s: dkim::Headers) -> Self {
-        match s {
-            dkim::Headers::Unsigned => Self::Unsigned,
-            dkim::Headers::Unchecked => Self::Unchecked,
-            dkim::Headers::Rejected(dkim::Reason::NoKey) => Self::NoKey,
-            dkim::Headers::Rejected(_) => Self::Signature,
-            dkim::Headers::Valid => Self::Checking,
-        }
-    }
-}
-
 impl From<sender::Reason> for Unverified {
     fn from(r: sender::Reason) -> Self {
         match r {
             sender::Reason::Server => Self::Server,
             sender::Reason::Unsigned => Self::Unsigned,
             sender::Reason::Signature => Self::Signature,
+            sender::Reason::NoKey => Self::NoKey,
+            sender::Reason::Replay => Self::Replay,
             sender::Reason::Unchecked => Self::Unchecked,
             sender::Reason::AmbiguousFrom => Self::AmbiguousFrom,
             sender::Reason::Checking => Self::Checking,
@@ -757,6 +737,31 @@ impl From<sender::Reason> for Unverified {
             sender::Reason::NoCheck => Self::NoCheck,
         }
     }
+}
+
+/// Why the line over a letter of a trusted sender says it is not the sender (0.8.13, 6.1 Б,
+/// 7.1 Б), or `None` when the sender is confirmed. The ladder names the reason; the switch by
+/// address says which of the two it trusted.
+fn why_unverified(listed: bool, evidence: &Evidence<'_>, verdict: &sender::Verdict) -> Option<Unverified> {
+    if !listed {
+        return None;
+    }
+    if verdict.reason == sender::Reason::AddressOnly {
+        // The switch by address trusted the address where nothing could be checked: the line says
+        // why — the letter carries no signature, or the key of it did not answer. The check over
+        // the original headers of Exchange answers in the same two ways (0.8.13, ступень 4).
+        let unanswered = evidence.own_full == Some(dkim::Signature::Unchecked)
+            || evidence.own_headers == Some(dkim::Headers::Unchecked);
+        return Some(if unanswered {
+            Unverified::AddressOnlyUnchecked
+        } else {
+            Unverified::AddressOnly
+        });
+    }
+    if verdict.confirmed {
+        return None;
+    }
+    Some(Unverified::from(verdict.reason))
 }
 
 /// What the app knows about the sender of this letter: the server's answer, the app's own
@@ -825,6 +830,16 @@ fn own_check_due(listed: bool, evidence: &Evidence<'_>) -> bool {
     listed && sender_verdict(evidence).reason == sender::Reason::Checking
 }
 
+/// The original headers of a letter of Exchange (0.8.13, ступень 4), as the check reads them: the
+/// block `PR_TRANSPORT_MESSAGE_HEADERS` without the line the server may have put above it. `None`
+/// when the server kept none aside, or kept an empty block.
+fn original_headers(state: &AppState, row: &MessageRow) -> CmdResult<Option<Vec<u8>>> {
+    Ok(match state.store.ews_headers(row.id)? {
+        Some(headers) if !headers.trim().is_empty() => Some(dkim::without_preamble(headers.as_bytes()).to_vec()),
+        _ => None,
+    })
+}
+
 /// What the app knows about the sender of this letter: the server's answer, the app's own
 /// check if one was made, and the original headers of a letter of Exchange.
 fn evidence_of<'a>(
@@ -834,17 +849,12 @@ fn evidence_of<'a>(
     auth: &'a message::Authenticity,
     sender: &'a str,
     listed: bool,
-) -> CmdResult<Evidence<'a>> {
+) -> CmdResult<(Evidence<'a>, Option<Vec<u8>>)> {
     let known = state.signatures.known(row.id, raw, sender);
-    // The original headers of a letter of Exchange (0.8.13, ступень 4): the block
-    // `PR_TRANSPORT_MESSAGE_HEADERS` the server kept aside of the letter it assembled again.
-    let original = match state.store.ews_headers(row.id)? {
-        Some(headers) if !headers.trim().is_empty() => Some(headers),
-        _ => None,
-    };
+    let original = original_headers(state, row)?;
     let own_headers = original
         .as_ref()
-        .and_then(|headers| state.signatures.known_headers(row.id, headers.as_bytes(), sender));
+        .and_then(|headers| state.signatures.known_headers(row.id, headers, sender));
     let headers_checked = original.is_some();
     // What the app's own check of the letter says without asking anyone: a letter with no
     // signature, or with one that is not about the From, is known at once. A letter whose
@@ -861,29 +871,33 @@ fn evidence_of<'a>(
     let server_silent = auth.uneven || (!auth.verified() && auth.check.as_ref().is_none_or(|c| c.no_verdict()));
     let own_due = listed && server_silent && known.is_none() && (headers_checked || offline.is_none());
     let by_address = state.account(&row.account_id)?.trust_by_address;
-    Ok(Evidence::of(
-        raw,
-        auth,
-        sender,
-        own_full,
-        own_headers,
-        own_due,
-        by_address,
-    ))
+    let evidence = Evidence::of(raw, auth, sender, own_full, own_headers, own_due, by_address);
+    Ok((evidence, original))
+}
+
+/// What the log names of the letter it is about (0.8.13, 7.1 Б): ids, domains, the kind of
+/// mailbox and result words, never an address of a person.
+struct LoggedLetter<'a> {
+    id: i64,
+    folder: &'a str,
+    kind: &'a str,
+    from_domain: &'a str,
+    listed: bool,
+    /// The original headers of a letter of Exchange, when the server kept one aside.
+    original: Option<&'a [u8]>,
 }
 
 /// One line in the log about the sender of a letter (0.8.13): what the ladder decided, what
-/// the server said and what the app's own check found. Domains and selectors only, no address
-/// of a person.
-fn log_sender_check(
-    id: i64,
-    folder: &str,
-    kind: &str,
-    from_domain: &str,
-    listed: bool,
-    evidence: &Evidence<'_>,
-    verdict: &sender::Verdict,
-) {
+/// the server said and what the app's own check found.
+fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict: &sender::Verdict) {
+    let LoggedLetter {
+        id,
+        folder,
+        kind,
+        from_domain,
+        listed,
+        original,
+    } = *letter;
     let server = match &evidence.auth.check {
         Some(check) => check.to_string(),
         None => "none".to_owned(),
@@ -901,14 +915,16 @@ fn log_sender_check(
     };
     // What the signature says about itself: the domain and the selector of the key, the
     // algorithm, whether it has expired, the length of the body it covers, and whether it
-    // covers the `From`. Domains and selectors only, no address of a person.
-    let sig = dkim::signature_about(evidence.raw).unwrap_or_else(|| "-".to_owned());
+    // covers the `From`. Domains and selectors only, no address of a person. A letter of
+    // Exchange is checked over its original headers, so its signature is the one they carry.
+    let sig = dkim::signature_about(original.unwrap_or(evidence.raw)).unwrap_or_else(|| "-".to_owned());
     tracing::debug!(
         id,
         kind,
         folder = %folder,
         %from_domain,
         listed,
+        uneven = evidence.auth.uneven,
         step = verdict.step.code(),
         verdict = if verdict.confirmed { "confirmed" } else { "unconfirmed" },
         %server,
@@ -1007,27 +1023,23 @@ pub async fn message_open(
     let account = state.account(&row.account_id)?;
     let auth = message::authenticity(&raw, &Receiver::of(&account));
     let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
-    let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    let (evidence, original) = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
     let verdict = sender_verdict(&evidence);
     // The reason the sender was not confirmed, or «the address alone was trusted» (0.8.13,
-    // 6.1 Б): the pictures are shown, and the line says the address is not checked — and why it
-    // could not be: the letter carries no signature, or its key gave no answer.
-    let why_unverified: Option<Unverified> = if !listed {
-        None
-    } else if verdict.reason == sender::Reason::AddressOnly {
-        Some(match evidence.own_full {
-            Some(dkim::Signature::Unchecked) => Unverified::AddressOnlyUnchecked,
-            _ => Unverified::AddressOnly,
-        })
-    } else if verdict.confirmed {
-        None
-    } else {
-        Some(Unverified::from(verdict.reason))
-    };
+    // 6.1 Б): the pictures are shown, and the line says the address is not checked.
+    let why_unverified = why_unverified(listed, &evidence, &verdict);
     let trusted_sender = listed && verdict.confirmed;
     // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
     let kind = box_kind(&account);
-    log_sender_check(row.id, &row.folder, &kind, &from_domain, listed, &evidence, &verdict);
+    let logged = LoggedLetter {
+        id: row.id,
+        folder: &row.folder,
+        kind: &kind,
+        from_domain: &from_domain,
+        listed,
+        original: original.as_deref(),
+    };
+    log_sender_check(&logged, &evidence, &verdict);
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
     let mark = draft_mark(&raw, in_drafts);
@@ -1112,6 +1124,14 @@ fn previous_meeting(store: &depesha_core::store::Store, row: &MessageRow, notice
 /// updates.
 const PREVIOUS_LETTERS: u32 = 20;
 
+/// When Exchange received a letter, as the check over its original headers takes it (0.8.13,
+/// ступень 4). The letter's own `Date` is no answer: the sender wrote it, and a letter of another
+/// time carries its own. A letter with no receipt time of its own cannot be shown to be the one
+/// that came, so it is a replay.
+fn received_at(received: Option<i64>) -> Result<i64, dkim::Headers> {
+    received.ok_or(dkim::Headers::Rejected(dkim::Reason::Replay))
+}
+
 /// The app's own DKIM check of a letter from a trusted sender whose mailbox server gave no
 /// verdict (#167); `true` when the sender is confirmed. The window opens the letter again to
 /// show the answer. Asking DNS for the key tells the signer the letter was read, so only a
@@ -1128,34 +1148,29 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
     let raw = raw_of(&state, &row, None).await?;
     let account = state.account(&row.account_id)?;
     let auth = message::authenticity(&raw, &Receiver::of(&account));
-    let evidence = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    let (evidence, original) = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
     if !own_check_due(listed, &evidence) {
         return Ok(sender_verdict(&evidence).confirmed);
     }
     // The original headers of Exchange (0.8.13, ступень 4): the signature over them proves who
     // wrote the letter, though not what its body says. The body of the letter is the one
     // Exchange assembled again.
-    if let Some(headers) = state.store.ews_headers(row.id)?
-        && !headers.trim().is_empty()
-    {
-        let bytes = headers.as_bytes();
+    if let Some(bytes) = original {
         // The letter must be of this time: the signature of a letter that came long ago proves
-        // nothing about a letter that came now (0.8.13, ступень 4). The time of receipt is the
-        // server's own (`DateTimeReceived`), not the date of the letter — that one the sender
-        // wrote, and a letter of another time carries its own.
-        let received = state
-            .store
-            .ews_received(&row.account_id, &row.folder, row.uid)?
-            .unwrap_or(row.date);
-        // The signature must cover the header the address of the mailbox stands in.
-        let verdict = match dkim::replay_time(bytes, &account.email) {
-            Some((recipient, _)) if dkim::not_a_replay(bytes, &account.email, received) => {
+        // nothing about a letter that came now (0.8.13, ступень 4). A letter with no time of
+        // receipt cannot be shown to be this one, and the answer is remembered as it is: a check
+        // asked again and again would say «checking» forever.
+        let verdict = match received_at(state.store.ews_received(&row.account_id, &row.folder, row.uid)?) {
+            Ok(received) => {
                 state
                     .signatures
-                    .check_headers_remembered(row.id, bytes, &sender, recipient)
+                    .check_headers_remembered(row.id, &bytes, &sender, &account.email, received)
                     .await
             }
-            _ => dkim::Headers::Rejected(dkim::Reason::Replay),
+            Err(verdict) => {
+                state.signatures.remember_headers(row.id, &bytes, &sender, verdict);
+                verdict
+            }
         };
         tracing::debug!(
             id = row.id,
@@ -5223,7 +5238,15 @@ mod tests {
         let evidence = Evidence::of(&raw, &auth, sender, Some(dkim::Signature::Unsigned), None, false, false);
         let verdict = sender_verdict(&evidence);
         let line = logged(|| {
-            log_sender_check(7, "INBOX", "imap", "bank.ru", true, &evidence, &verdict);
+            let letter = LoggedLetter {
+                id: 7,
+                folder: "INBOX",
+                kind: "imap",
+                from_domain: "bank.ru",
+                listed: true,
+                original: None,
+            };
+            log_sender_check(&letter, &evidence, &verdict);
         });
         // The step of the ladder, the outcome of the own check and what the signature says about
         // itself (0.8.13, 7.1 Б).
@@ -5231,8 +5254,155 @@ mod tests {
         assert!(line.contains("verdict=\"unconfirmed\""), "{line}");
         assert!(line.contains("own=full:unsigned"), "{line}");
         assert!(line.contains("outcome=\"unsigned\""), "{line}");
+        // The block of headers the server and the app may read differently (0.8.13, 7.1 Б).
+        assert!(line.contains("uneven=false"), "{line}");
         // No address of a person in the line.
         assert!(!line.contains("security@bank.ru"), "{line}");
+    }
+
+    #[test]
+    fn the_log_of_a_letter_of_exchange_names_its_own_signature() {
+        // The letter Exchange assembled again carries no signature; the original headers it kept
+        // aside do, and that is the signature the log describes (0.8.13, ступень 4, 7.1 Б).
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let original = "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=bank.ru; s=s7; h=from:to:subject; bh=AAAA; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\r\n";
+        let evidence = Evidence::of(
+            &raw,
+            &auth,
+            sender,
+            None,
+            Some(dkim::Headers::Rejected(dkim::Reason::NoRecipientInH)),
+            false,
+            false,
+        );
+        let verdict = sender_verdict(&evidence);
+        let line = logged(|| {
+            let letter = LoggedLetter {
+                id: 7,
+                folder: "INBOX",
+                kind: "ews",
+                from_domain: "bank.ru",
+                listed: true,
+                original: Some(original.as_bytes()),
+            };
+            log_sender_check(&letter, &evidence, &verdict);
+        });
+        assert!(line.contains("d=bank.ru,s=s7"), "{line}");
+        assert!(line.contains("own=headers:no_recipient_in_h"), "{line}");
+        assert!(line.contains("outcome=\"no_recipient_in_h\""), "{line}");
+    }
+
+    #[test]
+    fn a_letter_of_exchange_with_no_time_of_receipt_is_no_letter_of_now() {
+        // 0.8.13, ступень 4: the time the check is measured against is the server's own. A letter
+        // with none of its own is not measured against its `Date` — the sender wrote that one.
+        assert_eq!(super::received_at(Some(1_800_000_000)), Ok(1_800_000_000));
+        assert_eq!(
+            super::received_at(None),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+    }
+
+    #[test]
+    fn the_line_says_why_a_checked_sender_is_not_confirmed() {
+        // The reason the line over the letter names, for the check of the whole letter (ступень 3)
+        // and for the check over the original headers of Exchange (ступень 4, 0.8.13, 7.1 Б).
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        for (found, want) in [
+            (dkim::Signature::Failed(dkim::Reason::NoKey), Unverified::NoKey),
+            (dkim::Signature::Unchecked, Unverified::Unchecked),
+            (dkim::Signature::Failed(dkim::Reason::BodyHash), Unverified::Signature),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, Some(found), None, false, false);
+            assert_eq!(
+                super::why_unverified(true, &ev, &sender_verdict(&ev)),
+                Some(want),
+                "{found:?}"
+            );
+        }
+        for (found, want) in [
+            (dkim::Headers::Rejected(dkim::Reason::NoKey), Unverified::NoKey),
+            (dkim::Headers::Rejected(dkim::Reason::Replay), Unverified::Replay),
+            (dkim::Headers::Unchecked, Unverified::Unchecked),
+            (
+                dkim::Headers::Rejected(dkim::Reason::BadSignature),
+                Unverified::Signature,
+            ),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, None, Some(found), false, false);
+            assert_eq!(
+                super::why_unverified(true, &ev, &sender_verdict(&ev)),
+                Some(want),
+                "{found:?}"
+            );
+        }
+        // A sender nobody trusts has no line at all.
+        let ev = Evidence::of(
+            &raw,
+            &auth,
+            sender,
+            Some(dkim::Signature::Unchecked),
+            None,
+            false,
+            false,
+        );
+        assert_eq!(super::why_unverified(false, &ev, &sender_verdict(&ev)), None);
+    }
+
+    #[test]
+    fn the_switch_by_address_says_why_it_could_not_check() {
+        // 0.8.13, 6.1 Б: the line under a letter trusted by address says whether the letter is
+        // unsigned or the key of its signature gave no answer — over the whole letter and over the
+        // original headers of Exchange alike.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        for (full, headers) in [
+            (Some(dkim::Signature::Unsigned), None),
+            (None, Some(dkim::Headers::Unsigned)),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, full, headers, false, true);
+            let verdict = sender_verdict(&ev);
+            assert_eq!(verdict.reason, sender::Reason::AddressOnly, "{full:?} {headers:?}");
+            assert_eq!(
+                super::why_unverified(true, &ev, &verdict),
+                Some(Unverified::AddressOnly)
+            );
+        }
+        for (full, headers) in [
+            (Some(dkim::Signature::Unchecked), None),
+            (None, Some(dkim::Headers::Unchecked)),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, full, headers, false, true);
+            let verdict = sender_verdict(&ev);
+            assert_eq!(verdict.reason, sender::Reason::AddressOnly, "{full:?} {headers:?}");
+            assert_eq!(
+                super::why_unverified(true, &ev, &verdict),
+                Some(Unverified::AddressOnlyUnchecked),
+                "a key that gave no answer is no unsigned letter"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_of_a_letter_of_exchange_says_why_the_signature_is_no_proof() {
+        // The reasons of the check over the original headers are its own, not «the signature does
+        // not match» (0.8.13, 7.1 Б).
+        for (headers, want) in [
+            (
+                dkim::Headers::Rejected(dkim::Reason::NoRecipientInH),
+                "no_recipient_in_h",
+            ),
+            (dkim::Headers::Rejected(dkim::Reason::NotAligned), "not_aligned"),
+            (dkim::Headers::Rejected(dkim::Reason::Replay), "replay"),
+            (dkim::Headers::Rejected(dkim::Reason::UnevenHeaders), "uneven_headers"),
+        ] {
+            assert_eq!(super::headers_outcome(headers), want);
+        }
     }
 
     #[test]

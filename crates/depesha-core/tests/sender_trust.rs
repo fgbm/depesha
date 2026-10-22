@@ -27,6 +27,9 @@ use mail_auth::dkim::DkimSigner;
 
 /// The address of the mailbox the corpus letters came to.
 const MAILBOX: &str = "me@box.example";
+/// The time the signed letters of the corpus were signed at, and the time they were received: the
+/// corpus has no receipt time of its own.
+const SIGNED_AT: i64 = 1_792_621_681;
 
 /// One row of the table: the letter, the mailbox it came to and what the check must say.
 #[derive(Debug, serde::Deserialize)]
@@ -209,15 +212,10 @@ async fn own_of(row: &Row, raw: &[u8], check: &dkim::Verifier) -> Own {
 /// The check of the original headers of Exchange: the address of the mailbox must stand in a
 /// header the signature covers, and the letter must be of this time (0.8.13, ступень 4).
 ///
-/// The corpus has no receipt time of its own: the time the signature names stands for it. The
-/// check of a letter of another time has its own tests in `dkim.rs`.
+/// The corpus has no receipt time of its own: the time the signature names (`t=`) stands for it,
+/// and the check of a letter of another time has its own tests in `dkim.rs`.
 async fn headers_check(bytes: &[u8], row: &Row, check: &dkim::Verifier) -> dkim::Headers {
-    match dkim::replay_time(bytes, MAILBOX) {
-        Some((recipient, at)) if dkim::not_a_replay(bytes, MAILBOX, at) => {
-            check.check_headers(bytes, &row.from, recipient).await
-        }
-        _ => dkim::Headers::Rejected(dkim::Reason::Replay),
-    }
+    check.check_headers(bytes, &row.from, MAILBOX, SIGNED_AT).await
 }
 
 /// Every letter of the corpus is judged as the table says.

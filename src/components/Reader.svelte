@@ -74,7 +74,7 @@
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);
   /** The mailbox trusts the sender by address where nothing could be checked: the pictures are
    *  shown, and the line says the address is not checked (0.8.13, 6.1 Б). */
-  const showByAddressLine = $derived(!!msg && msg.why_unverified === "address_only" && !msg.sender_unverified);
+  const showByAddressLine = $derived(!!msg && !!msg.why_unverified?.startsWith("address_only") && !msg.sender_unverified);
   const bulk = $derived(app.selection.selected.size > 1);
   /** The letter with its toolbar is on screen: the panel above asks app.reader for the same,
    *  and a narrow window keeps its own compact toolbar when it is not. */

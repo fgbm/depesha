@@ -87,6 +87,11 @@ pub enum Reason {
     Unsigned,
     /// The server stayed silent and the signature does not confirm the From address.
     Signature,
+    /// The server stayed silent and the key of the signature is not there, or is revoked.
+    NoKey,
+    /// The server stayed silent and the signature is of a letter of another time than the one
+    /// that was received.
+    Replay,
     /// The server stayed silent and DNS did not answer for the signature's key.
     Unchecked,
     /// The letter's From is not the one trusted address alone, as both readers of its headers
@@ -146,17 +151,18 @@ fn weigh(evidence: &Evidence) -> Verdict {
     if !evidence.sole_from {
         return no(Reason::AmbiguousFrom);
     }
-    // An uneven block of headers is read one way by the server and another by the app: its word
-    // about the sender is not taken, and the app checks the signature itself (0.8.13, 7.1 Б).
-    let server = evidence.server.as_ref().filter(|_| !evidence.uneven_headers);
-    // The server's «no» stays a «no»: its own check of the sender failed. A server that said
+    // The server's «no» stays a «no»: its own check of the sender failed, and an uneven block of
+    // headers takes away only its «yes», not its «no» (0.8.13, 6.1 Б, 7.1 Б). A server that said
     // nothing at all is not a «no»: the app's own check stands then.
-    if let Some(check) = server
+    if let Some(check) = evidence.server.as_ref()
         && !check.passed()
         && !check.no_verdict()
     {
         return no(Reason::Server);
     }
+    // An uneven block of headers is read one way by the server and another by the app: its word
+    // about the sender is not taken, and the app checks the signature itself.
+    let server = evidence.server.as_ref().filter(|_| !evidence.uneven_headers);
     if let Some(check) = server
         && check.passed()
     {
@@ -195,6 +201,7 @@ fn weigh(evidence: &Evidence) -> Verdict {
             },
             crate::dkim::Signature::Unsigned => no(Reason::Unsigned),
             crate::dkim::Signature::Unchecked => no(Reason::Unchecked),
+            crate::dkim::Signature::Failed(crate::dkim::Reason::NoKey) => no(Reason::NoKey),
             crate::dkim::Signature::NotAligned | crate::dkim::Signature::Invalid => no(Reason::Signature),
             crate::dkim::Signature::Failed(_) => no(Reason::Signature),
         };
@@ -211,6 +218,8 @@ fn weigh(evidence: &Evidence) -> Verdict {
             },
             crate::dkim::Headers::Unsigned => no(Reason::Unsigned),
             crate::dkim::Headers::Unchecked => no(Reason::Unchecked),
+            crate::dkim::Headers::Rejected(crate::dkim::Reason::NoKey) => no(Reason::NoKey),
+            crate::dkim::Headers::Rejected(crate::dkim::Reason::Replay) => no(Reason::Replay),
             crate::dkim::Headers::Rejected(_) => no(Reason::Signature),
         };
     }
@@ -391,10 +400,26 @@ mod tests {
         e.uneven_headers = true;
         e.internal = true;
         assert!(!decide(&e).confirmed);
-        // And a «no» of the server neither confirms nor is it overruled: nothing is known.
+        // A «no» of the server is no reading of the block: it stays a «no».
         let mut e = evidence(Some(SenderCheck::DmarcNot("fail".into())));
         e.uneven_headers = true;
-        assert!(!decide(&e).confirmed);
+        assert_eq!(decide(&e).reason, Reason::Server);
+    }
+
+    #[test]
+    fn an_uneven_block_does_not_take_away_the_servers_no() {
+        // 0.8.13, 6.1 Б, 7.1 Б: an uneven block of headers is read one way by the server and
+        // another by the app, and its «yes» is not taken. Its «no» is its own check of the
+        // sender, which failed, so nothing is left for the switch by address to override.
+        let mut e = evidence(Some(SenderCheck::DmarcNot("fail".into())));
+        e.uneven_headers = true;
+        e.own_full = Some(Signature::Unsigned);
+        assert_eq!(decide(&e).reason, Reason::Server);
+        e.by_address = true;
+        let v = decide(&e);
+        assert!(!v.confirmed, "the switch by address overrides no «no» of the server");
+        assert!(!v.logo);
+        assert_eq!(v.reason, Reason::Server);
     }
 
     #[test]

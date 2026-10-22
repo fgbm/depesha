@@ -275,6 +275,8 @@ export function unverifiedKey(why: Unverified | null): Key {
       return "reader.serverNoKey";
     case "unchecked":
       return "reader.serverUnchecked";
+    case "replay":
+      return "reader.serverReplay";
     case "address_only":
       return "reader.addressNotChecked";
     case "address_only_unchecked":

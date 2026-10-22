@@ -646,6 +646,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "reader.serverBadSignature": "{box} не подтвердил, что письмо от {email}: подпись не сошлась.",
   "reader.serverUnchecked": "{box} не подтвердил, что письмо от {email}: нет ответа DNS.",
   "reader.serverNoKey": "{box} не подтвердил, что письмо от {email}: ключ подписи не найден.",
+  "reader.serverReplay": "{box} не подтвердил, что письмо от {email}: подпись относится к другому времени.",
   "reader.addressNotChecked": "Адрес не проверен: письмо не подписано.",
   "reader.addressNotCheckedNoKey": "Адрес не проверен: ключ подписи письма не нашёлся.",
   "reader.cannotCheck": "Адрес не проверен: сервер ящика не даёт проверить отправителя.",

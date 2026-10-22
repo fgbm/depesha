@@ -654,6 +654,7 @@ export const en = {
   "reader.serverBadSignature": "{box} did not confirm that the letter is from {email}: the signature does not match.",
   "reader.serverUnchecked": "{box} did not confirm that the letter is from {email}: DNS did not answer.",
   "reader.serverNoKey": "{box} did not confirm that the letter is from {email}: the key of its signature was not found.",
+  "reader.serverReplay": "{box} did not confirm that the letter is from {email}: the signature is of another time.",
   "reader.addressNotChecked": "The address is not checked: the letter is not signed.",
   "reader.addressNotCheckedNoKey": "The address is not checked: the key of the letter's signature was not found.",
   "reader.cannotCheck": "The address is not checked: the mailbox's server gives no way to check the sender.",

@@ -230,6 +230,7 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
     expect(unverifiedKey("unsigned")).toBe("reader.serverUnsigned");
     expect(unverifiedKey("signature")).toBe("reader.serverBadSignature");
     expect(unverifiedKey("unchecked")).toBe("reader.serverUnchecked");
+    expect(unverifiedKey("replay")).toBe("reader.serverReplay");
     expect(unverifiedKey("address_only")).toBe("reader.addressNotChecked");
     expect(unverifiedKey("address_only_unchecked")).toBe("reader.addressNotCheckedNoKey");
     expect(unverifiedKey("no_check")).toBe("reader.cannotCheck");
