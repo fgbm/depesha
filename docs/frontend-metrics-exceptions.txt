@@ -73,3 +73,4 @@ function	src/components/MailFrame.svelte::onMessage	35	ветка высоты �
 component	src/components/reader/ReaderBody.svelte	196	карточка письма в цепочке без нижней границы 420 px: класс .body.fit и проп fit до кадра (А7)
 function	src/lib/frameRelay.ts::frameMessage	17	сообщение о высоте письма (А7): число в пределах FRAME_MAX_HEIGHT
 function	src/lib/frameRelay.test.ts::frameEnv	53	подделка кадра для проверки высоты письма (А7): тело, часы и ResizeObserver рядом с прежними ссылкой, наведением и клавишами
+function	src/lib/events.ts::listenMain	66	строка списка получает логотип отправителя сразу после открытия письма (0.8.13, 4.1 Б): подписка на letter-verdict и вызов app.list.verdict

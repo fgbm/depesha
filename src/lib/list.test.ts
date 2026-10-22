@@ -357,3 +357,42 @@ describe("a letter whose answer takes it to Waiting for reply", () => {
     expect(ids(s)).toEqual([1, 2]);
   });
 });
+
+describe("the verdict of a letter learned when it is opened (#108)", () => {
+  it("gives the row of a folder its logo at once", async () => {
+    const s = new AppStore();
+    serve([row(7), row(8)]);
+    await s.selection.setView(inbox);
+    expect(s.list.messages.map((m) => m.dmarc)).toEqual([false, false]);
+    s.list.verdict(7, true);
+    expect(s.list.messages.find((m) => m.id === 7)?.dmarc).toBe(true);
+    expect(s.list.messages.find((m) => m.id === 8)?.dmarc).toBe(false);
+  });
+
+  it("does the same in «All inboxes», where the rows come from every mailbox", async () => {
+    const s = new AppStore();
+    const all = { kind: "unified", role: "inbox" } as const;
+    serve([row(7, { folder: "INBOX" }), row(8, { folder: "INBOX", account_id: "b" })]);
+    await s.selection.setView(all);
+    expect(s.list.messages.find((m) => m.id === 8)?.dmarc).toBe(false);
+    s.list.verdict(8, true);
+    expect(s.list.messages.find((m) => m.id === 8)?.dmarc).toBe(true);
+  });
+
+  it("reaches the row by the event the backend sends, and names the letter as a writer of a conversation", async () => {
+    const s = new AppStore();
+    await s.init();
+    serve([row(7, { thread_count: 2, thread_voices: [{ from: { name: null, email: "ivan@example.com" }, dmarc: false, id: 9 }] })]);
+    await s.selection.setView(inbox);
+    emit("letter-verdict", { account_id: "a", folder: "INBOX", id: 9, logo: true });
+    expect(s.list.messages[0].thread_voices).toEqual([{ from: { name: null, email: "ivan@example.com" }, dmarc: true, id: 9 }]);
+  });
+
+  it("takes the verdict back when the letter says no", async () => {
+    const s = new AppStore();
+    serve([row(7, { dmarc: true })]);
+    await s.selection.setView(inbox);
+    s.list.verdict(7, false);
+    expect(s.list.messages[0].dmarc).toBe(false);
+  });
+});

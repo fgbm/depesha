@@ -260,6 +260,55 @@ fn the_corpus_covers_every_step() {
     }
 }
 
+/// The list and the header of a letter agree on the brand logo (0.8.13, 4.1 Б). The header reads
+/// the ladder's own answer; the list keeps the same answer once the letter is opened
+/// (`Store::note_verdict`). Before that it shows what the sync learned, and that is the server's
+/// word alone: a logo for the steps 1 and 2, and for no other step.
+#[tokio::test]
+async fn the_list_and_the_header_agree_on_the_logo() {
+    let check = published();
+    for (row, text) in corpus() {
+        let receiver = receiver(&row.mailbox);
+        let verdict = verdict(&row, &text, &own_of(&row, &text, &check).await);
+        let at_sync = message::brand_logo_due(&text, &receiver);
+        let by_the_server = matches!(verdict.step, sender::Step::ServerDmarc | sender::Step::ServerSignature);
+        assert_eq!(at_sync, by_the_server, "{}: the logo the list gets at sync", row.file);
+        // The list never shows a logo the ladder forbids, whatever the sync kept.
+        assert!(
+            !at_sync || verdict.logo,
+            "{}: the list shows a logo the header does not",
+            row.file
+        );
+    }
+}
+
+/// The switch that trusts a sender by address gives no logo, in the header and in the list alike
+/// (0.8.13, 6.1 Б).
+#[test]
+fn the_address_trust_gives_no_logo_anywhere() {
+    let (row, text) = corpus()
+        .into_iter()
+        .find(|(row, _)| row.reason.as_deref() == Some("unsigned"))
+        .expect("a letter with no signature");
+    let auth = message::authenticity(&text, &receiver(&row.mailbox));
+    let evidence = sender::Evidence {
+        server: auth.check.clone(),
+        own_full: dkim::offline_verdict(&text, &row.from),
+        sole_from: true,
+        by_address: true,
+        ..Default::default()
+    };
+    let verdict = sender::decide(&evidence);
+    assert_eq!(verdict.step, sender::Step::AddressOnly, "{}: the step", row.file);
+    assert!(verdict.confirmed, "{}: the pictures are shown", row.file);
+    assert!(!verdict.logo, "{}: the header shows no logo", row.file);
+    assert!(
+        !message::brand_logo_due(&text, &receiver(&row.mailbox)),
+        "{}: and the list asks for none",
+        row.file
+    );
+}
+
 /// The original headers of a letter of Exchange are there: the check of the signature over them
 /// is made, and the body that came with the letter is not what the signature covers.
 #[test]

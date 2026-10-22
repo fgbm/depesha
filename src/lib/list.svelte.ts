@@ -303,6 +303,21 @@ export class ListController {
     if (touched) this.threadLetters = next;
   }
 
+  /**
+   * What opening a letter learned about its sender (#108): the rows show the brand logo at once
+   * and keep it, without a reload. The letters of an unfolded thread hold the verdict too, and a
+   * conversation's row wears the verdict of the writer it names, not of the letter it came from.
+   */
+  verdict(id: number, logo: boolean) {
+    const patch = (m: MessageRow) => {
+      if (m.id === id) m.dmarc = logo;
+      for (const voice of m.thread_voices ?? []) if (voice.id === id) voice.dmarc = logo;
+    };
+    for (const m of this.messages) patch(m);
+    for (const m of this.serverRows ?? []) patch(m);
+    for (const letters of this.threadLetters.values()) for (const m of letters) patch(m);
+  }
+
   /** A new order places every row anew: rows changed earlier no longer hold their places. */
   unpin() {
     this.pins = new Map();

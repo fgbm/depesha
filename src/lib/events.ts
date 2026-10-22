@@ -23,6 +23,14 @@ interface MailChanged {
   folder: string;
 }
 
+/** A letter's sender verdict, learned when the letter was opened (#108). */
+interface LetterVerdict {
+  account_id: string;
+  folder: string;
+  id: number;
+  logo: boolean;
+}
+
 function common(app: AppStore) {
   // A series of settings saves from another window is read once (#71).
   const settingsChanged = debounce(() => void applySettingsChanged(app), 250, 1000);
@@ -76,6 +84,9 @@ export function listenMain(app: AppStore) {
       if (app.reader.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
       app.mailboxes.scheduleFolders();
     }),
+    // Opening a letter learns what the mailbox's server did not say about its sender (#108): its
+    // row shows the logo at once, in every list the letter stands in.
+    listen<LetterVerdict>("letter-verdict", (e) => app.list.verdict(e.payload.id, e.payload.logo)),
     // A queued answer marks its letter at once, and taking it back unmarks it.
     listen("outbox-changed", () => {
       app.mailboxes.loadOutbox();

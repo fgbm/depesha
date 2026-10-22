@@ -2939,12 +2939,13 @@ impl Store {
 
     /// What opening a letter learned about it (#108): letters cached before the column
     /// had no verdict, and a re-sync does not bring headers of a letter already cached.
-    pub fn note_verdict(&self, id: i64, dmarc: bool) -> Result<()> {
-        self.conn().execute(
+    /// True when the verdict changed: the list shows a logo by it.
+    pub fn note_verdict(&self, id: i64, dmarc: bool) -> Result<bool> {
+        let changed = self.conn().execute(
             "UPDATE messages SET dmarc = ?2 WHERE id = ?1 AND dmarc != ?2",
             params![id, dmarc],
         )?;
-        Ok(())
+        Ok(changed > 0)
     }
 
     /// One batch of reading the importance from the cached letters' headers (#72): the
@@ -4297,8 +4298,10 @@ mod tests {
 
         // A letter cached before the column learns it when opened.
         assert!(!store.get(other).unwrap().unwrap().dmarc);
-        store.note_verdict(other, true).unwrap();
+        assert!(store.note_verdict(other, true).unwrap(), "the verdict changed");
         assert!(store.get(other).unwrap().unwrap().dmarc);
+        // Told the same again, there is nothing to tell the list.
+        assert!(!store.note_verdict(other, true).unwrap());
     }
 
     #[test]

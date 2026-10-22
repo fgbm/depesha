@@ -123,6 +123,42 @@ describe("the pictures of the list (#108)", () => {
   });
 });
 
+describe("the logo of a sender confirmed by opening the letter (#108)", () => {
+  // The backend gives a logo only for a letter named as the one that passed: no letter, no logo.
+  const logoWhen = () => api.avatar.mockImplementation(async (_a: string, _e: string, of: number | null) => (of === null ? null : "data:image/svg+xml;base64,logo"));
+
+  it("comes into the row at once, without a reload of the list", async () => {
+    logoWhen();
+    const t = draw([row(1, "ozon@five.example")]);
+    await tick();
+    expect(t.querySelector(".row .pic img")).toBeNull();
+    expect(t.querySelector(".row .pic")?.textContent?.trim()).toBe("O");
+    app.list.verdict(1, true);
+    flushSync();
+    await tick();
+    flushSync();
+    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@five.example", 1);
+    expect(t.querySelector(".row .pic img")?.getAttribute("src")).toBe("data:image/svg+xml;base64,logo");
+  });
+
+  it("is the logo of the letter that wrote last in a conversation", async () => {
+    logoWhen();
+    const voices = [
+      { from: { name: null, email: "ivan@five.example" }, dmarc: false, id: 9 },
+      { from: { name: null, email: "ozon@six.example" }, dmarc: false, id: 10 },
+    ];
+    const t = draw([row(1, "ivan@five.example", { thread_count: 2, thread_voices: voices })]);
+    await tick();
+    expect(t.querySelector(".row .pic img")).toBeNull();
+    app.list.verdict(10, true);
+    flushSync();
+    await tick();
+    flushSync();
+    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@six.example", 10);
+    expect(t.querySelector(".row .pic img")).not.toBeNull();
+  });
+});
+
 describe("chosen rows and the open letter (#108, 2.5 Б)", () => {
   it("puts a tick in the place of the circle of the rows chosen together, and not of the one letter that is open", () => {
     const t = draw([row(1, "a@x.example"), row(2, "b@x.example"), row(3, "c@x.example")]);

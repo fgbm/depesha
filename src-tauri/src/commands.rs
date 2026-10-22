@@ -1087,9 +1087,19 @@ pub async fn message_open(
         notice.previous = previous_meeting(&state.store, &row, notice).map(Box::new);
     }
     // The list shows a brand logo by this verdict (#108): a letter cached before it was kept
-    // learns it here.
-    if let Err(e) = state.store.note_verdict(row.id, verdict.logo) {
-        tracing::warn!("the verdict of a letter was not kept: {e}");
+    // learns it here, and its row in any list follows at once instead of at the next reload.
+    match state.store.note_verdict(row.id, verdict.logo) {
+        Ok(true) => state.emit(
+            "letter-verdict",
+            serde_json::json!({
+                "account_id": row.account_id,
+                "folder": row.folder,
+                "id": row.id,
+                "logo": verdict.logo,
+            }),
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("the verdict of a letter was not kept: {e}"),
     }
     // The same for the importance (#72): the headers of a cached letter are not fetched again.
     if let Err(e) = state.store.note_importance(row.id, view.summary.importance) {
