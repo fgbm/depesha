@@ -92,6 +92,23 @@ pub enum Reason {
     /// The server stayed silent and the signature is of a letter of another time than the one
     /// that was received.
     Replay,
+    /// The server stayed silent and the signature names no time of the letter, and covers no
+    /// `Date`: whether the letter is of this time cannot be told.
+    NoTime,
+    /// The server stayed silent and the signature is of another organization than the From.
+    NotAligned,
+    /// The server stayed silent and the signature does not stand any more: its `x=` has passed.
+    Expired,
+    /// The server stayed silent and the sender's policy asks for the exact name in `d=`
+    /// (`adkim=s`), which the signature does not give.
+    StrictPolicy,
+    /// The server stayed silent and the block of headers is read one way by the server and
+    /// another by the app.
+    UnevenHeaders,
+    /// The server stayed silent and the signature covers neither the `To` nor the `Cc` the
+    /// address of the mailbox stands in: the letter came to a list, an alias or in Bcc, and the
+    /// signature names none of them.
+    NoRecipientInH,
     /// The server stayed silent and DNS did not answer for the signature's key.
     Unchecked,
     /// The letter's From is not the one trusted address alone, as both readers of its headers
@@ -201,9 +218,9 @@ fn weigh(evidence: &Evidence) -> Verdict {
             },
             crate::dkim::Signature::Unsigned => no(Reason::Unsigned),
             crate::dkim::Signature::Unchecked => no(Reason::Unchecked),
-            crate::dkim::Signature::Failed(crate::dkim::Reason::NoKey) => no(Reason::NoKey),
-            crate::dkim::Signature::NotAligned | crate::dkim::Signature::Invalid => no(Reason::Signature),
-            crate::dkim::Signature::Failed(_) => no(Reason::Signature),
+            crate::dkim::Signature::NotAligned => no(Reason::NotAligned),
+            crate::dkim::Signature::Invalid => no(Reason::Signature),
+            crate::dkim::Signature::Failed(reason) => no(from_check(reason)),
         };
     }
     // The original headers of the letter, without its body: the signature covers the From, the
@@ -218,9 +235,7 @@ fn weigh(evidence: &Evidence) -> Verdict {
             },
             crate::dkim::Headers::Unsigned => no(Reason::Unsigned),
             crate::dkim::Headers::Unchecked => no(Reason::Unchecked),
-            crate::dkim::Headers::Rejected(crate::dkim::Reason::NoKey) => no(Reason::NoKey),
-            crate::dkim::Headers::Rejected(crate::dkim::Reason::Replay) => no(Reason::Replay),
-            crate::dkim::Headers::Rejected(_) => no(Reason::Signature),
+            crate::dkim::Headers::Rejected(reason) => no(from_check(reason)),
         };
     }
     // The app's own check is still to be made: the window asks for it.
@@ -238,6 +253,33 @@ fn no(reason: Reason) -> Verdict {
         confirmed: false,
         logo: false,
         reason,
+    }
+}
+
+/// Why a check of a signature refused it, as the line over the letter names it. Each refusal
+/// has its own word: a signature of another organization, one that has expired, one the policy
+/// of the sender does not accept and a block both readers see differently are no forged
+/// signature, and the line must not say they are (0.8.13, 5.1 Б).
+fn from_check(reason: crate::dkim::Reason) -> Reason {
+    use crate::dkim::Reason as Checked;
+    match reason {
+        Checked::NoKey => Reason::NoKey,
+        Checked::Replay => Reason::Replay,
+        Checked::NoTime => Reason::NoTime,
+        Checked::NotAligned => Reason::NotAligned,
+        Checked::Expired => Reason::Expired,
+        Checked::StrictPolicy => Reason::StrictPolicy,
+        Checked::UnevenHeaders => Reason::UnevenHeaders,
+        Checked::NoRecipientInH => Reason::NoRecipientInH,
+        Checked::BodyHash
+        | Checked::BadSignature
+        | Checked::TestingKey
+        | Checked::Auid
+        | Checked::Sha1
+        | Checked::NoFromInH
+        | Checked::LRefused
+        | Checked::TooManyH
+        | Checked::FromMismatch => Reason::Signature,
     }
 }
 
@@ -378,13 +420,53 @@ mod tests {
 
     #[test]
     fn the_switch_by_address_does_not_override_a_signature_that_does_not_fit() {
-        // The signature is there and is not about the From: the address is not the answer.
+        // The signature is there and is of another organization: the address is not the answer.
         let mut e = evidence(None);
         e.own_full = Some(crate::dkim::Signature::NotAligned);
         e.by_address = true;
         let v = decide(&e);
         assert!(!v.confirmed);
-        assert_eq!(v.reason, Reason::Signature);
+        assert_eq!(v.reason, Reason::NotAligned);
+    }
+
+    #[test]
+    fn the_switch_by_address_does_not_override_a_signature_that_proves_nothing() {
+        // 0.8.13, 6.1 Б: the switch trusts the address where nothing could be checked. A signature
+        // that was checked and proved nothing — of another time, or with a key that is gone — is a
+        // «no» of its own, and the switch does not overrule it.
+        for found in [
+            crate::dkim::Headers::Rejected(crate::dkim::Reason::Replay),
+            crate::dkim::Headers::Rejected(crate::dkim::Reason::NoKey),
+        ] {
+            let mut e = evidence(None);
+            e.own_headers = Some(found);
+            e.by_address = true;
+            let v = decide(&e);
+            assert!(!v.confirmed, "{found:?}");
+            assert!(!v.logo, "{found:?}");
+            assert_ne!(v.reason, Reason::AddressOnly, "{found:?}");
+        }
+    }
+
+    #[test]
+    fn a_refusal_the_sender_did_not_make_keeps_its_own_reason() {
+        // 0.8.13, 5.1 Б: the line over the letter must not say the signature was forged where it is
+        // of another organization, has expired, or the policy of the sender waits for another name.
+        use crate::dkim::Reason as Checked;
+        for (checked, want) in [
+            (Checked::NoKey, Reason::NoKey),
+            (Checked::Replay, Reason::Replay),
+            (Checked::NoTime, Reason::NoTime),
+            (Checked::NotAligned, Reason::NotAligned),
+            (Checked::Expired, Reason::Expired),
+            (Checked::StrictPolicy, Reason::StrictPolicy),
+            (Checked::UnevenHeaders, Reason::UnevenHeaders),
+            (Checked::NoRecipientInH, Reason::NoRecipientInH),
+            (Checked::BadSignature, Reason::Signature),
+            (Checked::BodyHash, Reason::Signature),
+        ] {
+            assert_eq!(from_check(checked), want, "{checked:?}");
+        }
     }
 
     #[test]

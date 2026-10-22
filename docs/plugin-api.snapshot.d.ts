@@ -752,7 +752,7 @@ type Unsubscribe = {
     mailto: string | null;
 };
 
-type Unverified = "server" | "checking" | "unsigned" | "signature" | "no_key" | "unchecked" | "replay" | "ambiguous_from" | "address_only" | "address_only_unchecked" | "no_check";
+type Unverified = "server" | "checking" | "unsigned" | "signature" | "no_key" | "unchecked" | "replay" | "no_time" | "not_aligned" | "expired" | "strict_policy" | "uneven_headers" | "no_recipient_in_h" | "ambiguous_from" | "address_only" | "address_only_unchecked" | "no_check";
 
 type Voice = {
     from: Addr;

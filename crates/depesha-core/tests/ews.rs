@@ -20,7 +20,10 @@ use depesha_core::mail;
 use depesha_core::smtp;
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::SyncOptions;
-use depesha_core::{ews, ntlm};
+use depesha_core::{dkim, ews, ntlm};
+use mail_auth::common::crypto::Ed25519Key;
+use mail_auth::common::headers::HeaderWriter;
+use mail_auth::dkim::DkimSigner;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -34,6 +37,9 @@ struct Item {
     read: bool,
     subject: String,
     message_id: String,
+    /// The block `0x007D` the server hands over, when it is not the plain [`headers_of`]: some
+    /// servers put a line of their own above it, and the signature is below (0.8.13, ступень 4).
+    transport: Option<String>,
 }
 
 struct Mailbox {
@@ -259,11 +265,12 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
                         let raw = format!("{}\r\nПривет!\r\n", headers_of(it));
                         format!(r#"<t:MimeContent CharacterSet="UTF-8">{}</t:MimeContent>"#, BASE64.encode(raw))
                     } else {
+                        let headers = it.transport.clone().unwrap_or_else(|| headers_of(it));
                         format!(
                             r#"<t:Subject>{s}</t:Subject><t:DateTimeReceived>{d}</t:DateTimeReceived><t:Size>1234</t:Size><t:DateTimeSent>{d}</t:DateTimeSent><t:HasAttachments>false</t:HasAttachments><t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x7d" PropertyType="String"/><t:Value>{h}</t:Value></t:ExtendedProperty><t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0xe07" PropertyType="Integer"/><t:Value>{r}</t:Value></t:ExtendedProperty><t:From><t:Mailbox><t:Name>Анна Петрова</t:Name><t:EmailAddress>anna@corp.ru</t:EmailAddress><t:RoutingType>SMTP</t:RoutingType></t:Mailbox></t:From><t:InternetMessageId>{m}</t:InternetMessageId>"#,
                             s = it.subject,
                             d = iso(it.received),
-                            h = headers_of(it).replace('<', "&lt;").replace('>', "&gt;").replace("\r\n", "&#xD;\n"),
+                            h = headers.replace('<', "&lt;").replace('>', "&gt;").replace("\r\n", "&#xD;\n"),
                             r = if it.read { 1 } else { 0 },
                             m = it.message_id.replace('<', "&lt;").replace('>', "&gt;"),
                         )
@@ -500,6 +507,42 @@ fn item(id: &str, folder: &str, received: i64, subject: &str) -> Item {
         read: false,
         subject: subject.into(),
         message_id: format!("<{id}@corp.ru>"),
+        transport: None,
+    }
+}
+
+/// The headers of an item as a block the check of the signature reads: up to the empty line, and
+/// with the line endings `crlf` says.
+fn block_of(it: &Item, crlf: bool) -> String {
+    let headers = it.transport.clone().unwrap_or_else(|| headers_of(it));
+    if crlf {
+        format!("{headers}\r\n")
+    } else {
+        format!("{}\n", headers.replace("\r\n", "\n"))
+    }
+}
+
+/// The key of the sender of the test and the record its owner publishes in DNS.
+fn sender_key() -> (Ed25519Key, String) {
+    let key = Ed25519Key::from_pkcs8_der(&Ed25519Key::generate_pkcs8().expect("a key")).expect("a key");
+    let public = BASE64.encode(key.public_key());
+    (key, format!("v=DKIM1; k=ed25519; p={public}"))
+}
+
+/// The block signed by its sender, as an `SMTPS` server signs it: the signature above the headers
+/// it covers, with the line endings of the block.
+fn signed(key: Ed25519Key, block: &str) -> String {
+    let signature = DkimSigner::from_key(key)
+        .domain("corp.ru")
+        .selector("s1")
+        .headers(["From", "To", "Subject"])
+        .sign(block.as_bytes())
+        .expect("a signature")
+        .to_header();
+    if block.contains("\r\n") {
+        format!("{signature}{block}")
+    } else {
+        format!("{}{block}", signature.replace("\r\n", "\n"))
     }
 }
 
@@ -1228,4 +1271,85 @@ async fn an_exchange_draft_keeps_its_mark_when_the_server_gives_it_another_messa
     let id = message::parse_summary(stored.as_bytes()).message_id.unwrap();
     assert!(id.contains("AAMkAGRk"), "the server changed the Message-ID: {id}");
     assert_eq!(message::sealed_draft_mark(stored.as_bytes()).as_deref(), Some(mark));
+}
+
+#[tokio::test]
+async fn a_line_above_the_original_headers_does_not_take_the_signature_of_the_letter() {
+    // Some servers start `0x007D` with `Microsoft Mail Internet Headers Version 2.0`, which is no
+    // header at all: a parser ends the block on it, and the signature below would be lost with it.
+    // The signature over the block is the proof of the sender on that step (0.8.13, ступень 4),
+    // and the letter keeps the block as it came, with CRLF and with LF.
+    for crlf in [true, false] {
+        let (key, record) = sender_key();
+        let received = chrono::Utc::now().timestamp();
+        let mut it = item("s1", "I", received, "Счёт");
+        let block = block_of(&it, crlf);
+        let eol = if crlf { "\r\n" } else { "\n" };
+        it.transport = Some(format!(
+            "Microsoft Mail Internet Headers Version 2.0{eol}{}",
+            signed(key, &block)
+        ));
+        let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+            items: vec![it],
+            next_id: 100,
+            created: Vec::new(),
+            folders_made: Vec::new(),
+            windows_only: false,
+            busy: Vec::new(),
+            connections: 0,
+            find_items: 0,
+            rewrite_message_ids: false,
+            stored: Vec::new(),
+        }));
+        let port = fake_exchange(mailbox).await;
+        let config = EwsConfig {
+            url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+            trusted_cert: None,
+        };
+        let mut s = ews::connect(&config, &Credentials::new("CORP\\me", "secret"), "me@corp.ru")
+            .await
+            .unwrap();
+        let store = Store::open_in_memory().unwrap();
+        ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+        ews::sync_folder(&mut s, &store, ACCOUNT, "INBOX", SyncOptions::default())
+            .await
+            .unwrap();
+        let row = store
+            .list(&ListQuery {
+                account_id: Some(ACCOUNT.into()),
+                folder: Some("INBOX".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            row.from.as_ref().map(|a| a.email.as_str()),
+            Some("anna@corp.ru"),
+            "crlf={crlf}"
+        );
+        // The block is kept, without the line above it.
+        let headers = store
+            .ews_headers(row.id)
+            .unwrap()
+            .unwrap_or_else(|| panic!("the original headers of the letter, crlf={crlf}"));
+        assert!(headers.starts_with("DKIM-Signature:"), "crlf={crlf}: {headers}");
+        let check = dkim::Verifier::default();
+        assert!(
+            check.add_answer("s1._domainkey.corp.ru.", &record),
+            "the key of the letter"
+        );
+        let stored_at = store
+            .ews_received(ACCOUNT, "INBOX", row.uid)
+            .unwrap()
+            .expect("the time of receipt");
+        assert_eq!(stored_at, received);
+        assert_eq!(
+            check
+                .check_headers(headers.as_bytes(), "anna@corp.ru", "me@corp.ru", stored_at)
+                .await,
+            dkim::Headers::Valid,
+            "crlf={crlf}"
+        );
+    }
 }

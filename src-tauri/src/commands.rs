@@ -708,6 +708,21 @@ pub enum Unverified {
     /// The server gave no verdict, and the signature is of a letter of another time than the one
     /// that came (0.8.13, ступень 4).
     Replay,
+    /// The server gave no verdict, and the signature names no time of the letter, and covers no
+    /// `Date`.
+    NoTime,
+    /// The server gave no verdict, and the signature is of another organization than the From.
+    NotAligned,
+    /// The server gave no verdict, and the signature has expired.
+    Expired,
+    /// The server gave no verdict, and the sender's policy asks for the exact name in `d=`.
+    StrictPolicy,
+    /// The server gave no verdict, and the server and the app may read the block of headers
+    /// differently.
+    UnevenHeaders,
+    /// The server gave no verdict, and the signature covers neither the `To` nor the `Cc` the
+    /// mailbox's address stands in: the letter came to a list, an alias or in Bcc.
+    NoRecipientInH,
     /// The letter's From is not the one trusted address alone, as both readers of its headers
     /// see it: a second From, or a header one of them reads and the other does not.
     AmbiguousFrom,
@@ -730,6 +745,12 @@ impl From<sender::Reason> for Unverified {
             sender::Reason::Signature => Self::Signature,
             sender::Reason::NoKey => Self::NoKey,
             sender::Reason::Replay => Self::Replay,
+            sender::Reason::NoTime => Self::NoTime,
+            sender::Reason::NotAligned => Self::NotAligned,
+            sender::Reason::Expired => Self::Expired,
+            sender::Reason::StrictPolicy => Self::StrictPolicy,
+            sender::Reason::UnevenHeaders => Self::UnevenHeaders,
+            sender::Reason::NoRecipientInH => Self::NoRecipientInH,
             sender::Reason::Unchecked => Self::Unchecked,
             sender::Reason::AmbiguousFrom => Self::AmbiguousFrom,
             sender::Reason::Checking => Self::Checking,
@@ -917,14 +938,17 @@ fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict:
     // algorithm, whether it has expired, the length of the body it covers, and whether it
     // covers the `From`. Domains and selectors only, no address of a person. A letter of
     // Exchange is checked over its original headers, so its signature is the one they carry.
-    let sig = dkim::signature_about(original.unwrap_or(evidence.raw)).unwrap_or_else(|| "-".to_owned());
+    let sig = dkim::signature_about(original.unwrap_or(evidence.raw), from_domain).unwrap_or_else(|| "-".to_owned());
+    // The block the check of the step reads is the one the log tells about: the original headers
+    // of a letter of Exchange, when the server kept them aside (0.8.13, ступень 4).
+    let uneven = original.map_or(evidence.auth.uneven, dkim::uneven_headers);
     tracing::debug!(
         id,
         kind,
         folder = %folder,
         %from_domain,
         listed,
-        uneven = evidence.auth.uneven,
+        uneven,
         step = verdict.step.code(),
         verdict = if verdict.confirmed { "confirmed" } else { "unconfirmed" },
         %server,
@@ -1127,9 +1151,14 @@ const PREVIOUS_LETTERS: u32 = 20;
 /// When Exchange received a letter, as the check over its original headers takes it (0.8.13,
 /// ступень 4). The letter's own `Date` is no answer: the sender wrote it, and a letter of another
 /// time carries its own. A letter with no receipt time of its own cannot be shown to be the one
-/// that came, so it is a replay.
+/// that came, so it is a replay. Exchange writes zero where it knows no time, and a zero is one
+/// more absence, not a time an hour before 1970: the check would then ask DNS for a signature
+/// that proves nothing.
 fn received_at(received: Option<i64>) -> Result<i64, dkim::Headers> {
-    received.ok_or(dkim::Headers::Rejected(dkim::Reason::Replay))
+    match received {
+        Some(received) if received > 0 => Ok(received),
+        _ => Err(dkim::Headers::Rejected(dkim::Reason::Replay)),
+    }
 }
 
 /// The app's own DKIM check of a letter from a trusted sender whose mailbox server gave no
@@ -5263,11 +5292,12 @@ mod tests {
     #[test]
     fn the_log_of_a_letter_of_exchange_names_its_own_signature() {
         // The letter Exchange assembled again carries no signature; the original headers it kept
-        // aside do, and that is the signature the log describes (0.8.13, ступень 4, 7.1 Б).
+        // aside do, and that is the signature the log describes (0.8.13, ступень 4, 7.1 Б). Anyone
+        // may put a signature above the real one, and the log names the one of the sender, not that.
         let raw = letter("", "From: Bank <security@bank.ru>\r\n");
         let auth = message::authenticity(&raw, &yandex());
         let sender = "security@bank.ru";
-        let original = "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=bank.ru; s=s7; h=from:to:subject; bh=AAAA; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\r\n";
+        let original = "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=evil.example; s=s9; h=from:to:subject; bh=AAAA; b=AAAA\r\nDKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=bank.ru; s=s7; h=from:to:subject; bh=AAAA; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\r\n";
         let evidence = Evidence::of(
             &raw,
             &auth,
@@ -5292,6 +5322,45 @@ mod tests {
         assert!(line.contains("d=bank.ru,s=s7"), "{line}");
         assert!(line.contains("own=headers:no_recipient_in_h"), "{line}");
         assert!(line.contains("outcome=\"no_recipient_in_h\""), "{line}");
+        assert!(line.contains("uneven=false"), "{line}");
+    }
+
+    #[test]
+    fn the_log_of_a_letter_of_exchange_tells_about_the_block_the_check_reads() {
+        // 0.8.13, 7.1 Б: the block the step reads is the original one, and its reading is what the
+        // log tells about — not the headers of the letter Exchange assembled again.
+        let raw = String::from_utf8(letter("", "From: Bank <security@bank.ru>\r\n"))
+            .unwrap()
+            .replace("Subject: Hi\r\n", "Subject: Hi\n");
+        let auth = message::authenticity(raw.as_bytes(), &yandex());
+        assert!(auth.uneven, "the letter itself reads differently");
+        let sender = "security@bank.ru";
+        let even = "DKIM-Signature: v=1; d=bank.ru; s=s7; h=from:to; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\n\r\n";
+        let mixed = even.replace("To: me@yandex.ru\r\n", "To: me@yandex.ru\n");
+        let evidence = Evidence::of(
+            raw.as_bytes(),
+            &auth,
+            sender,
+            None,
+            Some(dkim::Headers::Rejected(dkim::Reason::NotAligned)),
+            false,
+            false,
+        );
+        let verdict = sender_verdict(&evidence);
+        for (original, uneven) in [(even, false), (mixed.as_str(), true)] {
+            let line = logged(|| {
+                let letter = LoggedLetter {
+                    id: 7,
+                    folder: "INBOX",
+                    kind: "ews",
+                    from_domain: "bank.ru",
+                    listed: true,
+                    original: Some(original.as_bytes()),
+                };
+                log_sender_check(&letter, &evidence, &verdict);
+            });
+            assert_eq!(line.contains("uneven=true"), uneven, "original={original:?}: {line}");
+        }
     }
 
     #[test]
@@ -5301,6 +5370,16 @@ mod tests {
         assert_eq!(super::received_at(Some(1_800_000_000)), Ok(1_800_000_000));
         assert_eq!(
             super::received_at(None),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+        // Exchange writes zero where it knows no time: that is one more absence, and the check asks
+        // DNS about nothing.
+        assert_eq!(
+            super::received_at(Some(0)),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+        assert_eq!(
+            super::received_at(Some(-1)),
             Err(dkim::Headers::Rejected(dkim::Reason::Replay))
         );
     }
@@ -5315,6 +5394,7 @@ mod tests {
         for (found, want) in [
             (dkim::Signature::Failed(dkim::Reason::NoKey), Unverified::NoKey),
             (dkim::Signature::Unchecked, Unverified::Unchecked),
+            (dkim::Signature::Failed(dkim::Reason::NoTime), Unverified::NoTime),
             (dkim::Signature::Failed(dkim::Reason::BodyHash), Unverified::Signature),
         ] {
             let ev = Evidence::of(&raw, &auth, sender, Some(found), None, false, false);
@@ -5327,6 +5407,11 @@ mod tests {
         for (found, want) in [
             (dkim::Headers::Rejected(dkim::Reason::NoKey), Unverified::NoKey),
             (dkim::Headers::Rejected(dkim::Reason::Replay), Unverified::Replay),
+            (
+                dkim::Headers::Rejected(dkim::Reason::NoRecipientInH),
+                Unverified::NoRecipientInH,
+            ),
+            (dkim::Headers::Rejected(dkim::Reason::NoTime), Unverified::NoTime),
             (dkim::Headers::Unchecked, Unverified::Unchecked),
             (
                 dkim::Headers::Rejected(dkim::Reason::BadSignature),
@@ -5431,13 +5516,14 @@ mod tests {
         assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
         assert!(own_check_due(true, &ev));
         assert!(!own_check_due(false, &ev));
-        // A signature of another organization: the answer is known without asking anyone.
+        // A signature of another organization: the answer is known without asking anyone, and the
+        // line over the letter says exactly that.
         let tracker = String::from_utf8(raw.clone())
             .unwrap()
             .replace("d=bank.ru", "d=t.tracker.example");
         let auth = message::authenticity(tracker.as_bytes(), &yandex());
         let ev = evidence(tracker.as_bytes(), &auth, sender, Some(dkim::Signature::NotAligned));
-        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Signature);
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::NotAligned);
         assert!(!own_check_due(true, &ev));
     }
 

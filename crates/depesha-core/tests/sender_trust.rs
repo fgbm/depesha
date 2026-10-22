@@ -27,9 +27,23 @@ use mail_auth::dkim::DkimSigner;
 
 /// The address of the mailbox the corpus letters came to.
 const MAILBOX: &str = "me@box.example";
-/// The time the signed letters of the corpus were signed at, and the time they were received: the
-/// corpus has no receipt time of its own.
-const SIGNED_AT: i64 = 1_792_621_681;
+
+/// The time a signed letter of the corpus was signed at, from the `t=` of its own signature. The
+/// corpus has no receipt time of its own, and this one stands for it; it is read from the letter
+/// rather than written here, so that signing the letter again moves it too.
+fn signed_at(headers: &[u8]) -> i64 {
+    for tag in String::from_utf8_lossy(headers).split(';') {
+        let Some((name, value)) = tag.trim().split_once('=') else {
+            continue;
+        };
+        if name.trim() == "t"
+            && let Ok(t) = value.trim().parse()
+        {
+            return t;
+        }
+    }
+    panic!("the `t=` of a signed letter of the corpus");
+}
 
 /// One row of the table: the letter, the mailbox it came to and what the check must say.
 #[derive(Debug, serde::Deserialize)]
@@ -215,7 +229,7 @@ async fn own_of(row: &Row, raw: &[u8], check: &dkim::Verifier) -> Own {
 /// The corpus has no receipt time of its own: the time the signature names (`t=`) stands for it,
 /// and the check of a letter of another time has its own tests in `dkim.rs`.
 async fn headers_check(bytes: &[u8], row: &Row, check: &dkim::Verifier) -> dkim::Headers {
-    check.check_headers(bytes, &row.from, MAILBOX, SIGNED_AT).await
+    check.check_headers(bytes, &row.from, MAILBOX, signed_at(bytes)).await
 }
 
 /// Every letter of the corpus is judged as the table says.
@@ -310,13 +324,22 @@ fn sign_the_corpus() {
     ] {
         let path = dir().join(file);
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        // The signature the sender wrote goes: it was a placeholder of the old corpus.
-        let letter = text
-            .lines()
-            .filter(|line| !line.starts_with("DKIM-Signature:"))
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
+        // The signature the sender wrote goes, with the lines it folds onto: it was a placeholder of
+        // the old corpus, and a line left of it would join the signature signed now.
+        let mut letter = String::with_capacity(text.len());
+        let mut signed = false;
+        for line in text.lines() {
+            if line.starts_with("DKIM-Signature:") {
+                signed = true;
+                continue;
+            }
+            if signed && line.starts_with([' ', '\t']) {
+                continue;
+            }
+            signed = false;
+            letter.push_str(line);
+            letter.push('\n');
+        }
         let signer = DkimSigner::from_key(corpus_key())
             .domain(domain)
             .selector("s1")

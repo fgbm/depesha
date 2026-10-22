@@ -277,6 +277,18 @@ export function unverifiedKey(why: Unverified | null): Key {
       return "reader.serverUnchecked";
     case "replay":
       return "reader.serverReplay";
+    case "no_time":
+      return "reader.serverNoTime";
+    case "not_aligned":
+      return "reader.serverNotAligned";
+    case "expired":
+      return "reader.serverExpired";
+    case "strict_policy":
+      return "reader.serverStrictPolicy";
+    case "uneven_headers":
+      return "reader.serverUneven";
+    case "no_recipient_in_h":
+      return "reader.serverNoRecipient";
     case "address_only":
       return "reader.addressNotChecked";
     case "address_only_unchecked":
@@ -306,6 +318,14 @@ export function unverifiedTip(why: Unverified | null, serverChecks = false): Key
       return "reader.tipUnchecked";
     case "no_check":
       return "reader.tipCannotCheck";
+    case "no_time":
+      return "reader.tipNoTime";
+    case "strict_policy":
+      return "reader.tipStrictPolicy";
+    case "uneven_headers":
+      return "reader.tipUneven";
+    case "no_recipient_in_h":
+      return "reader.tipNoRecipient";
     default:
       return null;
   }

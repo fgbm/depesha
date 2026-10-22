@@ -768,8 +768,11 @@ fn signature_headers<'a>(headers: &'a str, receiver: &Receiver) -> Option<&'a st
     if receiver.exchange_online {
         return None;
     }
-    let end = crate::dkim::header_end(headers.as_bytes());
-    let block = &headers[..end];
+    // The line some servers put above the block is no header, and a parser ends the block on it:
+    // the signature below would be lost with the empty line that follows it.
+    let headers = crate::dkim::without_preamble(headers.as_bytes());
+    let end = crate::dkim::header_end(headers);
+    let block = str::from_utf8(&headers[..end]).ok()?;
     block.to_ascii_lowercase().contains("dkim-signature:").then_some(block)
 }
 

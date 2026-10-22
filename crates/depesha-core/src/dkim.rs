@@ -89,6 +89,9 @@ pub enum Reason {
     StrictPolicy,
     /// The letter is of another time than the letter that was received.
     Replay,
+    /// The signature names no time of the letter and covers no `Date`: whether the letter is of
+    /// this time cannot be told.
+    NoTime,
     /// The signature covers neither the `To` nor the `Cc` the address of the mailbox stands in.
     NoRecipientInH,
     /// The signature is of another organization than the From, as the check over the original
@@ -115,6 +118,7 @@ impl Reason {
             Self::FromMismatch => "from_mismatch",
             Self::StrictPolicy => "strict_policy",
             Self::Replay => "replay",
+            Self::NoTime => "no_time",
             Self::NoRecipientInH => "no_recipient_in_h",
             Self::NotAligned => "not_aligned",
             Self::UnevenHeaders => "uneven_headers",
@@ -275,7 +279,7 @@ pub(crate) fn header_end(raw: &[u8]) -> usize {
 /// a space. The server of the mailbox and the app read such a block differently — one may take a
 /// line for a field of no name, or for the end of the headers, where the other reads on — so the
 /// server's word about the sender is not taken there, and the app checks the signature itself.
-pub(crate) fn uneven_headers(raw: &[u8]) -> bool {
+pub fn uneven_headers(raw: &[u8]) -> bool {
     let block = &raw[..header_end(raw)];
     let mut mixed: Option<bool> = None;
     let mut pos = 0;
@@ -808,7 +812,7 @@ fn proves_the_letter(
     let signed_at = if signature.t > 0 {
         signature.t as i64
     } else {
-        signed_date(message, raw, signature).ok_or(Reason::Replay)?
+        signed_date(message, raw, signature).ok_or(Reason::NoTime)?
     };
     // The times are as the letter and the server wrote them: a `t=` near the end of the range
     // leaves no room for the subtraction, so the two are compared as unsigned.
@@ -915,9 +919,14 @@ pub fn without_preamble(headers: &[u8]) -> &[u8] {
 /// covers, and whether it covers the `From`. Domains and selectors only, never an address of a
 /// person (0.8.13, 7.1 Б). With the original headers of Exchange at hand, the signature of the
 /// letter is the one kept in them (0.8.13, ступень 4).
-pub fn signature_about(raw: &[u8]) -> Option<String> {
+pub fn signature_about(raw: &[u8], from_domain: &str) -> Option<String> {
     let message = AuthenticatedMessage::parse(without_preamble(raw))?;
-    let header = message.dkim_headers.first()?;
+    // The signature the check itself would take: anyone may put one of his own above the real
+    // one, and the top of the block would then name a stranger (0.8.13, ступень 4).
+    let header = message
+        .dkim_headers
+        .iter()
+        .find(|h| crate::avatar::aligned(&h.header.d, from_domain))?;
     let s = &header.header;
     let now = chrono::Utc::now().timestamp() as u64;
     let expired = s.x != 0 && s.x < now;
@@ -994,8 +1003,14 @@ mod tests {
     /// A signature nobody signed, put above a real one: any block may carry one (0.8.13,
     /// ступень 4).
     fn forged_over(t: i64, signed: &str) -> String {
+        forged_over_in("evil.example", t, signed)
+    }
+
+    /// The same, naming the domain of the sender itself: the signature of the sender's own
+    /// organization is still a signature nobody signed.
+    fn forged_over_in(domain: &str, t: i64, signed: &str) -> String {
         format!(
-            "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=evil.example; s=s1; t={t}; h=from:to; bh=AAAA; b=AAAA\r\n{signed}"
+            "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d={domain}; s=s1; t={t}; h=from:to; bh=AAAA; b=AAAA\r\n{signed}"
         )
     }
 
@@ -1629,6 +1644,62 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_relaxed_signature_over_the_headers_is_measured_by_the_mailbox_and_the_time() {
+        // `d=openai.com` signs for `noreply@email.openai.com` by relaxed alignment of DMARC: the
+        // mailbox and the time of the letter are asked of that signature as well, and the old one
+        // is a replay, not a proof (0.8.13, ступень 4).
+        let (sign_key, record) = keypair();
+        let letter = "From: OpenAI <noreply@email.openai.com>\r\nTo: me@firm.example\r\nSubject: Hi\r\n\r\nhi\r\n";
+        let signed = sign(sign_key, "openai.com", letter);
+        let from = "noreply@email.openai.com";
+        let v = dns([
+            key("openai.com", &record),
+            dmarc("email.openai.com", Some("v=DMARC1; p=reject")),
+        ]);
+        let month = 30 * 24 * 3600;
+        assert_eq!(
+            v.check_headers(signed.as_bytes(), from, MAILBOX, now() + month).await,
+            Headers::Rejected(Reason::Replay)
+        );
+        // At its own time the same block confirms the sender: nothing else about it is wrong.
+        assert_eq!(
+            v.check_headers(signed.as_bytes(), from, MAILBOX, now()).await,
+            Headers::Valid
+        );
+    }
+
+    #[tokio::test]
+    async fn a_forged_signature_of_the_sender_own_organization_over_an_old_one_is_a_replay() {
+        // A signature of the sender's own domain is no more proof than one of a stranger's: anyone
+        // may put it above the real one, it does not pass, and the time of the letter stays the one
+        // the real signature names (0.8.13, ступень 4).
+        let (key, record) = keypair();
+        let signed = sign(key, "1c-bitrix.ru", LETTER);
+        let month = 30 * 24 * 3600;
+        let received = now() + month;
+        let forged = forged_over_in("1c-bitrix.ru", received, &signed);
+        assert_eq!(
+            verifier("1c-bitrix.ru", &record)
+                .check_headers(forged.as_bytes(), SENDER, MAILBOX, received)
+                .await,
+            Headers::Rejected(Reason::Replay)
+        );
+    }
+
+    #[test]
+    fn a_signature_that_names_no_time_of_the_letter_names_no_time() {
+        // `DkimSigner` always writes `t=`; a signature that names none and covers no `Date` says
+        // nothing about whether the letter is of this time (0.8.13, ступень 4).
+        let headers = "DKIM-Signature: v=1; a=ed25519-sha256; d=1c-bitrix.ru; s=s1; h=from:to; bh=AAAA; b=AAAA\r\nFrom: Bitrix24 <no-reply@1c-bitrix.ru>\r\nTo: me@firm.example\r\nSubject: Hi\r\n\r\n";
+        let message = AuthenticatedMessage::parse(headers.as_bytes()).expect("a letter");
+        let signature = &message.dkim_headers[0].header;
+        assert_eq!(
+            proves_the_letter(&message, headers.as_bytes(), signature, &addressed(MAILBOX, now())),
+            Err(Reason::NoTime)
+        );
+    }
+
     #[test]
     fn the_preamble_of_exchange_is_no_header() {
         let signed = "DKIM-Signature: v=1; b=AAAA\r\nFrom: a@b\r\n\r\nbody\r\n";
@@ -1672,14 +1743,14 @@ mod tests {
             "From: Bitrix24 <no-reply@1c-bitrix.ru>\r\nTo: me@firm.example\r\n",
             "Subject: Hi\r\nDate: Mon, 19 Oct 2026 12:00:00 +0300\r\n\r\n"
         );
-        // The `Date` is not in the `h=` list: the time of the letter is unknown, and a letter
-        // with no time of its own cannot be shown to be this letter.
+        // The `Date` is not in the `h=` list: the signature names no time of the letter, and a
+        // letter with no time of its own cannot be shown to be this letter.
         let message = AuthenticatedMessage::parse(letter.as_bytes()).unwrap();
         let signature = message.dkim_headers[0].header.clone();
         assert!(signed_date(&message, letter.as_bytes(), &signature).is_none());
         assert_eq!(
             proves_the_letter(&message, letter.as_bytes(), &signature, &addressed(MAILBOX, now)),
-            Err(Reason::Replay)
+            Err(Reason::NoTime)
         );
         // The same with the `Date` covered: the date is the time of the letter.
         let dated = letter.replace("h=from:to:subject;", "h=from:to:subject:date;");

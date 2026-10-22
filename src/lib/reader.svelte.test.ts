@@ -231,6 +231,12 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
     expect(unverifiedKey("signature")).toBe("reader.serverBadSignature");
     expect(unverifiedKey("unchecked")).toBe("reader.serverUnchecked");
     expect(unverifiedKey("replay")).toBe("reader.serverReplay");
+    expect(unverifiedKey("no_time")).toBe("reader.serverNoTime");
+    expect(unverifiedKey("not_aligned")).toBe("reader.serverNotAligned");
+    expect(unverifiedKey("expired")).toBe("reader.serverExpired");
+    expect(unverifiedKey("strict_policy")).toBe("reader.serverStrictPolicy");
+    expect(unverifiedKey("uneven_headers")).toBe("reader.serverUneven");
+    expect(unverifiedKey("no_recipient_in_h")).toBe("reader.serverNoRecipient");
     expect(unverifiedKey("address_only")).toBe("reader.addressNotChecked");
     expect(unverifiedKey("address_only_unchecked")).toBe("reader.addressNotCheckedNoKey");
     expect(unverifiedKey("no_check")).toBe("reader.cannotCheck");
@@ -239,6 +245,10 @@ describe("the line about a sender who is not confirmed (0.8.13)", () => {
     expect(unverifiedTip("signature")).toBe("reader.tipBadSignature");
     expect(unverifiedTip("unchecked")).toBe("reader.tipUnchecked");
     expect(unverifiedTip("no_check")).toBe("reader.tipCannotCheck");
+    expect(unverifiedTip("no_time")).toBe("reader.tipNoTime");
+    expect(unverifiedTip("strict_policy")).toBe("reader.tipStrictPolicy");
+    expect(unverifiedTip("uneven_headers")).toBe("reader.tipUneven");
+    expect(unverifiedTip("no_recipient_in_h")).toBe("reader.tipNoRecipient");
     expect(unverifiedTip("server")).toBeNull();
   });
 
