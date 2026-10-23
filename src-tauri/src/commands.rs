@@ -329,13 +329,16 @@ pub async fn account_save(
     {
         account.reply_signature = None;
     }
-    let before = state
-        .accounts()
-        .into_iter()
-        .find(|a| a.id == account.id)
-        .map(|a| a.attachments_dir)
-        .unwrap_or_default();
+    let stored = state.accounts().into_iter().find(|a| a.id == account.id);
+    let before = stored.as_ref().map(|a| a.attachments_dir.clone()).unwrap_or_default();
     check_save_folder(&state, &before, &account.attachments_dir)?;
+    // The addresses the mailbox has on its server are the server's word, which the page never
+    // carries: kept as they are, unless the login changed to what may be another mailbox, whose
+    // addresses the mailbox's worker asks for with its first pass (0.8.13, ступень 4).
+    account.addresses = match (&stored, account.is_ews()) {
+        (Some(stored), true) if same_login(stored, &account) => stored.addresses.clone(),
+        _ => Vec::new(),
+    };
     let grant = grant.and_then(|g| lock(&state.grants).remove(&g));
     match (&account.auth, grant) {
         (AuthMethod::OAuth { .. }, Some(grant)) => {
@@ -357,6 +360,16 @@ pub async fn account_save(
     let worker = worker::spawn(state.inner().clone(), account.clone());
     state.set_worker(&account.id, Some(worker));
     Ok(account)
+}
+
+/// Whether the page saved the same login: the mailbox, its server and the way it signs in. The
+/// addresses Exchange names go with the login, and another login may be another mailbox
+/// (0.8.13, ступень 4).
+fn same_login(stored: &Account, saved: &Account) -> bool {
+    stored.email.eq_ignore_ascii_case(saved.email.trim())
+        && stored.username == saved.username
+        && stored.auth == saved.auth
+        && stored.ews == saved.ews
 }
 
 #[tauri::command]
@@ -906,6 +919,9 @@ struct LoggedLetter<'a> {
     listed: bool,
     /// The original headers of a letter of Exchange, when the server kept one aside.
     original: Option<&'a [u8]>,
+    /// The addresses the mailbox itself has, which the step 4 check looked for: the operator's
+    /// own, never those of the sender or of anyone else.
+    mailbox: &'a [String],
 }
 
 /// One line in the log about the sender of a letter (0.8.13): what the ladder decided, what
@@ -918,10 +934,19 @@ fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict:
         from_domain,
         listed,
         original,
+        mailbox,
     } = *letter;
     let server = match &evidence.auth.check {
         Some(check) => check.to_string(),
         None => "none".to_owned(),
+    };
+    // Which addresses of the mailbox the check of the step 4 looked for: without them the reason
+    // `no_recipient_in_h` says nothing about why the signature named no address of this mailbox
+    // (0.8.13, ступень 4).
+    let mailbox = if mailbox.is_empty() {
+        "-".to_owned()
+    } else {
+        mailbox.join(",")
     };
     let own = match (evidence.own_full, evidence.own_headers) {
         (Some(s), _) => format!("full:{}", signature_outcome(s)),
@@ -955,6 +980,7 @@ fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict:
         %own,
         outcome,
         %sig,
+        %mailbox,
         "sender check"
     );
 }
@@ -1055,6 +1081,7 @@ pub async fn message_open(
     let trusted_sender = listed && verdict.confirmed;
     // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
     let kind = box_kind(&account);
+    let mailboxes = account.own_addresses();
     let logged = LoggedLetter {
         id: row.id,
         folder: &row.folder,
@@ -1062,6 +1089,7 @@ pub async fn message_open(
         from_domain: &from_domain,
         listed,
         original: original.as_deref(),
+        mailbox: &mailboxes,
     };
     log_sender_check(&logged, &evidence, &verdict);
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
@@ -1203,7 +1231,7 @@ pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
             Ok(received) => {
                 state
                     .signatures
-                    .check_headers_remembered(row.id, &bytes, &sender, &account.email, received)
+                    .check_headers_remembered(row.id, &bytes, &sender, &account.own_addresses(), received)
                     .await
             }
             Err(verdict) => {
@@ -5278,6 +5306,8 @@ mod tests {
         let sender = "security@bank.ru";
         let evidence = Evidence::of(&raw, &auth, sender, Some(dkim::Signature::Unsigned), None, false, false);
         let verdict = sender_verdict(&evidence);
+        // The addresses of the mailbox itself, which the check of the step 4 looks for.
+        let mailbox = ["me@example.org".to_owned(), "me+news@example.org".to_owned()];
         let line = logged(|| {
             let letter = LoggedLetter {
                 id: 7,
@@ -5286,6 +5316,7 @@ mod tests {
                 from_domain: "bank.ru",
                 listed: true,
                 original: None,
+                mailbox: &mailbox,
             };
             log_sender_check(&letter, &evidence, &verdict);
         });
@@ -5297,7 +5328,9 @@ mod tests {
         assert!(line.contains("outcome=\"unsigned\""), "{line}");
         // The block of headers the server and the app may read differently (0.8.13, 7.1 Б).
         assert!(line.contains("uneven=false"), "{line}");
-        // No address of a person in the line.
+        // Which addresses of the mailbox the check looked for: the operator's own, never an
+        // address of a person (0.8.13, ступень 4).
+        assert!(line.contains("mailbox=me@example.org,me+news@example.org"), "{line}");
         assert!(!line.contains("security@bank.ru"), "{line}");
     }
 
@@ -5328,6 +5361,7 @@ mod tests {
                 from_domain: "bank.ru",
                 listed: true,
                 original: Some(original.as_bytes()),
+                mailbox: &[],
             };
             log_sender_check(&letter, &evidence, &verdict);
         });
@@ -5368,6 +5402,7 @@ mod tests {
                     from_domain: "bank.ru",
                     listed: true,
                     original: Some(original.as_bytes()),
+                    mailbox: &[],
                 };
                 log_sender_check(&letter, &evidence, &verdict);
             });

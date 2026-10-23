@@ -105,8 +105,8 @@ pub enum Reason {
     /// The server stayed silent and the block of headers is read one way by the server and
     /// another by the app.
     UnevenHeaders,
-    /// The server stayed silent and the signature covers neither the `To` nor the `Cc` the
-    /// address of the mailbox stands in: the letter came to a list, an alias or in Bcc, and the
+    /// The server stayed silent and the signature covers neither the `To` nor the `Cc` one of
+    /// the mailbox's addresses stands in: the letter came to a list, an alias or in Bcc, and the
     /// signature names none of them.
     NoRecipientInH,
     /// The server stayed silent and DNS did not answer for the signature's key.

@@ -95,6 +95,13 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub ews: Option<EwsConfig>,
+    /// The addresses the mailbox has on its server, the primary one first, as Exchange names
+    /// them (0.8.13, ступень 4). The login of a mailbox of the firm's own network is not the
+    /// address letters to it carry, and the check of a signature over the original headers has
+    /// to know which addresses are the mailbox's. Empty until the server says them, and for a
+    /// mailbox that is not Exchange: `email` is then the only name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addresses: Vec<String>,
     /// Warn when the mailbox fills up (the levels are in the settings).
     #[serde(default = "yes", skip_serializing_if = "is_yes")]
     pub quota_warn: bool,
@@ -136,6 +143,34 @@ impl Waiting {
 impl Account {
     pub fn is_ews(&self) -> bool {
         self.ews.is_some()
+    }
+
+    /// The addresses this mailbox is reached by, the primary one first: those the server named,
+    /// or `email` alone when it never named any (0.8.13, ступень 4).
+    pub fn own_addresses(&self) -> Vec<String> {
+        if self.addresses.is_empty() {
+            vec![self.email.trim().to_owned()]
+        } else {
+            self.addresses.clone()
+        }
+    }
+
+    /// The names to ask the mailbox's server about its own addresses, the likeliest first: the
+    /// address the app knows, then the login, then the login without its `DOMAIN\` part — a
+    /// server of the firm's own network resolves a user by the name of the account.
+    pub fn own_names(&self) -> Vec<String> {
+        let login = self.username.trim();
+        let mut names: Vec<String> = Vec::with_capacity(3);
+        for name in [
+            self.email.trim(),
+            login,
+            login.rsplit_once('\\').map_or(login, |(_, user)| user),
+        ] {
+            if !name.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                names.push(name.to_owned());
+            }
+        }
+        names
     }
 
     /// Moves the plain-text signature of an earlier version into the list, as the
@@ -559,5 +594,45 @@ mod tests {
             assert!(!imap.host.is_empty() && !smtp.host.is_empty());
         }
         assert_eq!(OAuthProvider::Microsoft.servers().0.host, "outlook.office365.com");
+    }
+
+    #[test]
+    fn a_mailbox_is_reached_by_every_address_the_server_names() {
+        // The addresses of Exchange go into the settings; a mailbox saved before them has none,
+        // and the address it was added by stays its only one (0.8.13, ступень 4).
+        let json = r#"{"id":"a","display_name":"A","email":"carol@old.example","username":"CORP\\carol",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"},
+            "ews":{"url":"https://mail.example.org/EWS/Exchange.asmx"}}"#;
+        let a: Account = serde_json::from_str(json).unwrap();
+        assert!(a.addresses.is_empty());
+        assert_eq!(a.own_addresses(), ["carol@old.example"]);
+        assert_eq!(a.own_names(), ["carol@old.example", "CORP\\carol", "carol"]);
+        // Nothing of empty addresses is written back: the config of an older version reads it.
+        assert!(!serde_json::to_string(&a).unwrap().contains("addresses"));
+
+        let json = json.replace(
+            "\"ews\"",
+            r#""addresses":["carol@example.org","c.ivanova@example.org"],"ews""#,
+        );
+        let a: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            a.own_addresses(),
+            ["carol@example.org".to_owned(), "c.ivanova@example.org".to_owned()]
+        );
+        let back: Account = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(back.addresses, a.addresses);
+    }
+
+    #[test]
+    fn the_names_to_ask_the_server_about_have_no_doubles() {
+        let json = r#"{"id":"a","display_name":"A","email":"carol@example.org","username":"carol@example.org",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"}}"#;
+        let a: Account = serde_json::from_str(json).unwrap();
+        assert_eq!(a.own_names(), ["carol@example.org"]);
+        let a = Account {
+            username: String::new(),
+            ..a
+        };
+        assert_eq!(a.own_names(), ["carol@example.org"]);
     }
 }

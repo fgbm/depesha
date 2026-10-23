@@ -60,6 +60,14 @@ auth?: AuthMethod,
  */
 ews?: EwsConfig | null, 
 /**
+ * The addresses the mailbox has on its server, the primary one first, as Exchange names
+ * them (0.8.13, ступень 4). The login of a mailbox of the firm's own network is not the
+ * address letters to it carry, and the check of a signature over the original headers has
+ * to know which addresses are the mailbox's. Empty until the server says them, and for a
+ * mailbox that is not Exchange: `email` is then the only name.
+ */
+addresses?: Array<string>, 
+/**
  * Warn when the mailbox fills up (the levels are in the settings).
  */
 quota_warn?: boolean, 
@@ -148,6 +156,14 @@ auth?: AuthMethod,
  * Exchange Web Services instead of IMAP and SMTP: `imap` and `smtp` are then unused.
  */
 ews?: EwsConfig | null, 
+/**
+ * The addresses the mailbox has on its server, the primary one first, as Exchange names
+ * them (0.8.13, ступень 4). The login of a mailbox of the firm's own network is not the
+ * address letters to it carry, and the check of a signature over the original headers has
+ * to know which addresses are the mailbox's. Empty until the server says them, and for a
+ * mailbox that is not Exchange: `email` is then the only name.
+ */
+addresses?: Array<string>, 
 /**
  * Warn when the mailbox fills up (the levels are in the settings).
  */

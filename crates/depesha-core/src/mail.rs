@@ -90,6 +90,16 @@ pub async fn send_with_stage(
     }
 }
 
+/// The addresses the mailbox is reached by, the primary one first, as its server names them: none
+/// when the server has no way to say, or names no name the app knows. IMAP knows no other address
+/// of a mailbox than the one it signs in with (0.8.13, ступень 4).
+pub async fn own_addresses(conn: &mut Conn, account: &Account) -> Result<Vec<String>> {
+    match conn {
+        Conn::Imap(_) => Ok(Vec::new()),
+        Conn::Ews(s) => ews::own_addresses(s, &account.own_names()).await,
+    }
+}
+
 pub async fn sync_folder_list(conn: &mut Conn, store: &Store, account_id: &str) -> Result<Vec<Folder>> {
     match conn {
         Conn::Imap(c) => sync::sync_folder_list(c, store, account_id).await,

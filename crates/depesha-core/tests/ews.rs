@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use depesha_core::account::{Credentials, EwsConfig};
+use depesha_core::account::{Account, Credentials, EwsConfig};
 use depesha_core::domain::Addr;
 use depesha_core::domain::{Draft, FlagChange, FolderRole};
 use depesha_core::imap::IdleOutcome;
@@ -62,6 +62,13 @@ struct Mailbox {
     rewrite_message_ids: bool,
     /// What CreateItem stored when it rewrote: the MIME as the server keeps it.
     stored: Vec<String>,
+    /// The name the mailbox is resolved by, which is not its address: `ResolveNames` finds it by
+    /// the login of the account, as Exchange finds a mailbox of the firm's own network
+    /// (0.8.13, ступень 4).
+    login: String,
+    /// The addresses the mailbox has on the server, the primary one first: what `ResolveNames`
+    /// gives of it. Empty: the server names none.
+    addresses: Vec<String>,
 }
 
 fn busy_fault(back_off: Option<u64>) -> String {
@@ -392,6 +399,35 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
             ))
         }
         "Subscribe" => wrap("Subscribe", &err("Subscribe", "ErrorInvalidSubscriptionRequest")),
+        // The addresses of the mailbox itself: the primary one in the `Mailbox`, and every
+        // address of it in `EmailAddresses`, as Exchange 2019 answers (0.8.13, ступень 4).
+        "ResolveNames" => {
+            let entry = find(&doc, "UnresolvedEntry")
+                .and_then(|n| n.text())
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let known =
+                entry.eq_ignore_ascii_case(&mb.login) || mb.addresses.iter().any(|a| a.eq_ignore_ascii_case(&entry));
+            let Some(primary) = mb.addresses.first().filter(|_| known) else {
+                return wrap("ResolveNames", &err("ResolveNames", "ErrorNameResolutionNoResults"));
+            };
+            let aliases: String = mb
+                .addresses
+                .iter()
+                .enumerate()
+                .map(|(i, a)| format!(r#"<t:Entry Key="EmailAddress{}">smtp:{a}</t:Entry>"#, i + 1))
+                .collect();
+            wrap(
+                "ResolveNames",
+                &ok(
+                    "ResolveNames",
+                    &format!(
+                        r#"<m:ResolutionSet TotalItemsInView="1" IncludesLastItemInRange="true"><t:Resolution><t:Mailbox><t:Name>Carol Ivanova</t:Name><t:EmailAddress>{primary}</t:EmailAddress><t:RoutingType>SMTP</t:RoutingType><t:MailboxType>Mailbox</t:MailboxType></t:Mailbox><t:Contact><t:EmailAddresses>{aliases}</t:EmailAddresses></t:Contact></t:Resolution></m:ResolutionSet>"#
+                    ),
+                ),
+            )
+        }
         other => panic!("unexpected EWS operation {other}"),
     }
 }
@@ -441,7 +477,9 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
                     };
                     let mut body = vec![0; len];
                     r.read_exact(&mut body).await.unwrap();
-                    let expected = format!("Basic {}", BASE64.encode("CORP\\me:secret"));
+                    // The login of the mailbox is the one the fixture names, and it is no address.
+                    let login = mailbox.lock().unwrap().login.clone();
+                    let expected = format!("Basic {}", BASE64.encode(format!("CORP\\{login}:secret")));
                     let windows_only = mailbox.lock().unwrap().windows_only;
                     let windows = "WWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n".to_owned();
                     let token = auth.strip_prefix("NTLM ").and_then(|t| BASE64.decode(t).ok());
@@ -532,9 +570,15 @@ fn sender_key() -> (Ed25519Key, String) {
 /// The block signed by its sender, as an `SMTPS` server signs it: the signature above the headers
 /// it covers, with the line endings of the block.
 fn signed(key: Ed25519Key, block: &str) -> String {
+    signed_by(key, "s1", block)
+}
+
+/// The same, under the selector the test publishes the key of: a test with several letters has a
+/// key for each, and one name in the cache of the check holds one record.
+fn signed_by(key: Ed25519Key, selector: &str, block: &str) -> String {
     let signature = DkimSigner::from_key(key)
         .domain("corp.ru")
-        .selector("s1")
+        .selector(selector)
         .headers(["From", "To", "Subject"])
         .sign(block.as_bytes())
         .expect("a signature")
@@ -577,6 +621,8 @@ async fn ews_mailbox_round_trip() {
         find_items: 0,
         rewrite_message_ids: false,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -800,6 +846,8 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
         find_items: 0,
         rewrite_message_ids: false,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -856,6 +904,8 @@ async fn clearing_exchange_folders() {
         find_items: 0,
         rewrite_message_ids: false,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1124,6 +1174,8 @@ async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
         find_items: 0,
         rewrite_message_ids: false,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1182,6 +1234,8 @@ async fn a_folder_made_under_a_parent_names_the_parent_by_its_id() {
         find_items: 0,
         rewrite_message_ids: false,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1241,6 +1295,8 @@ async fn an_exchange_draft_keeps_its_mark_when_the_server_gives_it_another_messa
         find_items: 0,
         rewrite_message_ids: true,
         stored: Vec::new(),
+        login: "me".into(),
+        addresses: vec!["me@corp.ru".into()],
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1300,6 +1356,8 @@ async fn a_line_above_the_original_headers_does_not_take_the_signature_of_the_le
             find_items: 0,
             rewrite_message_ids: false,
             stored: Vec::new(),
+            login: "me".into(),
+            addresses: vec!["me@corp.ru".into()],
         }));
         let port = fake_exchange(mailbox).await;
         let config = EwsConfig {
@@ -1346,10 +1404,143 @@ async fn a_line_above_the_original_headers_does_not_take_the_signature_of_the_le
         assert_eq!(stored_at, received);
         assert_eq!(
             check
-                .check_headers(headers.as_bytes(), "anna@corp.ru", "me@corp.ru", stored_at)
+                .check_headers(
+                    headers.as_bytes(),
+                    "anna@corp.ru",
+                    &["me@corp.ru".to_owned()],
+                    stored_at
+                )
                 .await,
             dkim::Headers::Valid,
             "crlf={crlf}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_mailbox_of_the_firms_own_network_is_known_by_the_addresses_exchange_names() {
+    // The login of such a mailbox is no address at all, and the address the app added it by is not
+    // the one Exchange gives it: a letter comes to one of the mailbox's own addresses, and the
+    // check of a signature over the original headers looks for them (0.8.13, ступень 4).
+    let received = chrono::Utc::now().timestamp();
+    let mut items = Vec::new();
+    let mut answers = Vec::new();
+    for (selector, to) in [
+        ("s1", "carol@example.org"),
+        ("s2", "carol+news@example.org"),
+        // A list that is no mailbox of this one: the signature names no address of it.
+        ("s3", "news@example.org"),
+    ] {
+        let block = format!(
+            "From: \"Анна Петрова\" <anna@corp.ru>\r\nTo: {to}\r\nSubject: Счёт\r\nDate: {}\r\nMessage-ID: <{selector}@corp.ru>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
+            chrono::DateTime::from_timestamp(received, 0).unwrap().to_rfc2822()
+        );
+        let (key, record) = sender_key();
+        let mut it = item(selector, "I", received, "Счёт");
+        it.message_id = format!("<{selector}@corp.ru>");
+        it.transport = Some(signed_by(key, selector, &block));
+        items.push(it);
+        answers.push((format!("{selector}._domainkey.corp.ru."), record));
+    }
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items,
+        next_id: 100,
+        created: Vec::new(),
+        folders_made: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+        find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
+        login: "carol".into(),
+        addresses: vec!["carol@example.org".into(), "c.ivanova@example.org".into()],
+    }));
+    let port = fake_exchange(mailbox).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    // The mailbox as the app added it: an address that is not the one Exchange gives it, and the
+    // login Exchange resolves.
+    let account: Account = serde_json::from_str(&format!(
+        r#"{{"id":"acc","display_name":"Carol","email":"carol@old.example","username":"CORP\\carol",
+            "imap":{{"host":"","port":0,"security":"tls"}},"smtp":{{"host":"","port":0,"security":"starttls"}},
+            "ews":{{"url":"{}"}}}}"#,
+        config.url
+    ))
+    .expect("a mailbox");
+    let mut s = ews::connect(&config, &Credentials::new("CORP\\carol", "secret"), &account.email)
+        .await
+        .unwrap();
+    // The addresses of the mailbox itself, by the names the app knows: the address it added the
+    // mailbox by is not one Exchange resolves, and the login is.
+    let found = ews::own_addresses(&mut s, &account.own_names()).await.unwrap();
+    assert_eq!(found, ["carol@example.org", "c.ivanova@example.org"]);
+    // A name nobody answers to is no failure: the mailbox has no other address than the one the
+    // app knows.
+    assert!(
+        ews::own_addresses(&mut s, &["nobody@example.org".to_owned()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let store = Store::open_in_memory().unwrap();
+    ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+    ews::sync_folder(&mut s, &store, ACCOUNT, "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    let check = dkim::Verifier::default();
+    for (name, record) in answers {
+        assert!(check.add_answer(&name, &record), "the key of the letter");
+    }
+    // The mailbox as the settings keep it once Exchange has named its addresses.
+    let mut named = account.clone();
+    named.addresses = found;
+    for (selector, expected) in [
+        ("s1", dkim::Headers::Valid),
+        ("s2", dkim::Headers::Valid),
+        ("s3", dkim::Headers::Rejected(dkim::Reason::NoRecipientInH)),
+    ] {
+        let wanted = format!("{selector}@corp.ru");
+        let row = store
+            .list(&ListQuery {
+                account_id: Some(ACCOUNT.into()),
+                folder: Some("INBOX".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .find(|r| r.message_id.as_deref() == Some(wanted.as_str()))
+            .unwrap_or_else(|| panic!("the letter {selector}"));
+        let headers = store
+            .ews_headers(row.id)
+            .unwrap()
+            .unwrap_or_else(|| panic!("the original headers of {selector}"));
+        let stored_at = store.ews_received(ACCOUNT, "INBOX", row.uid).unwrap().unwrap();
+        // Without the addresses Exchange names, the app knows the mailbox by an address its
+        // letters do not carry: this is what the check said of every letter of such a mailbox
+        // (0.8.13, ступень 4).
+        assert_eq!(
+            check
+                .check_headers(
+                    headers.as_bytes(),
+                    "anna@corp.ru",
+                    std::slice::from_ref(&account.email),
+                    stored_at
+                )
+                .await,
+            dkim::Headers::Rejected(dkim::Reason::NoRecipientInH),
+            "the letter {selector} by the address the app knew"
+        );
+        assert_eq!(
+            check
+                .check_headers(headers.as_bytes(), "anna@corp.ru", &named.own_addresses(), stored_at)
+                .await,
+            expected,
+            "the letter {selector}"
         );
     }
 }

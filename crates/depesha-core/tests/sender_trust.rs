@@ -229,7 +229,9 @@ async fn own_of(row: &Row, raw: &[u8], check: &dkim::Verifier) -> Own {
 /// The corpus has no receipt time of its own: the time the signature names (`t=`) stands for it,
 /// and the check of a letter of another time has its own tests in `dkim.rs`.
 async fn headers_check(bytes: &[u8], row: &Row, check: &dkim::Verifier) -> dkim::Headers {
-    check.check_headers(bytes, &row.from, MAILBOX, signed_at(bytes)).await
+    check
+        .check_headers(bytes, &row.from, &[MAILBOX.to_owned()], signed_at(bytes))
+        .await
 }
 
 /// Every letter of the corpus is judged as the table says.

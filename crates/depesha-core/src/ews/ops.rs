@@ -1645,6 +1645,78 @@ pub async fn user_photo(s: &mut Session, email: &str) -> Result<Option<Vec<u8>>>
         .filter(|b| !b.is_empty()))
 }
 
+/// The addresses the mailbox itself has on the server, the primary one first: what a signature
+/// over the original headers of a letter must name to be about a letter that came to this
+/// mailbox (0.8.13, ступень 4). A mailbox of the firm's own network signs in with a login that
+/// is not the address letters to it carry, so the login is no use here: Exchange is asked to
+/// name the mailbox, by the names the app knows of it.
+///
+/// `Ok` with no address: the server named none of the names, and the address the app knows by
+/// stays the only one. Only the network ends the ask before the last name is tried.
+pub async fn own_addresses(s: &mut Session, names: &[String]) -> Result<Vec<String>> {
+    for name in names {
+        match resolved(s, name).await {
+            Ok(found) if !found.is_empty() => return Ok(found),
+            Ok(_) => {}
+            // A name the server refuses is no worse than one it does not know: the next name is
+            // asked instead.
+            Err(e) if e.is_transient() => return Err(e),
+            Err(_) => {}
+        }
+    }
+    Ok(Vec::new())
+}
+
+/// One `ResolveNames`: the addresses of the mailbox this name, address or legacy DN names. A name
+/// the server knows nothing of resolves to none of them.
+async fn resolved(s: &mut Session, name: &str) -> Result<Vec<String>> {
+    let body = format!(
+        r#"<m:ResolveNames ReturnFullContactData="true" ContactDataShape="AllProperties"><m:UnresolvedEntry>{}</m:UnresolvedEntry></m:ResolveNames>"#,
+        escape(name)
+    );
+    let xml = s.call(&body).await?;
+    let doc = parse(&xml)?;
+    // A name nobody answers to comes back as an error of the response, not as a failure of the
+    // request: the next name is asked instead.
+    let Ok(message) = single(&doc) else {
+        return Ok(Vec::new());
+    };
+    let mut found: Vec<String> = Vec::with_capacity(3);
+    // The mailbox Exchange resolved: its `EmailAddress` is the primary SMTP address.
+    if let Some(mailbox) = desc(message, "Mailbox")
+        && text(mailbox, "RoutingType").is_none_or(|kind| kind.trim().eq_ignore_ascii_case("SMTP"))
+        && let Some(address) = text(mailbox, "EmailAddress")
+    {
+        push_address(&mut found, address);
+    }
+    // The aliases of that mailbox, when the server gives them: `smtp:` and nothing else — an
+    // `X500:` or `EX:` address is no address of the mailbox in the headers of a letter.
+    if let Some(set) = desc(message, "EmailAddresses") {
+        for entry in children(set, "Entry") {
+            if let Some(address) = entry.text() {
+                push_address(&mut found, address);
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Keeps an SMTP address of the list, once: the routing type of some answers is written in
+/// front of it (`SMTP:carol@example.org`), and the primary address is named twice.
+fn push_address(found: &mut Vec<String>, address: &str) {
+    let address = address.trim();
+    let address = match address.split_once(':') {
+        Some((kind, rest)) if kind.trim().eq_ignore_ascii_case("smtp") => rest,
+        Some(_) => return,
+        None => address,
+    };
+    let address = address.trim();
+    if !address.contains('@') || found.iter().any(|a| a.eq_ignore_ascii_case(address)) {
+        return;
+    }
+    found.push(address.to_owned());
+}
+
 /// Creates a folder by its IMAP-like name (`Archive`, `INBOX/Projects`); an existing one is fine.
 pub async fn create_folder(s: &mut Session, store: &Store, account_id: &str, name: &str) -> Result<()> {
     let (parent, leaf) = match name.rsplit_once(DELIMITER) {

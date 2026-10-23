@@ -92,7 +92,8 @@ pub enum Reason {
     /// The signature names no time of the letter and covers no `Date`: whether the letter is of
     /// this time cannot be told.
     NoTime,
-    /// The signature covers neither the `To` nor the `Cc` the address of the mailbox stands in.
+    /// The signature covers neither the `To` nor the `Cc` one of the mailbox's addresses stands
+    /// in.
     NoRecipientInH,
     /// The signature is of another organization than the From, as the check over the original
     /// headers of a letter of Exchange sees it (0.8.13, ступень 4).
@@ -490,16 +491,25 @@ impl Verifier {
         (*hash == digest(headers) && from.eq_ignore_ascii_case(address.trim()) && fresh).then_some(*verdict)
     }
 
+    /// Forgets what the check over the original headers said: the addresses of the mailbox it
+    /// looked for are other ones now, and its word about the old ones says nothing (0.8.13,
+    /// ступень 4).
+    pub fn forget_headers(&self) {
+        if let Ok(mut remembered) = self.headers.lock() {
+            remembered.clear();
+        }
+    }
+
     /// [`Verifier::check_headers`], remembered for [`Verifier::known_headers`].
     pub async fn check_headers_remembered(
         &self,
         id: i64,
         headers: &[u8],
         address: &str,
-        mailbox: &str,
+        mailboxes: &[String],
         received: i64,
     ) -> Headers {
-        let verdict = self.check_headers(headers, address, mailbox, received).await;
+        let verdict = self.check_headers(headers, address, mailboxes, received).await;
         self.remember_headers(id, headers, address, verdict);
         verdict
     }
@@ -565,11 +575,12 @@ impl Verifier {
     }
 
     /// Whether a block of original headers carries a valid DKIM signature of the organization of
-    /// `address`, its only From, which is about a letter that came to `mailbox` at `received`
-    /// (0.8.13, ступень 4). The body of the letter is not at hand and is not checked: the signature
-    /// proves the headers, not what the letter says. `received` is the server's own time of
-    /// receipt; a block whose two readers may part on the headers is rejected.
-    pub async fn check_headers(&self, headers: &[u8], address: &str, mailbox: &str, received: i64) -> Headers {
+    /// `address`, its only From, which is about a letter that came to the mailbox `mailboxes`
+    /// names at `received` (0.8.13, ступень 4). The body of the letter is not at hand and is not
+    /// checked: the signature proves the headers, not what the letter says. `received` is the
+    /// server's own time of receipt; a block whose two readers may part on the headers is
+    /// rejected.
+    pub async fn check_headers(&self, headers: &[u8], address: &str, mailboxes: &[String], received: i64) -> Headers {
         let headers = without_preamble(headers);
         // The server of the mailbox and the app may read an uneven block differently: a signature
         // over it proves nothing about the headers the letter on screen shows (0.8.13, 7.1 Б).
@@ -577,7 +588,7 @@ impl Verifier {
             return Headers::Rejected(Reason::UnevenHeaders);
         }
         let addressed = Addressed {
-            mailbox: mailbox.to_owned(),
+            mailboxes: mailboxes.to_vec(),
             received,
         };
         headers_verdict(self.run(headers, address, Some(addressed), false).await)
@@ -763,13 +774,15 @@ pub const REPLAY_HOURS: i64 = 24;
 /// The mailbox a letter of Exchange came to and when the server took it: what a signature over
 /// the original headers of the letter must prove besides the `From` (0.8.13, ступень 4).
 struct Addressed {
-    mailbox: String,
+    /// Every address the mailbox has, as its server names them: a mailbox of the firm's own
+    /// network signs in with a login that is not the address letters to it carry.
+    mailboxes: Vec<String>,
     received: i64,
 }
 
 /// Whether this signature is about a letter that came to this mailbox at this time: its own `t=`
-/// (or a `Date` it covers, read alike by both readers), and its own covered `To` or `Cc` with the
-/// address of the mailbox.
+/// (or a `Date` it covers, read alike by both readers), and its own covered `To` or `Cc` with one
+/// of the mailbox's addresses.
 ///
 /// The question is asked of the signature that passed, not of the block: a signature that says
 /// nothing of the kind proves nothing about the letter on screen, whatever another signature of
@@ -780,7 +793,6 @@ fn proves_the_letter(
     signature: &mail_auth::dkim::Signature,
     addressed: &Addressed,
 ) -> Result<(), Reason> {
-    let mailbox = addressed.mailbox.trim().to_lowercase();
     let covered = covered_instances(message, &signature.h);
     // `mail-auth` takes the bottom-most instance for the first mention of a name in `h=`, and the
     // reader shows that one: the address must stand in that instance, or the letter on screen was
@@ -797,7 +809,7 @@ fn proves_the_letter(
         seen.push(kind);
         if addresses_of(name, value)
             .iter()
-            .any(|a| a.email.trim().to_lowercase() == mailbox)
+            .any(|a| names_mailbox(&a.email, &addressed.mailboxes))
         {
             recipient = Some(kind);
             break;
@@ -806,7 +818,7 @@ fn proves_the_letter(
     let kind = recipient.ok_or(Reason::NoRecipientInH)?;
     let shown = crate::message::parse_summary(raw);
     let list = if kind == "cc" { &shown.cc } else { &shown.to };
-    if !list.iter().any(|a| a.email.trim().to_lowercase() == mailbox) {
+    if !list.iter().any(|a| names_mailbox(&a.email, &addressed.mailboxes)) {
         return Err(Reason::NoRecipientInH);
     }
     let signed_at = if signature.t > 0 {
@@ -834,6 +846,36 @@ fn recipient_of(name: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Whether this address of a `To` or `Cc` is one of the mailbox's own: the mailbox is reached by
+/// every address its server names, and a letter to any of them came to it.
+fn names_mailbox(address: &str, mailboxes: &[String]) -> bool {
+    let found = address.trim().to_lowercase();
+    !found.is_empty()
+        && mailboxes.iter().any(|mailbox| {
+            let mailbox = mailbox.trim().to_lowercase();
+            !mailbox.is_empty() && same_mailbox(&found, &mailbox)
+        })
+}
+
+/// Whether these two addresses name the same mailbox: the same address, or one of them a
+/// plus-address of the other (`box+tag@dom` is `box@dom`, RFC 5233). The tag is what a list
+/// adds, and the letter came to the mailbox either way.
+fn same_mailbox(address: &str, mailbox: &str) -> bool {
+    if address == mailbox {
+        return true;
+    }
+    let (Some((a_local, a_domain)), Some((m_local, m_domain))) = (address.rsplit_once('@'), mailbox.rsplit_once('@'))
+    else {
+        return false;
+    };
+    // The local part without its `+tag`, and the domain: both addresses must agree on both.
+    let (a, m) = (
+        a_local.split_once('+').map_or(a_local, |(box_, _)| box_),
+        m_local.split_once('+').map_or(m_local, |(box_, _)| box_),
+    );
+    !a.is_empty() && a == m && a_domain.eq_ignore_ascii_case(m_domain)
 }
 
 /// The `Date` of the letter, when the signature covers the instance of it the reader shows and
@@ -995,6 +1037,12 @@ mod tests {
     /// The address of the mailbox the letters of these tests came to.
     const MAILBOX: &str = "me@firm.example";
 
+    /// The addresses of the mailbox, as the check over the original headers takes them: the one
+    /// address these tests give it.
+    fn names() -> Vec<String> {
+        vec![MAILBOX.to_owned()]
+    }
+
     /// The time a letter is received at, in the tests that sign one now.
     fn now() -> i64 {
         chrono::Utc::now().timestamp()
@@ -1017,7 +1065,7 @@ mod tests {
     /// The mailbox a letter came to and when, as the check over the original headers takes it.
     fn addressed(mailbox: &str, received: i64) -> Addressed {
         Addressed {
-            mailbox: mailbox.to_owned(),
+            mailboxes: vec![mailbox.to_owned()],
             received,
         }
     }
@@ -1528,24 +1576,24 @@ mod tests {
         let signed = sign(key, "1c-bitrix.ru", LETTER);
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Valid
         );
         // The body of the letter does not matter here: the headers are what is signed.
         let changed = signed.replace("logo.png", "track.png");
         assert_eq!(
-            v.check_headers(changed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(changed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Valid
         );
         // Changed headers: the signature does not stand.
         let changed = signed.replace("Subject: Hi", "Subject: Pay now");
         assert_eq!(
-            v.check_headers(changed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(changed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Rejected(Reason::BadSignature)
         );
         // Another address than the trusted one: the signature is not about it.
         assert_eq!(
-            v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru", MAILBOX, now())
+            v.check_headers(signed.as_bytes(), "ceo@1c-bitrix.ru", &names(), now())
                 .await,
             Headers::Rejected(Reason::BadSignature)
         );
@@ -1558,7 +1606,7 @@ mod tests {
         let signed = sign(key, "t.tracker.example", LETTER);
         let v = verifier("t.tracker.example", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Rejected(Reason::NotAligned)
         );
     }
@@ -1571,7 +1619,7 @@ mod tests {
         let signed = sign_with(signer_of(key, "1c-bitrix.ru", "s1", &["From", "Subject"]), LETTER);
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Rejected(Reason::NoRecipientInH)
         );
         // Covered: the letter stands.
@@ -1579,7 +1627,7 @@ mod tests {
         let signed = sign_with(signer_of(key, "1c-bitrix.ru", "s1", &["From", "To", "Subject"]), LETTER);
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Valid
         );
     }
@@ -1593,14 +1641,71 @@ mod tests {
         let signed = sign(key, "1c-bitrix.ru", &other);
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Rejected(Reason::NoRecipientInH)
         );
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, "other@firm.example", now())
+            v.check_headers(signed.as_bytes(), SENDER, &["other@firm.example".to_owned()], now())
                 .await,
             Headers::Valid
         );
+    }
+
+    #[tokio::test]
+    async fn a_signature_that_names_any_address_of_the_mailbox_is_about_the_letter() {
+        // A mailbox of the firm's own network is reached by more than one address: the primary
+        // one, its aliases, and a plus-address of either. A letter to any of them came to it, and
+        // its signature is the proof of the sender (0.8.13, ступень 4).
+        let own = vec!["carol@example.org".to_owned(), "c.ivanova@example.org".to_owned()];
+        for (to, expected) in [
+            ("carol@example.org", Headers::Valid),
+            ("Carol@Example.Org", Headers::Valid),
+            ("c.ivanova@example.org", Headers::Valid),
+            ("carol+news@example.org", Headers::Valid),
+            ("c.ivanova+list@example.org", Headers::Valid),
+            ("news@example.org", Headers::Rejected(Reason::NoRecipientInH)),
+            ("carol@other.example", Headers::Rejected(Reason::NoRecipientInH)),
+        ] {
+            let (key, record) = keypair();
+            let letter = LETTER.replace("me@firm.example", to);
+            let signed = sign(key, "1c-bitrix.ru", &letter);
+            let v = verifier("1c-bitrix.ru", &record);
+            assert_eq!(
+                v.check_headers(signed.as_bytes(), SENDER, &own, now()).await,
+                expected,
+                "To: {to}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_mailbox_the_server_named_no_address_of_stays_the_address_the_app_knows() {
+        // Exchange may name none of the names the app knows: the address the mailbox was added
+        // by is then its only one, as it was before the server was asked (0.8.13, ступень 4).
+        let own = vec![MAILBOX.to_owned()];
+        let (key, record) = keypair();
+        let signed = sign(key, "1c-bitrix.ru", LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        assert_eq!(
+            v.check_headers(signed.as_bytes(), SENDER, &own, now()).await,
+            Headers::Valid
+        );
+    }
+
+    #[test]
+    fn a_plus_address_is_the_mailbox_it_is_a_subaddress_of() {
+        assert!(same_mailbox("carol+news@example.org", "carol@example.org"));
+        // A mailbox the server gave with its tag: a letter to the bare address came to it too.
+        assert!(same_mailbox("carol@example.org", "carol+news@example.org"));
+        assert!(same_mailbox("carol+x@example.org", "carol+y@example.org"));
+        assert!(same_mailbox("carol@example.org", "carol@example.org"));
+        // Another local part, another domain, or no address at all.
+        assert!(!same_mailbox("carol2+news@example.org", "carol@example.org"));
+        assert!(!same_mailbox("carol+news@example.net", "carol@example.org"));
+        assert!(!same_mailbox("+news@example.org", "carol@example.org"));
+        assert!(!same_mailbox("carol@example.org", ""));
+        assert!(!names_mailbox("", &names()));
+        assert!(!names_mailbox("carol@example.org", &[String::new()]));
     }
 
     #[tokio::test]
@@ -1614,18 +1719,18 @@ mod tests {
         let received = now() + month;
         // The signature is of a month ago, and the letter came now: a replay.
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, received).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), received).await,
             Headers::Rejected(Reason::Replay)
         );
         // The forged signature above it names the time of receipt: still a replay.
         let forged = forged_over(received, &signed);
         assert_eq!(
-            v.check_headers(forged.as_bytes(), SENDER, MAILBOX, received).await,
+            v.check_headers(forged.as_bytes(), SENDER, &names(), received).await,
             Headers::Rejected(Reason::Replay)
         );
         // The same letter without the month in between: confirmed.
         assert_eq!(
-            v.check_headers(forged.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(forged.as_bytes(), SENDER, &names(), now()).await,
             Headers::Valid
         );
     }
@@ -1639,7 +1744,7 @@ mod tests {
         let with = format!("Microsoft Mail Internet Headers Version 2.0\r\n{signed}");
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(with.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(with.as_bytes(), SENDER, &names(), now()).await,
             Headers::Valid
         );
     }
@@ -1659,12 +1764,12 @@ mod tests {
         ]);
         let month = 30 * 24 * 3600;
         assert_eq!(
-            v.check_headers(signed.as_bytes(), from, MAILBOX, now() + month).await,
+            v.check_headers(signed.as_bytes(), from, &names(), now() + month).await,
             Headers::Rejected(Reason::Replay)
         );
         // At its own time the same block confirms the sender: nothing else about it is wrong.
         assert_eq!(
-            v.check_headers(signed.as_bytes(), from, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), from, &names(), now()).await,
             Headers::Valid
         );
     }
@@ -1681,7 +1786,7 @@ mod tests {
         let forged = forged_over_in("1c-bitrix.ru", received, &signed);
         assert_eq!(
             verifier("1c-bitrix.ru", &record)
-                .check_headers(forged.as_bytes(), SENDER, MAILBOX, received)
+                .check_headers(forged.as_bytes(), SENDER, &names(), received)
                 .await,
             Headers::Rejected(Reason::Replay)
         );
@@ -1718,7 +1823,7 @@ mod tests {
         let signed = sign(key, "1c-bitrix.ru", LETTER).replace("To: me@firm.example", "To : me@firm.example");
         let v = verifier("1c-bitrix.ru", &record);
         assert_eq!(
-            v.check_headers(signed.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(signed.as_bytes(), SENDER, &names(), now()).await,
             Headers::Rejected(Reason::UnevenHeaders)
         );
     }
@@ -1727,7 +1832,7 @@ mod tests {
     async fn a_letter_without_a_signature_is_unsigned_in_its_headers_too() {
         let v = dns([]);
         assert_eq!(
-            v.check_headers(LETTER.as_bytes(), SENDER, MAILBOX, now()).await,
+            v.check_headers(LETTER.as_bytes(), SENDER, &names(), now()).await,
             Headers::Unsigned
         );
     }
@@ -1870,6 +1975,22 @@ mod tests {
         assert_eq!(v.known(7, LETTER.as_bytes(), SENDER), None);
     }
 
+    #[tokio::test]
+    async fn the_verdict_of_the_original_headers_goes_when_the_addresses_of_the_mailbox_do() {
+        // A verdict given while the app knew the mailbox by another address says nothing about
+        // the addresses Exchange named afterwards (0.8.13, ступень 4).
+        let (key, record) = keypair();
+        let signed = sign(key, "1c-bitrix.ru", LETTER);
+        let v = verifier("1c-bitrix.ru", &record);
+        let raw = signed.as_bytes();
+        assert_eq!(v.known_headers(7, raw, SENDER), None);
+        let verdict = v.check_headers_remembered(7, raw, SENDER, &names(), now()).await;
+        assert_eq!(verdict, Headers::Valid);
+        assert_eq!(v.known_headers(7, raw, SENDER), Some(Headers::Valid));
+        v.forget_headers();
+        assert_eq!(v.known_headers(7, raw, SENDER), None);
+    }
+
     #[test]
     fn the_cache_forgets_expired_answers() {
         let cache = TxtCache::default();
@@ -1947,7 +2068,12 @@ mod tests {
             let from = shown(&raw);
             assert_eq!(
                 dns(answers)
-                    .check_headers(headers.as_bytes(), &from, mailbox, signed_at(headers.as_bytes()))
+                    .check_headers(
+                        headers.as_bytes(),
+                        &from,
+                        &[mailbox.to_owned()],
+                        signed_at(headers.as_bytes()),
+                    )
                     .await,
                 want,
                 "{name}: {from} in {mailbox}"
@@ -2029,7 +2155,7 @@ mod tests {
         let signed = sign_with(signer_of(key, "1c-bitrix.ru", "s1", &["To", "Subject"]), LETTER);
         assert_eq!(
             verifier("1c-bitrix.ru", &record)
-                .check_headers(signed.as_bytes(), SENDER, MAILBOX, now())
+                .check_headers(signed.as_bytes(), SENDER, &names(), now())
                 .await,
             Headers::Rejected(Reason::NoFromInH)
         );

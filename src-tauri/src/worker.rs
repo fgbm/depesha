@@ -768,6 +768,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         unfinished_moves: HashSet::new(),
         last_wall: SystemTime::now(),
         last_mono: Instant::now(),
+        addresses_asked: false,
     };
     let ops = tokio::spawn(ops.run(reads_rx, urgent_rx, quiet_rx, background_rx));
     let idle = tokio::spawn(idle_loop(
@@ -923,6 +924,10 @@ struct Ops {
     /// When the loop last ran: a wall clock ahead of the monotonic one means sleep.
     last_wall: SystemTime,
     last_mono: Instant,
+    /// Exchange was asked about the mailbox's own addresses, and no second ask is due in this
+    /// session: what it names is in the settings, and what it does not name it will not name
+    /// later either (0.8.13, ступень 4).
+    addresses_asked: bool,
 }
 
 impl Ops {
@@ -1285,6 +1290,50 @@ impl Ops {
         }
     }
 
+    /// Asks Exchange which addresses the mailbox itself has, and keeps them in the settings
+    /// (0.8.13, ступень 4): the check of a signature over the original headers looks for them in
+    /// the `To` and `Cc`, and the login a mailbox of the firm's own network signs in with is not
+    /// the address letters to it carry. Asked once, on the first pass after the mailbox is added
+    /// or upgraded; a mailbox that is not Exchange has no such addresses.
+    async fn ask_addresses(&mut self) {
+        if self.addresses_asked || !self.account.is_ews() || !self.account.addresses.is_empty() {
+            return;
+        }
+        let Some(conn) = self.conn.as_mut() else { return };
+        let found = match tokio::time::timeout(WORK_TIMEOUT, mail::own_addresses(conn, &self.account)).await {
+            Ok(Ok(found)) => found,
+            // A failed ask is asked again on the next pass when it was the network; one the
+            // server refuses is not asked twice in a session.
+            Ok(Err(e)) if e.is_transient() => return,
+            Ok(Err(e)) => {
+                tracing::debug!(account = %self.account.id, "the addresses of the mailbox: {e}");
+                self.addresses_asked = true;
+                return;
+            }
+            Err(_) => return,
+        };
+        self.addresses_asked = true;
+        if found.is_empty() {
+            // The server named none of the names the app knows: the address it knows stays the
+            // only one, as it was before the addresses were asked at all.
+            tracing::debug!(account = %self.account.id, "the server named no address of the mailbox");
+            return;
+        }
+        match self
+            .state
+            .patch_account(&self.account.id, |account| account.addresses = found.clone())
+        {
+            Ok(_) => {
+                self.account.addresses = found;
+                // A verdict of the check over the original headers, given while the app knew the
+                // mailbox by another address, says nothing about these addresses (0.8.13,
+                // ступень 4).
+                self.state.signatures.forget_headers();
+            }
+            Err(e) => tracing::warn!(account = %self.account.id, "the addresses of the mailbox were not kept: {e}"),
+        }
+    }
+
     /// "Sync now": joins the pass under way, or starts one, and answers at its end.
     async fn user_sync_all(&mut self, reply: Reply) {
         if let Some(pass) = &mut self.pass {
@@ -1330,6 +1379,7 @@ impl Ops {
         );
         match self.attempt(Op::Work(&Work::SyncAll)).await {
             Ok(out) => {
+                self.ask_addresses().await;
                 let folders = match out {
                     Output::Folders(f) => f,
                     _ => Vec::new(),

@@ -872,6 +872,7 @@ mod tests {
             attachments_dir: String::new(),
             auth: Default::default(),
             ews: None,
+            addresses: Vec::new(),
             quota_warn: true,
             quota_limit_mb: 0,
             waiting: Default::default(),

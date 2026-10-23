@@ -516,6 +516,7 @@ mod tests {
                 url: "https://ews.x".into(),
                 trusted_cert: None,
             }),
+            addresses: Vec::new(),
             quota_warn: true,
             quota_limit_mb: 0,
             waiting: Waiting::default(),
