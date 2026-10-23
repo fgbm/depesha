@@ -118,6 +118,7 @@
     "allow-clear-hint-count",
     "allow-attachment-save",
     "allow-attachments-save-all",
+    "allow-folder-open",
     "allow-attachment-save-in",
     "allow-attachment-open",
     "allow-attachment-bytes",

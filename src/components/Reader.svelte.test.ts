@@ -9,11 +9,14 @@ vi.mock("@tauri-apps/api/window", () => import("../lib/testing").then((m) => m.w
 vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appModule));
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 
+// jsdom has no layout: the attachment strip listens for its own width through a ResizeObserver.
+vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+
 import { flushSync, mount, unmount } from "svelte";
 import Reader from "./Reader.svelte";
 import { app } from "../lib/store.svelte";
 import { layout } from "../lib/layout.svelte";
-import { i18n } from "../lib/i18n.svelte";
+import { i18n, t } from "../lib/i18n.svelte";
 import { api, flush, resetFakes, settings } from "../lib/testing";
 import type { MessageRow, OpenedMessage } from "../lib/types";
 
@@ -348,5 +351,62 @@ describe("the letter's toolbar in the unified panel (0.8.3, #176)", () => {
     app.reader.openingRow = null;
     flushSync();
     expect(document.querySelector(".reader .toolbar .row")!.classList.contains("inactive")).toBe(false);
+  });
+});
+
+/** «Save all» of the open letter, whose two files go into `dir`: the toast it leaves (#111). */
+async function savedAllToast(dir: string) {
+  app.settingsCtl.settings = { ...settings(), attachments_dir: dir };
+  const o = opened(7);
+  app.reader.opened = {
+    ...o,
+    view: {
+      ...o.view,
+      attachments: [
+        { index: 0, name: "счёт.pdf", size: 2048, inline: false, content_id: null },
+        { index: 1, name: "акт.pdf", size: 1024, inline: false, content_id: null },
+      ],
+    },
+  } as unknown as OpenedMessage;
+  flushSync();
+  app.ui.toasts.splice(0);
+  api.attachmentsSaveAll.mockResolvedValue({ dir, saved: 2 });
+  // The strip's own button, not the ones of a chip nor the one of the out-of-sight measure row.
+  document.querySelector<HTMLButtonElement>(".reader .files > button.small-btn")!.click();
+  await flush();
+  flushSync();
+  return app.ui.toasts.at(-1)!;
+}
+
+describe("saving every file of a letter (4.5, #111)", () => {
+  it("the toast counts the files and opens the folder this save went to", async () => {
+    const toast = await savedAllToast("/tmp/Мои вложения");
+    expect(toast.text).toBe("Сохранено вложений: 2");
+    expect(toast.action?.label).toBe(t("file.openFolder"));
+    api.openFolder.mockResolvedValue(undefined);
+    toast.action!.run();
+    await flush();
+    expect(api.openFolder).toHaveBeenCalledWith("/tmp/Мои вложения");
+  });
+
+  it("keeps the folder of its own save, not the one a later save went to", async () => {
+    const first = await savedAllToast("/tmp/первая папка");
+    const second = await savedAllToast("/tmp/вторая папка");
+    expect(second.action?.label).toBe(t("file.openFolder"));
+    api.openFolder.mockResolvedValue(undefined);
+    first.action!.run();
+    await flush();
+    expect(api.openFolder).toHaveBeenCalledWith("/tmp/первая папка");
+  });
+
+  it("a folder that is gone is said, and no file is saved again", async () => {
+    const toast = await savedAllToast("/tmp/удалённая папка");
+    api.openFolder.mockRejectedValue({ kind: "io", message: "папка «/tmp/удалённая папка» удалена или недоступна" });
+    toast.action!.run();
+    await flush();
+    const said = app.ui.toasts.at(-1)!;
+    expect(said.error).toBe(true);
+    expect(said.text).toContain("удалена или недоступна");
+    expect(api.attachmentsSaveAll).toHaveBeenCalledTimes(1);
   });
 });

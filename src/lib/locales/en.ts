@@ -403,6 +403,7 @@ export const en = {
   "file.saveTitle": "Save attachment",
   "file.saved": "Saved: {name}",
   "file.savedTo": "Saved {name} to {dir}",
+  "file.openFolder": "Open folder",
   "file.savedAll": { one: "{n} attachment saved", other: "{n} attachments saved" },
   "folder.create": "Create",
   "folder.createFailed": "The folder was not created",

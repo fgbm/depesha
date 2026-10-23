@@ -63,6 +63,7 @@
     "allow-attachment-save",
     "allow-attachment-save-in",
     "allow-attachments-save-all",
+    "allow-folder-open",
     "allow-letter-view",
     "allow-document-html",
     "allow-markdown-html",

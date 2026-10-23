@@ -117,6 +117,7 @@ fn all(cfg: &Config) -> Decls {
     decl::<crate::commands::UnsubscribePlan>(cfg, &mut out);
     decl::<crate::commands::Unsubscribed>(cfg, &mut out);
     decl::<crate::commands::AttachmentSource>(cfg, &mut out);
+    decl::<crate::commands::SavedAll>(cfg, &mut out);
     decl::<crate::commands::ComposeDraft>(cfg, &mut out);
     decl::<crate::config::Settings>(cfg, &mut out);
     decl::<crate::config::Keybindings>(cfg, &mut out);

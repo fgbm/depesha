@@ -10,6 +10,7 @@ vi.mock("../../lib/api", async (orig) => ({ ...(await orig<object>()), api: (awa
 
 import { flushSync } from "svelte";
 import { app } from "../../lib/store.svelte";
+import { api, settings } from "../../lib/testing";
 import type { OpenedMessage } from "../../lib/types";
 import { AttachmentViewerState, type AttachmentViewerHost } from "./useAttachmentViewer.svelte";
 
@@ -73,5 +74,33 @@ describe("the attachment viewer", () => {
     late();
     expect(seen).toEqual([false, true]);
     expect(state.viewing).toBe(true);
+  });
+});
+
+describe("saving every file of a letter (4.5, #111)", () => {
+  const withFiles = (id: number) =>
+    ({
+      row: { id, account_id: "a" },
+      view: {
+        attachments: [
+          { index: 0, name: "счёт.pdf", size: 2048, inline: false, content_id: null },
+          { index: 1, name: "акт.pdf", size: 1024, inline: false, content_id: null },
+        ],
+      },
+    }) as unknown as OpenedMessage;
+
+  it("tells the toast which folder the files went to, not only how many there are", async () => {
+    app.settingsCtl.settings = { ...settings(), attachments_dir: "/tmp/Мои вложения" };
+    app.reader.opened = withFiles(1);
+    api.attachmentsSaveAll.mockResolvedValue({ dir: "/tmp/Мои вложения", saved: 2 });
+    const said: [number, string][] = [];
+    const state = new AttachmentViewerState({
+      savedAll: (n: number, dir: string) => void said.push([n, dir]),
+    } as unknown as AttachmentViewerHost);
+    await state.saveAll();
+    // The folder from the settings goes without a dialog, and the answer names it.
+    expect(api.pickFolder).not.toHaveBeenCalled();
+    expect(api.attachmentsSaveAll).toHaveBeenCalledWith(1, null);
+    expect(said).toEqual([[2, "/tmp/Мои вложения"]]);
   });
 });

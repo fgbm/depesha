@@ -98,7 +98,12 @@
     savedTo: (name, dir) => app.ui.toast(t("file.savedTo", { name, dir })),
     saveInFailed: (message, again) => app.ui.toast(message, true, { label: t("file.saveAs"), run: again }),
     saved: (name) => app.ui.toast(t("file.saved", { name })),
-    savedAll: (n) => app.ui.toast(tn("file.savedAll", n)),
+    savedAll: (n, dir) =>
+      app.ui.toast(tn("file.savedAll", n), false, {
+        label: t("file.openFolder"),
+        // The folder of this save, kept by the toast: the settings may name another one later.
+        run: () => void api.openFolder(dir).catch((e) => app.ui.fail(e)),
+      }),
     saveTitle: () => t("file.saveTitle"),
     saveAllTitle: () => t("file.saveAllTitle"),
   });

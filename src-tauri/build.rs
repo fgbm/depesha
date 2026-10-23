@@ -105,6 +105,7 @@ const COMMANDS: &[&str] = &[
     "clear_hint_count",
     "attachment_save",
     "attachments_save_all",
+    "folder_open",
     "attachment_save_in",
     "attachment_open",
     "attachment_bytes",

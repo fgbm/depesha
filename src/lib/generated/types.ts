@@ -928,6 +928,8 @@ other: boolean, };
 
 export type Role = "chair" | "required" | "optional" | "non_participant" | "other";
 
+export type SavedAll = { dir: string, saved: number, };
+
 export type SearchTotals = { count: number, size: number, };
 
 export type Security = "tls" | "starttls" | "plain";

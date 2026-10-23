@@ -34,6 +34,7 @@ import type {
   OutboxItem,
   SearchTotals,
   QuotaView,
+  SavedAll,
   ServerView,
   SortKey,
   FolderProps,
@@ -206,7 +207,9 @@ export const api = {
   clearHintCount: (id: string, subject: string) => call<void>("clear_hint_count", { id, subject }),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
   /** Into `dir` just picked with `pickFolder`, or without it into the folder from the settings. */
-  attachmentsSaveAll: (id: number, dir: string | null) => call<number>("attachments_save_all", { id, dir }),
+  attachmentsSaveAll: (id: number, dir: string | null) => call<SavedAll>("attachments_save_all", { id, dir }),
+  /** Opens a folder in the system file manager; a file is refused. */
+  openFolder: (path: string) => call<void>("folder_open", { path }),
   /** Into the folder from the settings; returns the path. */
   attachmentSaveIn: (id: number, index: number) => call<string>("attachment_save_in", { id, index }),
   attachmentOpen: (id: number, index: number) => call<void>("attachment_open", { id, index }),

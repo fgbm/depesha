@@ -15,8 +15,8 @@ export interface AttachmentViewerHost {
   saveInFailed(message: string, again: () => void): void;
   /** A file went where the user picked: the toast names it. */
   saved(name: string): void;
-  /** Every file of the letter went into a folder: the toast counts them. */
-  savedAll(n: number): void;
+  /** Every file of the letter went into a folder: the toast counts them and opens the folder. */
+  savedAll(n: number, dir: string): void;
   /** The title of the dialog that picks where a file goes. */
   saveTitle(): string;
   /** The title of the dialog that picks the folder for every file. */
@@ -113,8 +113,8 @@ export class AttachmentViewerState {
       // The folder from the settings is the backend's to find; another one is picked now.
       const dir = this.saveDir ? null : await api.pickFolder("save", this.host.saveAllTitle());
       if (!this.saveDir && !dir) return;
-      const n = await app.ui.track(api.attachmentsSaveAll(this.msg.row.id, dir));
-      this.host.savedAll(n);
+      const result = await app.ui.track(api.attachmentsSaveAll(this.msg.row.id, dir));
+      this.host.savedAll(result.saved, result.dir);
     } catch (e) {
       app.ui.fail(e);
     }

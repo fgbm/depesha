@@ -396,6 +396,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "file.saveTitle": "Сохранить вложение",
   "file.saved": "Сохранено: {name}",
   "file.savedTo": "{name} сохранено в {dir}",
+  "file.openFolder": "Открыть папку",
   "file.savedAll": { one: "Сохранено вложений: {n}", few: "Сохранено вложений: {n}", many: "Сохранено вложений: {n}", other: "Сохранено вложений: {n}" },
   "folder.create": "Создать",
   "folder.createFailed": "Папка не создана",

@@ -410,6 +410,7 @@ pub fn run() {
             commands::clear_hint_count,
             commands::attachment_save,
             commands::attachments_save_all,
+            commands::folder_open,
             commands::attachment_save_in,
             commands::attachment_open,
             commands::attachment_bytes,

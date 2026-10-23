@@ -2867,10 +2867,18 @@ pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32) -> CmdResult
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// Saves every attachment into a folder, renaming on name clashes. Returns how many.
+/// What «Save all» wrote: the folder the files went to, so the toast can open it (#111).
+#[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SavedAll {
+    pub dir: String,
+    pub saved: usize,
+}
+
+/// Saves every attachment into a folder, renaming on name clashes.
 /// The folder is one just picked (`pick_folder`), or without one the folder from the settings.
 #[tauri::command]
-pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -> CmdResult<usize> {
+pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -> CmdResult<SavedAll> {
     let row = row(&state, id)?;
     let dir = match dir {
         Some(dir) => {
@@ -2894,7 +2902,45 @@ pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -
         mark_from_internet(&path).await;
         saved += 1;
     }
-    Ok(saved)
+    Ok(SavedAll {
+        dir: folder.to_string_lossy().into_owned(),
+        saved,
+    })
+}
+
+/// Opens a folder in the system file manager (#111). Only a folder that is still there: a path
+/// that names a file is refused, because opening one starts it.
+#[tauri::command]
+pub async fn folder_open(app: tauri::AppHandle, path: String) -> CmdResult<()> {
+    let dir = folder_path(&path).await?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| {
+            CmdError::new(
+                depesha_core::ErrorKind::Io,
+                tr!("could not open the folder: {e}", "не удалось открыть папку: {e}"),
+            )
+        })
+}
+
+async fn folder_path(path: &str) -> CmdResult<PathBuf> {
+    let dir = PathBuf::from(path);
+    let meta = tokio::fs::metadata(&dir).await.map_err(|e| {
+        CmdError::new(
+            depesha_core::ErrorKind::Io,
+            tr!(
+                "the folder “{path}” is gone or cannot be reached: {e}",
+                "папка «{path}» удалена или недоступна: {e}"
+            ),
+        )
+    })?;
+    if !meta.is_dir() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Io,
+            tr!("“{path}” is not a folder", "«{path}» — не папка"),
+        ));
+    }
+    Ok(dir)
 }
 
 async fn save_folder(dir: &str) -> CmdResult<PathBuf> {
@@ -5717,7 +5763,7 @@ mod tests {
         assert_eq!(verdict.reason, sender::Reason::AmbiguousFrom);
     }
 
-    use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};
+    use super::{DANGEROUS, folder_path, free_path, local_seen_by_rights, safe_name, search_folders};
     use depesha_core::acl::{FolderProps, Owner, Rights};
     use depesha_core::domain::{Folder, FolderRole};
     use depesha_core::query::SearchQuery;
@@ -5835,6 +5881,26 @@ mod tests {
         assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт (2).pdf"));
         std::fs::write(dir.join("README"), b"3").unwrap();
         assert_eq!(free_path(&dir, "README"), dir.join("README (1)"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_folder_to_open_is_one_that_is_still_a_folder() {
+        crate::lang::pin(crate::lang::Lang::En);
+        let dir = std::env::temp_dir().join(format!("depesha-folder-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("счёт.pdf");
+        std::fs::write(&file, b"1").unwrap();
+        assert_eq!(folder_path(dir.to_str().unwrap()).await.unwrap(), dir);
+        // A file is refused: opening it would start it.
+        let err = folder_path(file.to_str().unwrap()).await.unwrap_err();
+        assert_eq!(err.kind, depesha_core::ErrorKind::Io);
+        assert!(err.message.contains("is not a folder"), "{}", err.message);
+        let gone = dir.join("нет такой папки");
+        let err = folder_path(gone.to_str().unwrap()).await.unwrap_err();
+        assert_eq!(err.kind, depesha_core::ErrorKind::Io);
+        assert!(err.message.contains("is gone or cannot be reached"), "{}", err.message);
+        assert!(err.message.contains("нет такой папки"), "{}", err.message);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
