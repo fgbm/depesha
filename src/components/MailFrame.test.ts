@@ -84,6 +84,16 @@ describe("the frame Depesha draws Markdown in", () => {
     expect(plain).toContain("--md-line:#d9dde3");
   });
 
+  it("paints the text the user chooses, on the white sheet and on a themed letter", () => {
+    // The letter is the sender's white sheet: the same highlight the rich editor draws on it.
+    expect(srcdoc({})).toContain("::selection{background:var(--sel,#b9d7f5);color:var(--ink,#1d232b)}");
+    const css = { colorScheme: "dark", getPropertyValue: () => "#8ab4ea" };
+    vi.stubGlobal("document", { documentElement: {} });
+    vi.stubGlobal("getComputedStyle", () => css);
+    // Depesha's own Markdown is drawn on the theme's paper, so the theme's colour goes there.
+    expect(srcdoc({ themed: true })).toContain("--sel:color-mix(in srgb, var(--link) 30%, transparent)");
+  });
+
   it("puts the code colours of a Markdown letter into the frame's own styles, and runs only the relay there", () => {
     // The highlighter runs before the frame (ReaderBody.svelte); its styles travel in the
     // letter's HTML and so into the srcdoc (decision on #45). The one script of the document is

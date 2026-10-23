@@ -65,6 +65,10 @@ tauri-winrt-notification = "0.8.1"
 # The toast XML is built through the DOM (`XmlDocument`, `SetInnerText`) so a subject
 # cannot inject markup; `UI_Notifications` shows it and clears it on exit.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
+# The engine's own keys of a built window (src/engine.rs): F5 and Ctrl+R reload the page and
+# F12 opens the inspector, which WebView2 turns off only through its own settings. The same
+# version Tauri and wry bring in, so no second copy of the bindings.
+webview2-com = "0.39"
 
 # The mock runtime for the window tests of `drops`. Not on Windows: a test binary built with
 # it does not start there (CI: STATUS_ENTRYPOINT_NOT_FOUND).

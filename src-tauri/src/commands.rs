@@ -2918,9 +2918,11 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
         Some(args) => builder.additional_browser_args(&args),
         None => builder,
     };
-    builder
+    let window = builder
         .build()
         .map_err(|e| CmdError::new(depesha_core::ErrorKind::Window, e.to_string()))?;
+    // A letter's window is a window of the app: the engine's own keys stay off here too.
+    crate::engine::quiet(&window);
     Ok(())
 }
 

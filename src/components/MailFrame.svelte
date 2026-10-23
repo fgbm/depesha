@@ -46,7 +46,7 @@
     const css = getComputedStyle(document.documentElement);
     // The same color-scheme as the window, or WebView2 paints the frame opaque.
     const vars = THEME_VARS.map((v) => `${v}:${css.getPropertyValue(v).trim()}`).join(";");
-    return `:root{color-scheme:${css.colorScheme || "light"};${vars};--md-line:var(--line);--md-head:color-mix(in srgb, var(--line) 55%, transparent)}
+    return `:root{color-scheme:${css.colorScheme || "light"};${vars};--md-line:var(--line);--md-head:color-mix(in srgb, var(--line) 55%, transparent);--sel:color-mix(in srgb, var(--link) 30%, transparent)}
 html{background:transparent;color:var(--ink)}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
 a{color:var(--link)}`;
@@ -89,6 +89,7 @@ table{max-width:100%}
 pre{white-space:pre-wrap}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #d5dbe3;color:#55606c}
 a{color:#1f5fa8}
+::selection{background:var(--sel,#b9d7f5);color:var(--ink,#1d232b)}
 ${markdown ? markdownCss() : ""}
 ${themed ? themeCss() : ""}
 </style></head><body>${html}</body></html>`);

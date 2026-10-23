@@ -1,8 +1,10 @@
 // The script a letter's frame runs, and the way it talks to the app (#124). The frame has an
 // opaque origin: the parent cannot reach into it, it cannot reach the app, and the only door
 // between them is `postMessage`. The relay is the frame's whole part of the bargain — links,
-// hover, keys, the theme's colours and the height of the letter. Covered by frameRelay.test.ts.
+// hover, keys, the menu of the right button, the theme's colours and the height of the letter.
+// Covered by frameRelay.test.ts.
 
+import { EDITORS } from "./engine";
 import { LINK_SELECTOR } from "./frameLink";
 
 /** The colours a themed frame takes from the window, which its own document cannot see. */
@@ -95,6 +97,16 @@ export const FRAME_RELAY = `(function () {
     var href = hrefOf(a);
     if (href && href.charAt(0) !== "#") send({ type: "link", href: href });
   });
+  // The menu of the right button in a frame offers the engine's own things — reload the page, save
+  // it, inspect it — none of which a letter has. Kept where it is of use: in a field, and over text
+  // chosen to copy.
+  document.addEventListener("contextmenu", function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest(${JSON.stringify(EDITORS)})) return;
+    var s = window.getSelection();
+    if (s && !s.isCollapsed && s.toString().trim() !== "") return;
+    e.preventDefault();
+  });
   document.addEventListener("mouseover", function (e) {
     var a = linkAt(e.target);
     send({ type: "hover", href: a ? hrefOf(a) : "" });
@@ -131,7 +143,7 @@ export const FRAME_RELAY = `(function () {
  * The relay's hash, as a policy source. Every byte of FRAME_RELAY must show up here: the frame's
  * `<meta>` policy and the window's (`tauri.conf.json`) both list it, or the relay does not run.
  */
-export const RELAY_HASH = "'sha256-5FX+6W5RVf6JttREFCX4wRurqD4iGbstlpK1hTFsx2Y='";
+export const RELAY_HASH = "'sha256-uflZAL03gKNceYBhK4rTMyiSzpwAylbzPGOk/EWgZtY='";
 
 /** What the frame sends: a click on a link, a hover, a key pressed in the letter, its height. */
 export type FrameMessage =

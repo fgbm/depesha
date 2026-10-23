@@ -409,8 +409,33 @@ body {
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
+  /* The window is the app's own surface: a drag across the rows, the buttons, the sidebar or a
+     menu leaves no blue behind. The letter and the fields are the exception, below. The prefixed
+     name is for a WKWebView of before Safari 15.4, which knows no other. */
+  -webkit-user-select: none;
   user-select: none;
+  /* No flash of the engine over a row at a press, mouse or finger. */
+  -webkit-tap-highlight-color: transparent;
   overflow: hidden;
+}
+
+/* The text the user may copy: fields and editors, and every zone the app marks `selectable` —
+   the letter's header and its text, errors, notices, the viewers of an attachment. Kept in step
+   with `src/lib/engine.ts`. */
+input,
+textarea,
+[contenteditable],
+.cm-editor,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The selection of a theme's own paper: the engine's blue belongs to no look. The letter keeps
+   its own, on the white sheet the sender made (MailFrame, RichEditor). */
+::selection {
+  background: color-mix(in srgb, var(--accent-text) 30%, transparent);
+  color: var(--ink);
 }
 
 input,
@@ -545,10 +570,6 @@ select.input {
 
 .danger-text {
   color: var(--bad);
-}
-
-.selectable {
-  user-select: text;
 }
 
 ::-webkit-scrollbar {

@@ -5,6 +5,7 @@ mod desktop_notify;
 mod drafts;
 mod drops;
 mod empty;
+mod engine;
 mod error;
 mod extensions;
 mod flights;
@@ -243,6 +244,11 @@ pub fn run() {
                 {
                     state.set_pending_deep_link(url.as_str().to_owned());
                 }
+            }
+
+            // The engine's own keys off before the window is seen: F5 has no page to reload here.
+            if let Some(w) = app.get_webview_window("main") {
+                engine::quiet(&w);
             }
 
             // The window starts hidden (tauri.conf.json): shown now, unless started at

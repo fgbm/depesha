@@ -26,7 +26,7 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "script-src": "'self' 'sha256-5FX+6W5RVf6JttREFCX4wRurqD4iGbstlpK1hTFsx2Y='",
+        "script-src": "'self' 'sha256-uflZAL03gKNceYBhK4rTMyiSzpwAylbzPGOk/EWgZtY='",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: https: http:",
         "font-src": "'self' data:",

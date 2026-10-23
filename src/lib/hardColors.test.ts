@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // miss it. These are the colours that are not the theme's on purpose.
 const ALLOWED: Record<string, string[]> = {
   // The letter is the sender's white sheet in every theme, as the recipient sees it.
-  "MailFrame.svelte": ["#fff", "#1d232b", "#55606c", "#1f5fa8", "#d5dbe3", "#d9dde3", "#f0f1f3"],
+  "MailFrame.svelte": ["#fff", "#1d232b", "#55606c", "#1f5fa8", "#d5dbe3", "#d9dde3", "#f0f1f3", "#b9d7f5"],
   "RichEditor.svelte": ["#fff", "#1d232b", "#55606c", "#1f5fa8", "#d5dbe3", "#b9d7f5", "#6b7480"],
   // Initials and a picture's ground on the sender's own colour.
   "Avatar.svelte": ["#fff"],

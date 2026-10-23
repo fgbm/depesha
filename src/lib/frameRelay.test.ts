@@ -35,6 +35,12 @@ function frameEnv({ inFrame = true } = {}) {
     getComputedStyle: (el: unknown) => (el === body ? documentBox : {}),
   };
   window.parent = inFrame ? app : window;
+  /** What the user chose inside the letter, as the frame's own document reports it. */
+  let selection = { isCollapsed: true, toString: () => "" };
+  window.getSelection = () => selection;
+  const select = (on: boolean) => {
+    selection = { isCollapsed: !on, toString: () => (on ? "Тема письма" : "") };
+  };
   // The relay's clock, run by hand: a change of the letter is followed one timer tick later.
   const timers: { id: number; at: number; fn: () => void }[] = [];
   let now = 0;
@@ -69,7 +75,7 @@ function frameEnv({ inFrame = true } = {}) {
   /** The app's answer to "which keys do you take from the frame" (#124). */
   const claim = (keys: FrameKey[]) => fromParent({ depeshaFrame: 1, type: "keys", keys });
   const anchor = (href: string) => ({ closest: (sel: string) => (sel === "a, area" ? { getAttribute: () => href } : null) });
-  return { posts, fire, style, app, anchor, fromParent, claim, body, document, advance, resize };
+  return { posts, fire, style, app, anchor, fromParent, claim, body, document, advance, resize, select };
 }
 
 /** A press as the frame's document gets it. */
@@ -102,6 +108,23 @@ describe("what the relay of a frame tells the app", () => {
       { depeshaFrame: 1, type: "hover", href: "https://example.com/x" },
       { depeshaFrame: 1, type: "hover", href: "" },
     ]);
+  });
+
+  it("stops the engine's own menu over the letter, and keeps it for text chosen to copy", () => {
+    const env = frameEnv();
+    const plain = { target: { closest: () => null }, preventDefault: vi.fn() };
+    env.fire("contextmenu", plain);
+    expect(plain.preventDefault).toHaveBeenCalled();
+    // Chosen text has «Copy» in that menu, and that is the whole of its use here.
+    env.select(true);
+    const chosen = { target: { closest: () => null }, preventDefault: vi.fn() };
+    env.fire("contextmenu", chosen);
+    expect(chosen.preventDefault).not.toHaveBeenCalled();
+    // A field of the letter keeps cut, copy, paste and the spelling corrections.
+    env.select(false);
+    const field = { target: { closest: (sel: string) => (sel.includes("textarea") ? {} : null) }, preventDefault: vi.fn() };
+    env.fire("contextmenu", field);
+    expect(field.preventDefault).not.toHaveBeenCalled();
   });
 
   it("does nothing at all when it is not in a frame", () => {

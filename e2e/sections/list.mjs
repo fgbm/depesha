@@ -831,6 +831,48 @@ export async function run() {
     await d.until("menu closed", async () => (await d.findAll(".pop")).length === 0);
   });
 
+  await step("6.6.2", "меню и выделение движка не появляются в окне: right-click вне полей отменён, поля и текст его сохраняют", async () => {
+    // The engine's own menu — «Reload», «Save page as», «Inspect» — and its «select all» are not
+    // the app's (src/lib/engine.ts): a right click stops them outside fields and chosen text, and
+    // the interface takes no selection of its own.
+    const seen = await d.exec(
+      `const menuOn = (el) => { const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; };
+       const side = document.querySelector('nav.side');
+       const field = document.querySelector('input:not([type=checkbox]):not([type=radio])');
+       const row = document.querySelector('.row');
+       const text = document.querySelector('.head.selectable');
+       return JSON.stringify({
+         side: side ? menuOn(side) : null,
+         field: field ? menuOn(field) : null,
+         text: text ? menuOn(text) : null,
+         body: getComputedStyle(document.body).userSelect,
+         row: row ? getComputedStyle(row).userSelect : null,
+         fieldSel: field ? getComputedStyle(field).userSelect : null,
+       });`,
+    );
+    const state = JSON.parse(seen);
+    if (state.side !== true) throw new Error(`меню движка не отменено на панели: ${seen}`);
+    if (state.field !== false) throw new Error(`меню движка отменено в поле: ${seen}`);
+    if (state.text !== false) throw new Error(`меню движка отменено над выделяемым текстом: ${seen}`);
+    for (const [what, value] of [["окно", state.body], ["строка списка", state.row]]) {
+      if (value !== "none") throw new Error(`выделяется ${what}: ${seen}`);
+    }
+    if (state.fieldSel !== "text") throw new Error(`поле не выделяется: ${seen}`);
+    // Ctrl+A outside a field takes the engine's «select all» out of the window; the app's own
+    // command for the list is not the subject here, so the press stops before the window hears it.
+    const taken = await d.exec(
+      `const e = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true });
+       const stop = (ev) => ev.stopPropagation();
+       document.addEventListener('keydown', stop);
+       document.body.dispatchEvent(e);
+       document.removeEventListener('keydown', stop);
+       return JSON.stringify({ taken: e.defaultPrevented, chosen: getSelection().toString() });`,
+    );
+    const selectAll = JSON.parse(taken);
+    if (!selectAll.taken) throw new Error(`Ctrl+A вне поля не отменён: ${taken}`);
+    if (selectAll.chosen !== "") throw new Error(`Ctrl+A выбрал интерфейс: ${taken}`);
+  });
+
   await step("6.7", "контекстное меню папки: новая вложенная папка; версия в сайдбаре", async () => {
     const version = await textOf("nav.side .brand .version");
     if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error(`версия: «${version}»`);

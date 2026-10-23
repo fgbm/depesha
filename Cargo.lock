@@ -1074,6 +1074,7 @@ dependencies = [
  "tray-icon",
  "ts-rs",
  "url",
+ "webview2-com",
  "windows",
 ]
 
