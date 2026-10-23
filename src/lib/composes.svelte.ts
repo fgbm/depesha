@@ -9,10 +9,10 @@ import { api } from "./api";
 import { bus, collect } from "./bus";
 import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
-import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
+import { emptyDraft, formatFor, forward, forwardAttachments, isForward, reply } from "./compose";
 import { defaultSignature, replySignature, withSignature } from "./signatures";
 import { dropPlan, offersZones, type DropZone } from "./images";
-import type { Account, AccountView, AttachmentSource, CachedDraft, ComposeDraft, FollowupPlan } from "./types";
+import type { Account, AccountView, AttachmentInfo, AttachmentSource, CachedDraft, ComposeDraft, FollowupPlan } from "./types";
 
 export interface ComposeState {
   account_id: string;
@@ -133,6 +133,21 @@ export class ComposeManager {
     this.host.reader.saw([msg.row.id]);
     const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), replySignature(acc));
     this.open({ account_id: acc.id, draft, draft_id: null });
+  }
+
+  /**
+   * A new letter with the opened letter's files and none of its text (#97), all of them or
+   * just `only`. A new letter, so it takes the mailbox's usual signature, not the reply one.
+   */
+  forwardAttachmentsOpened(only: AttachmentInfo | null = null) {
+    const msg = this.host.reader.opened;
+    const acc = msg && this.host.mailboxes.account(msg.row.account_id);
+    if (!msg || !acc) return;
+    const draft = forwardAttachments(msg, { name: acc.display_name, email: acc.email }, this.format(acc), only);
+    // A letter whose only files are the pictures its text draws has none to send.
+    if (!draft.attachments.length) return;
+    this.host.reader.saw([msg.row.id]);
+    this.open({ account_id: acc.id, draft: withSignature(draft, defaultSignature(acc)), draft_id: null });
   }
 
   /** A `mailto:` link in a letter: a new letter to its address, from the default mailbox. */

@@ -6,6 +6,7 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
+  import Forward from "@lucide/svelte/icons/forward";
   import { size } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import type { AttachmentInfo } from "../../lib/types";
@@ -15,6 +16,7 @@
     onView,
     onSave,
     onSaveAs,
+    onForward,
     saveDir,
     current = false,
     measuring = false,
@@ -25,6 +27,8 @@
     onView?: (a: AttachmentInfo) => void;
     onSave: (a: AttachmentInfo) => void;
     onSaveAs?: (a: AttachmentInfo) => void;
+    /** Puts the file into a new letter; absent where there is no letter to write from. */
+    onForward?: (a: AttachmentInfo) => void;
     /** The folder the save button names; empty: the file dialog asks. */
     saveDir: string;
     /** The file shown now, in the viewer. */
@@ -41,6 +45,9 @@
     <span class="file-name"><Paperclip size={13} /><span class="fname">{a.name}</span></span>
   {/if}
   <span class="fsize muted">{size(a.size)}</span>
+  {#if onForward}
+    <button class="btn ghost small-btn" onclick={() => onForward(a)} title={t("file.forward")} aria-label={`${t("file.forward")}: ${a.name}`}><Forward size={14} /></button>
+  {/if}
   <button class="btn ghost small-btn" onclick={() => onSave(a)} title={saveDir ? t("file.saveIn", { dir: saveDir }) : t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
   {#if saveDir}
     <button class="btn ghost small-btn" onclick={() => onSaveAs?.(a)} title={t("file.saveAs")} aria-label={t("file.saveAs")}><FolderOutput size={14} /></button>

@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "./i18n.svelte";
 import {
+  ATTACH_LIMIT,
+  attachmentsSubject,
   convertDraft,
   emptyDraft,
   formatFor,
   forward,
+  forwardAttachments,
   fromDraft,
   isDirty,
   forwardSubject,
+  isForward,
   leavingHtml,
   losesFormatting,
   reply,
@@ -80,6 +84,12 @@ describe("subjects", () => {
     expect(replySubject("Ответ: Счёт")).toBe("Ответ: Счёт");
     expect(forwardSubject("Fw: x")).toBe("Fw: x");
     expect(forwardSubject("x")).toBe("Fwd: x");
+  });
+
+  it("marks a letter of files alone without the forward mark", () => {
+    expect(attachmentsSubject("Счёт")).toBe("Счёт (вложения)");
+    expect(attachmentsSubject("")).toBe("(вложения)");
+    expect(isForward(attachmentsSubject("Счёт"))).toBe(false);
   });
 });
 
@@ -181,6 +191,50 @@ describe("forward", () => {
     const d = forward(msg(), me);
     expect(d.in_reply_to).toBe("m2@example.org");
     expect(d.references).toEqual(["m1@example.org", "m2@example.org"]);
+  });
+});
+
+describe("a letter of the files alone (#97)", () => {
+  const act = { index: 2, name: "акт.pdf", mime: "application/pdf", size: 20, content_id: null, inline: false };
+
+  it("carries the files of the letter and nothing of it", () => {
+    const d = forwardAttachments(msg(), me);
+    expect(d.subject).toBe("Счёт (вложения)");
+    expect(d.text).toBe("");
+    expect(d.html).toBeNull();
+    expect(d.to).toEqual([]);
+    expect(d.cc).toEqual([]);
+    expect(d.bcc).toEqual([]);
+    expect(d.in_reply_to).toBeNull();
+    expect(d.references).toEqual([]);
+    expect(d.acts_on).toBeUndefined();
+    // The picture the letter's text draws is no file of it, as in a forward.
+    expect(d.attachments).toEqual([{ kind: "message", id: 7, index: 0, name: "счёт.pdf", size: 10 }]);
+  });
+
+  it("takes every file, or the one it is given", () => {
+    const m = msg();
+    const view = { ...m.view, attachments: [...m.view.attachments, act] };
+    expect(forwardAttachments({ ...m, view }, me).attachments.map((a) => a.name)).toEqual(["счёт.pdf", "акт.pdf"]);
+    expect(forwardAttachments({ ...m, view }, me, "plain", act).attachments).toEqual([
+      { kind: "message", id: 7, index: 2, name: "акт.pdf", size: 20 },
+    ]);
+  });
+
+  it("is written as the mailbox writes, with an empty body", () => {
+    const d = forwardAttachments(msg(), me, "html");
+    expect(d.format).toBe("html");
+    expect(d.html).toBe("");
+    expect(d.text).toBe("");
+    expect(d.attachments).toHaveLength(1);
+  });
+
+  it("counts the files as they weigh, so the 25 MB line of the window fires", () => {
+    const m = msg();
+    const big = { index: 1, name: "смета.zip", mime: "application/zip", size: ATTACH_LIMIT + 1, content_id: null, inline: false };
+    const d = forwardAttachments({ ...m, view: { ...m.view, attachments: [big] } }, me);
+    expect(d.attachments[0].size).toBe(big.size);
+    expect(d.attachments.reduce((n, a) => n + a.size, 0)).toBeGreaterThan(ATTACH_LIMIT);
   });
 });
 

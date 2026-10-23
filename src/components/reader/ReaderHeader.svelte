@@ -30,6 +30,7 @@
     onViewAttachment,
     onSaveAttachment,
     onSaveAttachmentAs,
+    onForwardAttachment,
     onSaveAll,
     saveDir,
     headerActions,
@@ -48,6 +49,8 @@
     onViewAttachment: (a: AttachmentInfo) => void;
     onSaveAttachment: (a: AttachmentInfo) => void;
     onSaveAttachmentAs: (a: AttachmentInfo) => void;
+    /** A new letter with this file and none of the letter's own (#97); absent where there is no letter to write from. */
+    onForwardAttachment?: (a: AttachmentInfo) => void;
     onSaveAll: () => void;
     /** The folder the save button names; empty: the file dialog asks. */
     saveDir: string;
@@ -127,7 +130,7 @@
   </div>
 </div>
 
-<AttachmentStrip {files} {viewing} {viewingAt} {onViewAttachment} {onSaveAttachment} {onSaveAttachmentAs} {onSaveAll} {saveDir} />
+<AttachmentStrip {files} {viewing} {viewingAt} {onViewAttachment} {onSaveAttachment} {onSaveAttachmentAs} {onForwardAttachment} {onSaveAll} {saveDir} />
 
 <style>
   .head {

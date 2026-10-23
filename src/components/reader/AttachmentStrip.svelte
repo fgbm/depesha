@@ -4,6 +4,7 @@
   // pane's real width and the chips' real widths, and again whenever the pane is resized.
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
+  import Forward from "@lucide/svelte/icons/forward";
   import { i18n, t } from "../../lib/i18n.svelte";
   import { onMount, tick } from "svelte";
   import { foldChips, keepFit } from "../../lib/attachFold";
@@ -18,6 +19,7 @@
     onViewAttachment,
     onSaveAttachment,
     onSaveAttachmentAs,
+    onForwardAttachment,
     onSaveAll,
     saveDir,
   }: {
@@ -30,6 +32,8 @@
     onViewAttachment: (a: AttachmentInfo) => void;
     onSaveAttachment: (a: AttachmentInfo) => void;
     onSaveAttachmentAs: (a: AttachmentInfo) => void;
+    /** A new letter with this file and none of the letter's own (#97); absent where there is no letter to write from. */
+    onForwardAttachment?: (a: AttachmentInfo) => void;
     onSaveAll: () => void;
     /** The folder the save button names; empty: the file dialog asks. */
     saveDir: string;
@@ -75,13 +79,14 @@
   }
 
   const actions = $derived<RowAction[]>([
+    ...(onForwardAttachment ? [{ label: t("file.forward"), icon: Forward, run: (i: number) => onForwardAttachment?.(files[i]) }] : []),
     { label: t("file.save"), icon: Download, run: (i) => onSaveAttachment(files[i]) },
     ...(saveDir ? [{ label: t("file.saveAs"), icon: FolderOutput, run: (i: number) => onSaveAttachmentAs(files[i]) }] : []),
   ]);
 </script>
 
 {#snippet chip(a: AttachmentInfo, measuring: boolean)}
-  <AttachmentChip {a} current={!measuring && viewing && files[viewingAt] === a} {measuring} onView={onViewAttachment} onSave={onSaveAttachment} onSaveAs={onSaveAttachmentAs} {saveDir} />
+  <AttachmentChip {a} current={!measuring && viewing && files[viewingAt] === a} {measuring} onView={onViewAttachment} onSave={onSaveAttachment} onSaveAs={onSaveAttachmentAs} onForward={onForwardAttachment} {saveDir} />
 {/snippet}
 
 {#if files.length}

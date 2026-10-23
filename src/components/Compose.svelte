@@ -44,6 +44,7 @@
   import { ComposeAttachments } from "../lib/compose/attachments.svelte";
   import LostFilesNotice from "./LostFilesNotice.svelte";
   import { FULL_STRIP_ROWS, MIN_BODY_PX, mailboxName, visibleChips } from "../lib/compose/layout";
+  import { ATTACH_LIMIT } from "../lib/compose";
   import type { WindowPart } from "../lib/compose/sending.svelte";
 
   let { c }: { c: ComposeWindow } = $props();
@@ -543,8 +544,8 @@
               {/snippet}
             </AttachmentMenu>
           </span>
-          <span class="muted total" class:danger-text={total > 25 * 1024 * 1024}>
-            {t("compose.total", { size: size(total) })}{total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
+          <span class="muted total" class:danger-text={total > ATTACH_LIMIT}>
+            {t("compose.total", { size: size(total) })}{total > ATTACH_LIMIT ? t("compose.tooBig") : ""}
           </span>
         </div>
       {/if}

@@ -199,6 +199,7 @@
         onViewAttachment={(a) => viewer.viewAttachment(a)}
         onSaveAttachment={(a) => viewer.saveAttachment(a)}
         onSaveAttachmentAs={(a) => viewer.saveAttachmentAs(a)}
+        onForwardAttachment={(a) => app.compose.forwardAttachmentsOpened(a)}
         onSaveAll={() => viewer.saveAll()}
         saveDir={viewer.saveDir}
       >

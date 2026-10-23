@@ -5,7 +5,10 @@ import { t } from "./i18n.svelte";
 import { MAX_PICTURE, PICTURE_TYPES, takePictures, type Picture } from "./images";
 import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
 import { sigBlock, sigHtml, hasHtmlSignature, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
-import type { Account, Act, ActsOn, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
+import type { Account, Act, ActsOn, Addr, AttachmentInfo, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
+
+/** What many servers refuse to take in one letter: the window counts the files against it. */
+export const ATTACH_LIMIT = 25 * 1024 * 1024;
 
 export function emptyDraft(from: Addr | null, format: BodyFormat = "plain"): ComposeDraft {
   return {
@@ -46,6 +49,11 @@ export function isForward(subject: string): boolean {
 
 export function forwardSubject(subject: string): string {
   return FWD_PREFIX.test(subject) ? subject : `Fwd: ${subject}`;
+}
+
+/** The subject of a letter that carries files alone (#97): the letter's own, marked, but no forward mark. */
+export function attachmentsSubject(subject: string): string {
+  return t("compose.fwd.attachments", { subject }).trim();
 }
 
 function same(a: Addr, b: Addr): boolean {
@@ -164,6 +172,19 @@ export function forward(msg: OpenedMessage, me: Addr, format: BodyFormat = "plai
   // The forwarded letter folds like a quote: it is the same kind of block.
   const header = forwardHeader(msg).map(escapeHtml).join("<br>");
   return withHtml(draft, `${GAP}<div class="${QUOTE_CLASS}"><div>${header}</div><br>${letterHtml(msg)}</div>`);
+}
+
+/**
+ * A new letter carrying the letter's files and nothing of it (#97): for sending a file on to
+ * someone else. `only` names one of them; without it every file goes. The pictures its text
+ * draws are no files of it and do not go, as with a forward; it is no forward either: no
+ * quote, no header, no `In-Reply-To`, so the letter starts on its own.
+ */
+export function forwardAttachments(msg: OpenedMessage, me: Addr, format: BodyFormat = "plain", only: AttachmentInfo | null = null): ComposeDraft {
+  const attachments: AttachmentSource[] = msg.view.attachments
+    .filter((a) => !(a.inline && a.content_id) && (!only || a.index === only.index))
+    .map((a) => ({ kind: "message", id: msg.row.id, index: a.index, name: a.name, size: a.size }));
+  return { ...emptyDraft(me, format), subject: attachmentsSubject(msg.view.summary.subject), attachments };
 }
 
 /** Opens a server draft for editing. */
