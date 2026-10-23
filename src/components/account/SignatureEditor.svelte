@@ -253,6 +253,7 @@
     white-space: pre-wrap;
     font-size: 13px;
     line-height: 1.45;
+    -webkit-user-select: text;
     user-select: text;
   }
 </style>

@@ -917,6 +917,7 @@
     line-height: 1.55;
     color: var(--ink);
     opacity: 0.9;
+    -webkit-user-select: text;
     user-select: text;
   }
 
@@ -924,6 +925,7 @@
   .sig-html {
     line-height: 1.5;
     color: var(--ink);
+    -webkit-user-select: text;
     user-select: text;
     overflow: hidden;
   }

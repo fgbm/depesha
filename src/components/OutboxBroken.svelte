@@ -42,6 +42,7 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    -webkit-user-select: text;
     user-select: text;
   }
 

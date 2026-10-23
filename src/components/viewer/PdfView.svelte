@@ -209,6 +209,7 @@
     white-space: pre;
     cursor: text;
     transform-origin: 0% 0%;
+    -webkit-user-select: text;
     user-select: text;
   }
 

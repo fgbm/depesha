@@ -410,8 +410,9 @@ body {
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
   /* The window is the app's own surface: a drag across the rows, the buttons, the sidebar or a
-     menu leaves no blue behind. The letter and the fields are the exception, below. The prefixed
-     name is for a WKWebView of before Safari 15.4, which knows no other. */
+     menu leaves no blue behind. The letter and the fields are the exception, below. Both names
+     are needed: WebKitGTK knows only the prefixed one (`CSS.supports('user-select', 'none')` is
+     false there), and Chromium takes the prefixed name as a twin of the plain one. */
   -webkit-user-select: none;
   user-select: none;
   /* No flash of the engine over a row at a press, mouse or finger. */

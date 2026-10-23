@@ -120,3 +120,7 @@ Vale (`DepeshaRU.SentenceLength`) и `scripts/md-onelines.mjs` тянут в р�
 ## 2026-10-22 01:55 — deepseek-v4.1-flash
 
 `Xvfb` не в `PATH` и не в `/usr/bin`: он лежит распакованным в `~/.local/depesha-testenv/root/usr/bin/Xvfb` (как в `e2e/README.md`). Запуск `Xvfb :57` из скрипта молча не поднимает дисплей («command not found» виден только в логе фонового процесса), и прогон съёмки идёт в чужой `:99`. Проверяй `pgrep -a Xvfb` и `/tmp/.X11-unix/` перед съёмкой.
+
+## 2026-10-23 10:05 — deepseek-v4.1-flash
+
+WebKitGTK не знает `user-select` без префикса: в 2.52 `CSS.supports('user-select', 'none')` — false, а `getPropertyValue('user-select')` пуст, поэтому правило `user-select: none` в `src/app.css` на Linux не работало ни разу, и выделялся весь интерфейс. Работает только `-webkit-user-select` (Chromium принимает его как двойник). Проверять такие свойства можно без приложения: pygobject + `WebKit2.WebView` в своём Xvfb, `evaluate_javascript` и `JSON.stringify` последним выражением — результат скрипта иначе равен последнему выражению, а не объекту.

@@ -206,6 +206,7 @@
     border-radius: 13px;
     padding: 0 4px 0 10px;
     font-size: 13px;
+    -webkit-user-select: text;
     user-select: text;
   }
 
