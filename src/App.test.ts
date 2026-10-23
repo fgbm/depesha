@@ -94,6 +94,20 @@ describe("Ctrl+A in the main window", () => {
     off();
   });
 
+  it("is the letter's in a window of its own, which has no rows", () => {
+    app.windowOf = 7;
+    app.ui.wizard = null;
+    const off = keepEngineHandsOff(document, true);
+    const chosen = vi.spyOn(app.selection, "selectAll");
+    const zone = letterZone("Письмо в своём окне");
+    zone.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    ctrlA();
+    expect(chosen).not.toHaveBeenCalled();
+    expect(document.getSelection()?.toString()).toBe("Письмо в своём окне");
+    app.windowOf = null;
+    off();
+  });
+
   it("is the list's when the press was on a row, as it was", () => {
     app.ui.wizard = null;
     // The window's guard of the engine's keys, which main.ts installs in the app.

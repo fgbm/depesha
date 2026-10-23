@@ -183,7 +183,7 @@
       if (cmd.id === "core.select-all") {
         // A key pressed in a letter's frame is replayed on the iframe (MailFrame.svelte): there
         // Ctrl+A is the frame's own and takes the text of the letter inside it.
-        if (app.windowOf !== null || t?.tagName === "IFRAME") return;
+        if (t?.tagName === "IFRAME") return;
         // The text of the letter, as Ctrl+A takes the text of a field: a click on it moves no
         // focus, so the zone comes from where the press landed (engine.ts).
         const zone = textZone(t);
@@ -192,6 +192,8 @@
           selectZone(zone);
           return;
         }
+        // A window of a letter of its own has no list of rows to choose.
+        if (app.windowOf !== null) return;
       }
       const run = action(id);
       if (run) {
