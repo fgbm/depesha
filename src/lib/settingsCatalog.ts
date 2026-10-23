@@ -71,7 +71,7 @@ export type RowSpec = Base &
         /** Added to the patch, besides the key (the consent that goes with a choice). */
         extra?: (v: string | number, c: RowContext) => Record<string, unknown>;
       }
-    | { kind: "number"; key: "image_max_px"; unit: () => string; spec: NumberSpec }
+    | { kind: "number"; key: "image_max_px" | "bulk_ask_above"; unit: () => string; spec: NumberSpec }
     | { kind: "clock"; key: "day_start" | "evening_start" }
     | { kind: "days"; key: "work_days" }
     | { kind: "folder"; key: "attachments_dir" }
@@ -226,6 +226,16 @@ const R = {
     label: () => t("settings.imageMaxPx"),
     unit: () => "px",
     spec: { min: 200, max: 8000, step: 100 },
+  },
+  // The one question of the list's actions (#196): how many letters make an action ask first.
+  bulk_ask: {
+    id: "bulk_ask",
+    kind: "number",
+    key: "bulk_ask_above",
+    label: () => t("settings.bulkAsk"),
+    hint: () => t("settings.bulkAskNote"),
+    unit: () => t("settings.bulkAskUnit"),
+    spec: { min: 1, max: 999, step: 5 },
   },
   undo_send: {
     id: "undo_send",
@@ -412,7 +422,7 @@ export const PAGES: PageSpec[] = [
     title: () => t("settings.page.reading"),
     icon: BookOpen,
     groups: [
-      group("list", () => t("settings.list"), [R.threads, R.list_avatars, R.sender_logos]),
+      group("list", () => t("settings.list"), [R.threads, R.list_avatars, R.sender_logos, R.bulk_ask]),
       // The folder of the attachments received is about the letter read, not the one sent (0.8.12, 2.1 А).
       group("read", () => t("settings.letter"), [R.letter_view, R.layer_view, R.attachments_dir]),
     ],

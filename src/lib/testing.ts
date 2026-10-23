@@ -57,6 +57,7 @@ export const settings = (): Settings => ({
   dnd_until: 0,
   threads: true,
   list_avatars: true,
+  bulk_ask_above: 20,
   templates: [],
   updates: "auto",
   language: "auto",

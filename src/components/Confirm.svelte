@@ -24,6 +24,10 @@
     if (e.key === "Escape") {
       e.preventDefault();
       answer(null);
+    } else if (e.key === "Enter" && q.enterConfirms && !(e.target instanceof HTMLInputElement)) {
+      // The focus starts on Cancel, and Enter is still the action's (#196).
+      e.preventDefault();
+      answer(true);
     } else if (e.key === "Tab") {
       // Round the dialog's own controls: the box, then the buttons.
       e.preventDefault();

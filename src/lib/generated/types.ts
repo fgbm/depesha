@@ -995,7 +995,12 @@ threads: boolean,
  * A round picture of the sender at the left of every row of the list (#108): a logo, a
  * photo or initials. Only the look of the list; the letter has its own always.
  */
-list_avatars: boolean, templates: Array<Template>, 
+list_avatars: boolean, 
+/**
+ * Delete, move, archive and spam ask first when they take more letters than this (#196):
+ * a slip of «select all» must not take thousands of them out.
+ */
+bulk_ask_above: number, templates: Array<Template>, 
 /**
  * `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
  */

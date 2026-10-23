@@ -32,6 +32,9 @@ pub struct Settings {
     /// A round picture of the sender at the left of every row of the list (#108): a logo, a
     /// photo or initials. Only the look of the list; the letter has its own always.
     pub list_avatars: bool,
+    /// Delete, move, archive and spam ask first when they take more letters than this (#196):
+    /// a slip of «select all» must not take thousands of them out.
+    pub bulk_ask_above: u32,
     pub templates: Vec<Template>,
     /// `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
     #[cfg_attr(test, ts(type = "\"auto\" | \"notify\" | \"off\""))]
@@ -148,6 +151,7 @@ impl Default for Settings {
             dnd_until: 0,
             threads: true,
             list_avatars: true,
+            bulk_ask_above: 20,
             templates: Vec::new(),
             updates: "auto".into(),
             language: "auto".into(),

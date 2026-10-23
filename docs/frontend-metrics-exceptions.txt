@@ -48,7 +48,7 @@ component	src/components/reader/ThreadLetter.svelte	342	карточка вст�
 function	src/lib/searchSuggest.ts::folderCompletions	20	папка с ролью — по имени из боковой панели, серверное имя в title, без повтора одинаковых подсказок (А11)
 function	src/lib/markdown/markdownEditor.ts::decorate	30	картинка в тексте письма (data:) — одно целое для каретки и Backspace, её base64 не показывается: decorate отдаёт рядом с украшениями и неделимые отрезки, кусок «atom» не украшается, «data» — значок вместо адреса
 component	src/components/prefs/RowControl.svelte	127	плитки оформления в выбранной светлоте: lightOf и themeOf (0.8.12)
-function	src/lib/testing.ts::settings	42	новое поле настроек look (0.8.12)
+function	src/lib/testing.ts::settings	43	новое поле настроек look (0.8.12); поле порога вопроса о массовом действии bulk_ask_above (#196)
 function	src/lib/theme.ts::applyTheme	12	оформление отдельно от светлоты и «как в системе» вслед за системой (0.8.12)
 function	src/lib/theme.ts::themeOf	6	возврат «Снега» и «Графита»: прежние темы, ставшие оформлением «Снег», переносятся в него (0.8.13)
 component	src/components/Accounts.svelte	155	общая страница «Ящики»: строка открывает страницу ящика, стрелки порядка от двух ящиков (0.8.12, 3.4 А; А18)
@@ -79,5 +79,7 @@ component	src/components/OutboxBroken.svelte	52	строка повреждён�
 component	src/components/account/SignatureEditor.svelte	259	текст подписи в настройках ящика; -webkit-user-select рядом с user-select: WebKitGTK знает только префиксное имя, и выделение этого текста на Linux не работало
 component	src/components/viewer/PdfView.svelte	232	текстовый слой страницы PDF, по которому идёт выделение; -webkit-user-select рядом с user-select: WebKitGTK знает только префиксное имя, и выделение этого текста на Linux не работало
 component	src/components/reader/AttachmentChip.svelte	126	кнопка «Переслать это вложение» у файла рядом с «Сохранить» (#97)
+component	src/components/Confirm.svelte	132	вопрос о массовом действии (#196): Enter подтверждает при фокусе на «Отмена»
+function	src/components/Confirm.svelte::onKey	17	вопрос о массовом действии (#196): Enter подтверждает, хотя фокус стоит на «Отмена»
 component	src/components/reader/AttachmentStrip.svelte	181	проп onForwardAttachment: он же у файла в свёрнутом списке и у чипа (#97)
 component	src/components/reader/ReaderHeader.svelte	251	проп onForwardAttachment и его проброс в строку вложений (#97)

@@ -7,13 +7,15 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
-import { BULK_LIMIT } from "./actions.svelte";
 import { i18n, t, tn } from "./i18n.svelte";
 import { labels } from "./labels.svelte";
 import { api, deferred, flush, opened, resetFakes, row, win } from "./testing";
 import type { Moved, MessageRow } from "./types";
 
 const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
+
+/** The number of letters the app asks above by default (Settings → Reading, #196). */
+const ASK = 20;
 
 /** The inbox with five rows; the first three are conversations of two letters. */
 async function inbox() {
@@ -198,22 +200,23 @@ describe("an action on a letter of the thread (0.8.4, #180)", () => {
 
 // A slip of «select all» must not take thousands of letters out without a word (#196).
 describe("many letters at once (#196)", () => {
-  it("takes ten out without a question", async () => {
-    const s = await many(BULK_LIMIT);
+  it("takes twenty out without a question", async () => {
+    const s = await many(ASK);
     const all = ids(s);
     await s.actions.remove(all);
     expect(s.ui.confirmation).toBeNull();
     expect(api.remove).toHaveBeenCalledWith(all, all);
   });
 
-  it("asks about eleven, and a refusal changes nothing", async () => {
-    const s = await many(BULK_LIMIT + 1);
+  it("asks about twenty-one, and a refusal changes nothing", async () => {
+    const s = await many(ASK + 1);
     const all = ids(s);
     const p = s.actions.remove(all);
     await flush();
-    expect(s.ui.confirmation?.title).toContain("11");
-    // A destructive action: the dialog puts the focus on Cancel, not on «Удалить».
+    expect(s.ui.confirmation?.title).toContain("21");
+    // The dialog puts the focus on Cancel, and Enter still agrees (#196).
     expect(s.ui.confirmation?.danger).toBe(true);
+    expect(s.ui.confirmation?.enterConfirms).toBe(true);
     s.ui.confirmation!.resolve(false);
     await p;
     expect(api.remove).not.toHaveBeenCalled();
@@ -222,8 +225,8 @@ describe("many letters at once (#196)", () => {
     expect(s.actions.lastUndo).toBeNull();
   });
 
-  it("takes eleven out once the question is agreed to, and offers the undo as usual", async () => {
-    const s = await many(BULK_LIMIT + 1);
+  it("takes twenty-one out once the question is agreed to, and offers the undo as usual", async () => {
+    const s = await many(ASK + 1);
     const all = ids(s);
     const p = s.actions.remove(all);
     await flush();
@@ -239,6 +242,7 @@ describe("many letters at once (#196)", () => {
     api.thread.mockImplementation(async (id: number) => [row(id), row(id + 100)]);
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    s.settingsCtl.settings.bulk_ask_above = 5;
     const p = s.actions.remove(ids(s));
     await flush();
     expect(s.ui.confirmation?.title).toContain("12");
@@ -248,10 +252,33 @@ describe("many letters at once (#196)", () => {
   });
 });
 
+// The number of letters that makes an action ask is the settings' (Settings → Reading, #196).
+describe("the number the settings name (#196)", () => {
+  it("asks above it, and not at it", async () => {
+    const few = await many(3);
+    few.settingsCtl.settings.bulk_ask_above = 3;
+    const three = ids(few);
+    await few.actions.remove(three);
+    expect(few.ui.confirmation).toBeNull();
+    expect(api.remove).toHaveBeenCalledWith(three, three);
+
+    api.remove.mockClear();
+    const four = await many(4);
+    four.settingsCtl.settings.bulk_ask_above = 3;
+    const all = ids(four);
+    const p = four.actions.remove(all);
+    await flush();
+    expect(four.ui.confirmation?.title).toContain("4");
+    four.ui.confirmation!.resolve(false);
+    await p;
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+});
+
 // The question names the action and does not promise an undo it cannot give (#196).
 describe("the question about many letters (#196)", () => {
   it("names the folder a move of many letters goes to", async () => {
-    const s = await many(BULK_LIMIT + 1);
+    const s = await many(ASK + 1);
     s.mailboxes.folders = [{ account_id: "a", name: "Archive", role: "archive", display_name: "Архив" }] as never;
     const p = s.actions.moveTo("Archive", ids(s));
     await flush();
@@ -262,7 +289,7 @@ describe("the question about many letters (#196)", () => {
   });
 
   it("names the action on the button that agrees", async () => {
-    const s = await many(BULK_LIMIT + 1);
+    const s = await many(ASK + 1);
     const move = s.actions.moveTo("Archive", ids(s));
     await flush();
     expect(s.ui.confirmation?.okLabel).toBe(t("bulk.ok.move"));
@@ -277,10 +304,10 @@ describe("the question about many letters (#196)", () => {
   });
 
   it("is refused without taking the undo of the action before it", async () => {
-    const s = await many(BULK_LIMIT + 2);
+    const s = await many(ASK + 2);
     await s.actions.archive([1]);
     const moved = s.actions.lastUndo?.moved;
-    // Eleven letters are left: the question is put, and the refusal leaves the undo in place.
+    // Twenty-one letters are left: the question is put, and the refusal leaves the undo in place.
     const p = s.actions.remove(ids(s));
     await flush();
     s.ui.confirmation!.resolve(false);
@@ -290,7 +317,7 @@ describe("the question about many letters (#196)", () => {
   });
 
   it("shows the progress line only while the server works, not while it asks", async () => {
-    const s = await many(BULK_LIMIT + 1);
+    const s = await many(ASK + 1);
     const all = ids(s);
     const answer = deferred<Moved[]>();
     api.remove.mockReturnValue(answer.promise);
@@ -328,7 +355,7 @@ describe("a delete that cannot be taken back (#196)", () => {
   }
 
   it("says in the trash that the letters go for good", async () => {
-    const s = await trashed(BULK_LIMIT + 1);
+    const s = await trashed(ASK + 1);
     const p = s.actions.remove(ids(s));
     await flush();
     expect(s.ui.confirmation?.text).toContain("безвозвратно");
@@ -338,7 +365,7 @@ describe("a delete that cannot be taken back (#196)", () => {
   });
 
   it("promises the undo where the mailbox has a trash to put them in", async () => {
-    const s = await many(BULK_LIMIT + 1);
+    const s = await many(ASK + 1);
     s.mailboxes.folders = [{ account_id: "a", name: "Trash", role: "trash" }] as never;
     const p = s.actions.remove(ids(s));
     await flush();

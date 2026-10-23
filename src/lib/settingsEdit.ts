@@ -171,7 +171,7 @@ export class RowEditor {
         await this.setLook(spec, stepChoice<string>([...LOOKS], themeOf(s.theme, s.look).look, dir));
         return;
       case "number":
-        await this.setNumber(spec, String(stepWhole(s.image_max_px, dir, spec.spec, big)));
+        await this.setNumber(spec, String(stepWhole(s[spec.key], dir, spec.spec, big)));
         return;
       case "clock": {
         const next = stepClock(s[spec.key], dir);

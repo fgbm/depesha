@@ -29,6 +29,11 @@ export interface Confirmation {
   altLabel?: string;
   /** The action loses something: the safe button gets the focus. */
   danger?: boolean;
+  /**
+   * Enter agrees, whatever the focus is on: a question that starts on Cancel (a bulk action, #196)
+   * keeps Enter for the action it asks about.
+   */
+  enterConfirms?: boolean;
   /** A box to tick under the text («Remember my choice»); the dialog changes `checked`. */
   check?: { label: string; checked: boolean };
   /** A quiet line under the box: where the choice can be changed later. */

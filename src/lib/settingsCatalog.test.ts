@@ -68,7 +68,7 @@ describe("the menu (#102, 2.1 В; 0.8.12, 2.1 А and 2.2 А)", () => {
 describe("every setting in its section, as the table of screen 3 has it (0.8.12, 2.1 А)", () => {
   /** Page, group (null: a group of one row, with no heading) and the rows in it, in order. */
   const MAP: [string, string | null, string[]][] = [
-    ["reading", "Список писем", ["threads", "list_avatars", "sender_logos"]],
+    ["reading", "Список писем", ["threads", "list_avatars", "sender_logos", "bulk_ask"]],
     ["reading", "Письмо", ["letter_view", "layer_view", "attachments_dir"]],
     ["writing", "Новые письма", ["compose_format", "layer_format", "default_account", "image_max_px"]],
     ["writing", null, ["undo_send"]],
@@ -127,7 +127,7 @@ describe("the rows", () => {
 
   it("put the avatars of the list beside the conversations and the logos right under them (#108)", () => {
     const list = pageSpec("reading")?.groups.find((g) => g.id === "list")?.rows.map((r) => r.id);
-    expect(list).toEqual(["threads", "list_avatars", "sender_logos"]);
+    expect(list).toEqual(["threads", "list_avatars", "sender_logos", "bulk_ask"]);
     // The logos are the network, the avatars the look: neither hangs under the other.
     for (const id of ["list_avatars", "sender_logos"]) expect(rows().find((r) => r.id === id)?.dep).toBeFalsy();
   });

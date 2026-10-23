@@ -19,17 +19,12 @@ import type { MessageRow, Moved } from "./types";
 /** The toast's words: given, or made from the moves done (when they say where the letters went). */
 export type Text = string | ((moved: Moved[]) => string);
 
-/** An action on more letters than this asks first: a slip of «select all» must not take them (#196). */
-export const BULK_LIMIT = 10;
-
 /** The question before an action on many letters: its title in the letters counted, and the button that agrees. */
 export interface Ask {
   title: (n: number) => string;
   okLabel: string;
   /** Words under the title; without them the dialog offers the undo, which most actions have. */
   note?: string;
-  /** The action loses something: the dialog puts the focus on Cancel. */
-  danger?: boolean;
 }
 
 export interface Undoable {
@@ -86,7 +81,7 @@ export class ActionRunner {
    * Takes messages out of the list and runs `run`; the moves it returns can be undone.
    * `single`: the action is about these letters alone — a letter unfolded in the conversation
    * (0.8.4, #180) is dealt with on its own, its thread is not carried along with it.
-   * `ask`: the question put first when the action would take out more than `BULK_LIMIT` letters.
+   * `ask`: the question put first when the action would take out more letters than the settings allow.
    */
   async perform(
     text: Text,
@@ -115,6 +110,7 @@ export class ActionRunner {
   ) {
     const { list } = this.host;
     const { before, rows, threadLetter, threaded } = this.startOf(ids, single);
+    const above = this.askAbove;
     const grouped = this.conversations(rows, single);
     // Asked only when the question is possible: reading the conversations first takes an answer
     // from the server, and a key pressed meanwhile would find the row still there and act on it
@@ -122,8 +118,8 @@ export class ActionRunner {
     let all = ids;
     // The letters were read before the rows left; the quick way below reads them after.
     let read = false;
-    if (ask && this.upper(ids, grouped) > BULK_LIMIT) {
-      const found = await this.readFirst(ids, grouped, rows, failText, ask);
+    if (ask && this.upper(ids, grouped) > above) {
+      const found = await this.readFirst(ids, grouped, rows, failText, ask, above);
       if (!found) return;
       all = found;
       read = true;
@@ -171,13 +167,18 @@ export class ActionRunner {
   }
 
   /**
-   * The letters the action takes, read before anything leaves the list when more than `BULK_LIMIT`
+   * The letters the action takes, read before anything leaves the list when more than `above`
    * of them are possible: their count is an upper bound, as `withConversation` drops letters of other
    * folders (#196). Null says the action ends here: refused, or a conversation that could not be read.
    */
-  private async readFirst(ids: number[], grouped: MessageRow[], rows: (MessageRow | undefined)[], failText: string, ask: Ask): Promise<number[] | null> {
+  private async readFirst(ids: number[], grouped: MessageRow[], rows: (MessageRow | undefined)[], failText: string, ask: Ask, above: number): Promise<number[] | null> {
     const all = await this.lettersOf(ids, grouped, rows, failText);
-    return all && (await this.mayAsk(ask, all.length)) ? all : null;
+    return all && (await this.mayAsk(ask, all.length, above)) ? all : null;
+  }
+
+  /** The number of letters above which an action asks first (Settings → Reading, #196). */
+  private get askAbove(): number {
+    return this.host.settingsCtl.settings.bulk_ask_above;
   }
 
   /** The most letters an action can take: a row that carries a conversation stands for all of it,
@@ -218,11 +219,12 @@ export class ActionRunner {
     }
   }
 
-  /** Whether the action goes on: more letters than `BULK_LIMIT` are asked about first (#196), and a
-   *  refusal ends the run of equal actions as any other break does. */
-  private async mayAsk(ask: Ask, n: number): Promise<boolean> {
-    if (n <= BULK_LIMIT) return true;
-    if (await this.host.ui.confirm({ title: ask.title(n), text: ask.note ?? t("bulk.note"), okLabel: ask.okLabel, danger: ask.danger })) return true;
+  /** Whether the action goes on: more letters than the settings allow are asked about first (#196),
+   *  and a refusal ends the run of equal actions as any other break does. The focus of the question
+   *  starts on Cancel, and Enter still agrees. */
+  private async mayAsk(ask: Ask, n: number, above: number): Promise<boolean> {
+    if (n <= above) return true;
+    if (await this.host.ui.confirm({ title: ask.title(n), text: ask.note ?? t("bulk.note"), okLabel: ask.okLabel, danger: true, enterConfirms: true })) return true;
     this.breaks++;
     return false;
   }
@@ -391,7 +393,7 @@ export class ActionRunner {
 
   /** Without `ids`: the selected rows; `single` deals with the given letters alone (#180). */
   remove(ids = this.host.selection.selectedIds(), single = false) {
-    const ask = { title: (n: number) => tn("bulk.delete", n), okLabel: t("act.delete"), danger: true, note: this.goneForGood(ids) ? t("bulk.note.gone") : undefined };
+    const ask = { title: (n: number) => tn("bulk.delete", n), okLabel: t("act.delete"), note: this.goneForGood(ids) ? t("bulk.note.gone") : undefined };
     return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single, (n) => tn("done.deleted", n), ask);
   }
 
@@ -422,7 +424,7 @@ export class ActionRunner {
   }
 
   spam(ids = this.host.selection.selectedIds()) {
-    const ask = { title: (n: number) => tn("bulk.spam", n), okLabel: t("act.spam"), danger: true };
+    const ask = { title: (n: number) => tn("bulk.spam", n), okLabel: t("act.spam") };
     return this.perform(t("done.spam"), ids, api.spam, t("err.spam"), false, undefined, ask);
   }
 

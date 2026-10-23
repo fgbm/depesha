@@ -784,7 +784,7 @@ export async function run() {
     }
   });
 
-  await step("6.3", "групповые действия: три письма отмечаются непрочитанными", async () => {
+  await step("6.3", "групповые действия: три письма отмечаются непрочитанными; действие на много писем спрашивает, порог из настроек (#196)", async () => {
     await d.button("Входящие");
     const subjects = ["Массовое письмо 619", "Массовое письмо 618", "Массовое письмо 617"];
     await d.click(await rowBySubject(subjects[0]));
@@ -800,6 +800,59 @@ export async function run() {
     await d.button("Не прочитано");
     for (const subj of subjects) {
       await d.until(`unseen ${subj}`, async () => !helper("flags", "INBOX", subj).includes("\\Seen"), 10000);
+    }
+
+    // Many letters at once ask first (#196), above the number the settings name. The three
+    // letters of this step are below twenty, so the threshold is put down to two for the moment.
+    const settings = await invoke("settings_get");
+    const inList = (subj) => d.exec("return [...document.querySelectorAll('.row .subject')].some((s) => s.innerText.includes(arguments[0]))", subj);
+    const selectThree = async () => {
+      await d.click(await rowBySubject(subjects[0]));
+      for (const subj of subjects.slice(1)) {
+        await d.exec(
+          `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+           row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));`,
+          subj,
+        );
+      }
+      await d.until("bulk panel", async () => /Выбрано 3 письма · [\d,]+ (Б|КБ|МБ)/.test(await d.bodyText()));
+    };
+    try {
+      await invoke("settings_set", { settings: { ...settings, bulk_ask_above: 2 } });
+      // The settings window proves the app has read the number: its row shows the store's value.
+      await press(",", { ctrlKey: true });
+      await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+      await d.click(await d.find(".prefs .tab[data-page='reading']"));
+      await d.until(
+        "порог в настройках",
+        async () => ((await d.exec("return document.querySelector(\".prefs [data-row='bulk_ask'] input\")?.value ?? ''")) === "2" ? true : null),
+        10000,
+      );
+      await closeSettings();
+      await selectThree();
+
+      // The focus starts on Cancel, and Esc leaves everything as it was.
+      await press("Delete");
+      await d.until("вопрос о трёх письмах", async () => (await d.findAll(".modal.confirm")).length === 1, 15000);
+      const asked = await textOf(".modal.confirm");
+      if (!asked.includes("3 письма")) throw new Error(`в вопросе не три письма: «${asked}»`);
+      const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
+      if (focused !== "Отмена") throw new Error(`фокус на «${focused}», а не на «Отмена»`);
+      await screenshot("bulk-delete-confirm");
+      await press("Escape");
+      await d.until("вопрос закрыт", async () => (await d.findAll(".modal.confirm")).length === 0, 10000);
+      for (const subj of subjects) if (!(await inList(subj))) throw new Error(`после отказа нет письма «${subj}»`);
+
+      // Enter agrees, and z brings the letters back: the undo of a delete is as usual.
+      await press("Delete");
+      await d.until("вопрос снова", async () => (await d.findAll(".modal.confirm")).length === 1, 15000);
+      await press("Enter");
+      await d.until("писем нет в списке", async () => ((await Promise.all(subjects.map((s) => inList(s)))).some(Boolean) ? null : true), 15000);
+      await d.until("тост с отменой", async () => (await textOf(".toasts")).includes("Отменить"), 10000);
+      await press("z");
+      for (const subj of subjects) await rowBySubject(subj, 20000);
+    } finally {
+      await invoke("settings_set", { settings: { ...(await invoke("settings_get")), bulk_ask_above: settings.bulk_ask_above } });
     }
   });
 

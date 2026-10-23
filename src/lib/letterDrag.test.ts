@@ -133,6 +133,39 @@ describe("the drop and the move of the app", () => {
     await flush();
     expect(api.move.mock.calls[0]).toEqual([[1, 2], "Archive"]);
   });
+
+  it("asks before a drop of many letters, naming the folder, and a refusal leaves them where they were", async () => {
+    move.mockRestore();
+    const letters = Array.from({ length: 21 }, (_, i) => row(i + 1));
+    app.list.messages = letters;
+    const all = letters.map((m) => m.id);
+    pressOn(listRow(), all);
+    moveTo(200, 40);
+    upOn(folderRow("a", "Archive"));
+    await flush();
+    expect(api.move).not.toHaveBeenCalled();
+    const q = app.ui.confirmation!;
+    expect(q.title).toContain("Archive");
+    expect(q.danger).toBe(true);
+    q.resolve(false);
+    await flush();
+    expect(api.move).not.toHaveBeenCalled();
+    expect(app.list.messages.map((m) => m.id)).toEqual(all);
+  });
+
+  it("moves the whole drop once the question is agreed to", async () => {
+    move.mockRestore();
+    const letters = Array.from({ length: 21 }, (_, i) => row(i + 1));
+    app.list.messages = letters;
+    const all = letters.map((m) => m.id);
+    pressOn(listRow(), all);
+    moveTo(200, 40);
+    upOn(folderRow("a", "Archive"));
+    await flush();
+    app.ui.confirmation!.resolve(true);
+    await flush();
+    expect(api.move.mock.calls[0]).toEqual([all, "Archive"]);
+  });
 });
 
 describe("a press the list keeps for itself", () => {
