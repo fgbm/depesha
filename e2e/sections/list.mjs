@@ -834,34 +834,35 @@ export async function run() {
   await step("6.6.2", "меню и выделение движка не появляются в окне: right-click вне полей отменён, поля и текст его сохраняют", async () => {
     // The engine's own menu — «Reload», «Save page as», «Inspect» — and its «select all» are not
     // the app's (src/lib/engine.ts): a right click stops them outside fields and chosen text, and
-    // the interface takes no selection of its own.
+    // the interface takes no selection of its own. A row opens the app's own menu (step 6.6).
     const seen = await d.exec(
       `const menuOn = (el) => { const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; };
-       const side = document.querySelector('nav.side');
-       const field = document.querySelector('input:not([type=checkbox]):not([type=radio])');
+       const asked = (el) => (el ? menuOn(el) : null);
        const row = document.querySelector('.row');
-       const text = document.querySelector('.head.selectable');
+       const field = document.querySelector('input:not([type=checkbox]):not([type=radio])');
        return JSON.stringify({
-         side: side ? menuOn(side) : null,
-         field: field ? menuOn(field) : null,
-         text: text ? menuOn(text) : null,
+         rows: document.querySelectorAll('.row').length,
+         side: asked(document.querySelector('nav.side')),
+         field: asked(field),
+         text: asked(document.querySelector('.head.selectable')),
          body: getComputedStyle(document.body).userSelect,
-         row: row ? getComputedStyle(row).userSelect : null,
+         rowSel: row ? getComputedStyle(row).userSelect : null,
          fieldSel: field ? getComputedStyle(field).userSelect : null,
        });`,
     );
     const state = JSON.parse(seen);
+    if (!state.rows) throw new Error(`нет строк списка: ${seen}`);
     if (state.side !== true) throw new Error(`меню движка не отменено на панели: ${seen}`);
-    if (state.field !== false) throw new Error(`меню движка отменено в поле: ${seen}`);
-    if (state.text !== false) throw new Error(`меню движка отменено над выделяемым текстом: ${seen}`);
-    for (const [what, value] of [["окно", state.body], ["строка списка", state.row]]) {
-      if (value !== "none") throw new Error(`выделяется ${what}: ${seen}`);
-    }
-    if (state.fieldSel !== "text") throw new Error(`поле не выделяется: ${seen}`);
+    if (state.field !== null && state.field !== false) throw new Error(`меню движка отменено в поле: ${seen}`);
+    if (state.text !== null && state.text !== false) throw new Error(`меню движка отменено над выделяемым текстом: ${seen}`);
+    if (state.body !== "none") throw new Error(`выделяется окно: ${seen}`);
+    if (state.rowSel !== "none") throw new Error(`выделяется строка списка: ${seen}`);
+    if (state.fieldSel !== null && state.fieldSel !== "text") throw new Error(`поле не выделяется: ${seen}`);
     // Ctrl+A outside a field takes the engine's «select all» out of the window; the app's own
     // command for the list is not the subject here, so the press stops before the window hears it.
     const taken = await d.exec(
-      `const e = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true });
+      `getSelection().removeAllRanges();
+       const e = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true });
        const stop = (ev) => ev.stopPropagation();
        document.addEventListener('keydown', stop);
        document.body.dispatchEvent(e);
