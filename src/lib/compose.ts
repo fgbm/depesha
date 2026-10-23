@@ -181,10 +181,15 @@ export function forward(msg: OpenedMessage, me: Addr, format: BodyFormat = "plai
  * quote, no header, no `In-Reply-To`, so the letter starts on its own.
  */
 export function forwardAttachments(msg: OpenedMessage, me: Addr, format: BodyFormat = "plain", only: AttachmentInfo | null = null): ComposeDraft {
-  const attachments: AttachmentSource[] = msg.view.attachments
-    .filter((a) => !(a.inline && a.content_id) && (!only || a.index === only.index))
+  const attachments: AttachmentSource[] = forwardableFiles(msg)
+    .filter((a) => !only || a.index === only.index)
     .map((a) => ({ kind: "message", id: msg.row.id, index: a.index, name: a.name, size: a.size }));
   return { ...emptyDraft(me, format), subject: attachmentsSubject(msg.view.summary.subject), attachments };
+}
+
+/** The files a new letter from this one would carry: every attachment but the pictures its text draws. */
+export function forwardableFiles(msg: OpenedMessage): AttachmentInfo[] {
+  return msg.view.attachments.filter((a) => !(a.inline && a.content_id));
 }
 
 /** Opens a server draft for editing. */

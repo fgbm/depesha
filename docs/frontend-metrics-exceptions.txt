@@ -8,7 +8,7 @@
 component	src/MessageWindow.svelte	143	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/FolderMenu.svelte	156	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/LabelPicker.svelte	230	строка импорта labels вместо проброса app.labels (#140, шаг 2)
-component	src/components/RowMenu.svelte	167	строка импорта labels вместо проброса app.labels (#140, шаг 2); пункт «Переслать только вложения» рядом с «Переслать» и импорт значка скрепки (#97)
+component	src/components/RowMenu.svelte	174	строка импорта labels вместо проброса app.labels (#140, шаг 2); пункт «Переслать только вложения» рядом с «Переслать» и импорт значка скрепки (#97); canForwardFiles: у открытого письма считаются файлы, которые пойдут в новое письмо, а не метка строки has_attachments (#97)
 component	src/components/account/FoldersTable.svelte	187	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/FavouriteRow.svelte	86	строка импорта labels вместо проброса app.labels (#140, шаг 2); строка избранного принимает брошенное письмо: подсветка drop, pointerenter и pointerleave
 component	src/components/sidebar/FolderRow.svelte	116	строка импорта labels вместо проброса app.labels (#140, шаг 2); строка папки принимает брошенное письмо: data-account, подсветка drop, pointerenter и pointerleave

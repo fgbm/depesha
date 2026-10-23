@@ -18,6 +18,7 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import { app } from "../lib/store.svelte";
   import { printRow } from "../lib/print";
+  import { forwardableFiles } from "../lib/compose";
   import { t } from "../lib/i18n.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowAction } from "../plugin-api";
@@ -41,6 +42,12 @@
   const anyUnread = $derived(rows.some((m) => !m.flags.seen));
   const allFlagged = $derived(rows.length > 0 && rows.every((m) => m.flags.flagged));
   const isDraft = $derived(!!single && app.mailboxes.folder(single.account_id, single.folder)?.role === "drafts");
+  /** Whether «Переслать только вложения» has anything to send: the opened letter knows its files, an unopened one only its mark. */
+  const canForwardFiles = $derived.by(() => {
+    if (!single) return false;
+    const open = app.reader.opened;
+    return open?.row.id === single.id ? forwardableFiles(open).length > 0 : single.has_attachments;
+  });
   /** Folders to move to: those of the one account the rows belong to, minus where they all lie. */
   const folders = $derived.by(() => {
     const accounts = new Set(rows.map((m) => m.account_id));
@@ -107,7 +114,7 @@
     <button class="mi" onclick={() => withOpened(() => app.compose.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint"><Keys of="core.reply" /></span></button>
     <button class="mi" onclick={() => withOpened(() => app.compose.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint"><Keys of="core.reply-all" /></span></button>
     <button class="mi" onclick={() => withOpened(() => app.compose.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
-    {#if single.has_attachments}
+    {#if canForwardFiles}
       <button class="mi" onclick={() => withOpened(() => app.compose.forwardAttachmentsOpened())}><Paperclip size={15} /> {t("act.forwardAttachments")}</button>
     {/if}
     <button class="mi" onclick={() => single && run(() => app.selection.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>

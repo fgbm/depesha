@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The letter's menu offers a letter of the files alone (#97): «Переслать только вложения»
 // opens a new letter with the letter's files and none of its text. A letter without files
-// has no such item, and «Переслать» keeps the whole letter.
+// has no such item, and «Переслать» keeps the whole letter. The pictures a letter draws in
+// its text are no files of it, so a letter of pictures alone has no item either.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("../lib/testing").then((m) => m.eventModule));
@@ -25,16 +26,17 @@ const files: AttachmentInfo[] = [
   { index: 1, name: "logo.png", mime: "image/png", size: 5, content_id: "logo", inline: true },
 ];
 
-/** The letter as the pane has it open, with its files. */
-function open(m: MessageRow): OpenedMessage {
+/** The letter as the pane has it open, with `list` as its files. */
+function open(m: MessageRow, list: AttachmentInfo[] = files): OpenedMessage {
   const msg = opened(m);
-  return { ...msg, view: { ...msg.view, attachments: files } };
+  return { ...msg, view: { ...msg.view, attachments: list } };
 }
 
 let view: ReturnType<typeof mount> | null = null;
 
-function draw(m: MessageRow): HTMLElement {
+function draw(m: MessageRow, letter: OpenedMessage | null = null): HTMLElement {
   app.list.messages = [m];
+  app.reader.opened = letter;
   const target = document.createElement("div");
   document.body.append(target);
   view = mount(RowMenu, { target, props: { at: { x: 10, y: 10 }, ids: [m.id], onclose: () => {} } });
@@ -63,6 +65,12 @@ afterEach(() => {
 
 describe("forwarding the files alone", () => {
   it("is offered by a letter with files", () => {
+    const m = row(1, { has_attachments: true });
+    const target = draw(m, open(m));
+    expect(item(target, "Переслать только вложения")).toBeTruthy();
+  });
+
+  it("is offered by an unopened letter that its row marks as having files", () => {
     const target = draw(row(1, { has_attachments: true }));
     expect(item(target, "Переслать только вложения")).toBeTruthy();
   });
@@ -73,10 +81,16 @@ describe("forwarding the files alone", () => {
     expect(item(target, "Переслать только вложения")).toBeUndefined();
   });
 
+  it("is not offered by a letter whose only files are the pictures in its text", () => {
+    const m = row(1, { has_attachments: true });
+    const target = draw(m, open(m, [files[1]]));
+    expect(item(target, "Переслать")).toBeTruthy();
+    expect(item(target, "Переслать только вложения")).toBeUndefined();
+  });
+
   it("opens a new letter with the files and none of the text", async () => {
     const m = row(1, { has_attachments: true });
-    const target = draw(m);
-    app.reader.opened = open(m);
+    const target = draw(m, open(m));
     item(target, "Переслать только вложения")!.click();
     flushSync();
     expect(app.compose.windows).toHaveLength(1);
