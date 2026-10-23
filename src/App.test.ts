@@ -27,6 +27,7 @@ import App from "./App.svelte";
 import { app } from "./lib/store.svelte";
 import { layout } from "./lib/layout.svelte";
 import { i18n } from "./lib/i18n.svelte";
+import { keepEngineHandsOff } from "./lib/engine";
 import { shortcuts } from "./lib/shortcuts.svelte";
 import { api, flush, settings } from "./lib/testing";
 import type { KeySettings } from "./lib/types";
@@ -64,6 +65,61 @@ afterEach(() => {
   if (view) unmount(view);
   view = null;
   document.body.innerHTML = "";
+});
+
+describe("Ctrl+A in the main window", () => {
+  /** The body of a letter, as ReaderBody.svelte draws it. */
+  function letterZone(text = "Текст письма"): HTMLElement {
+    const zone = document.createElement("div");
+    zone.className = "plain selectable";
+    zone.textContent = text;
+    document.body.append(zone);
+    return zone;
+  }
+
+  function ctrlA() {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", ctrlKey: true, bubbles: true, cancelable: true }));
+  }
+
+  it("takes the text of the letter it was pressed in, not the letters of the list", () => {
+    app.ui.wizard = null;
+    // The window's guard of the engine's keys, which main.ts installs in the app.
+    const off = keepEngineHandsOff(document, true);
+    const chosen = vi.spyOn(app.selection, "selectAll");
+    const zone = letterZone();
+    zone.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    ctrlA();
+    expect(chosen).not.toHaveBeenCalled();
+    expect(document.getSelection()?.toString()).toBe("Текст письма");
+    off();
+  });
+
+  it("is the list's when the press was on a row, as it was", () => {
+    app.ui.wizard = null;
+    // The window's guard of the engine's keys, which main.ts installs in the app.
+    const off = keepEngineHandsOff(document, true);
+    const chosen = vi.spyOn(app.selection, "selectAll");
+    const row = document.createElement("div");
+    row.className = "row";
+    document.body.append(row);
+    row.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    ctrlA();
+    expect(chosen).toHaveBeenCalledOnce();
+    off();
+  });
+
+  it("is the letter's own text inside a letter's frame: the key replayed from it is no press of the list", () => {
+    // MailFrame.svelte replays a key of the frame on the iframe element; the frame keeps Ctrl+A.
+    app.ui.wizard = null;
+    // The window's guard of the engine's keys, which main.ts installs in the app.
+    const off = keepEngineHandsOff(document, true);
+    const chosen = vi.spyOn(app.selection, "selectAll");
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    frame.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(chosen).not.toHaveBeenCalled();
+    off();
+  });
 });
 
 describe("the keyboard order of the main window (0.8.3, #176)", () => {

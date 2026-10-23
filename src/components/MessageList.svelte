@@ -34,6 +34,7 @@
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
   import { ROW, rowsInSight } from "../lib/list.svelte";
+  import { letterDrag } from "../lib/letterDrag.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -149,6 +150,12 @@
       void tick().then(() => (byMouse = false));
     }
     app.selection.select(m.id, mode);
+  }
+
+  /** A press on a row may carry it into a folder of the sidebar: the row itself, or the rows
+   *  chosen with it. The list's own click decides the selection as it did (letterDrag.svelte.ts). */
+  function dragPress(e: PointerEvent, m: MessageRow) {
+    letterDrag.press(e, app.selection.selected.has(m.id) ? [...app.selection.selected] : [m.id], m.account_id);
   }
 
   let menu = $state<{ at: { x: number; y: number }; ids: number[] } | null>(null);
@@ -354,6 +361,7 @@
             role="option"
             aria-selected={app.selection.selected.has(m.id)}
             tabindex="-1"
+            onpointerdown={(e) => dragPress(e, m)}
             onclick={(e) => click(e, m)}
             ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
             oncontextmenu={(e) => context(e, m)}
@@ -397,6 +405,7 @@
             aria-selected={app.selection.selected.has(m.id)}
             aria-expanded={m.thread_count > 1 ? app.list.threadOpen(m) : undefined}
             tabindex="-1"
+            onpointerdown={(e) => dragPress(e, m)}
             onclick={(e) => click(e, m)}
             ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
             oncontextmenu={(e) => context(e, m)}

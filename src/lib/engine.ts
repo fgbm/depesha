@@ -3,7 +3,9 @@
 // «Back», «Reload», «Save page as» and «Inspect» says nothing about a letter, and a selection over
 // the interface is not text the user asked to copy. The engine's menu stays where it earns its
 // place (fields and editors carry cut, copy, paste and the spelling corrections), and so does the
-// selection. Covered by engine.test.ts.
+// selection. A press on text moves no focus, so the press is remembered: Ctrl+A in a letter takes
+// the text of the letter (textZone), and Ctrl+A in the list chooses the letters. Covered by
+// engine.test.ts.
 
 /** Fields and editors: the engine's own menu there is the useful one. */
 export const EDITORS = "input, textarea, [contenteditable], .cm-editor";
@@ -14,8 +16,14 @@ export const SELECTABLE = ".selectable";
 /** Everywhere the user may select text, for the keys that belong to the document. */
 const TEXT = `${EDITORS}, ${SELECTABLE}`;
 
-/** What a press or a click landed in, as an element: a text node and `window` have no `closest`. */
-const within = (target: EventTarget | null, selector: string): boolean => ((target as Element | null)?.closest?.(selector) ?? null) !== null;
+/** The `selector` element a press or a click landed in; null when it landed elsewhere. A text node has no `closest`. */
+const zoneOf = (target: EventTarget | null, selector: string): Element | null => (target as Element | null)?.closest?.(selector) ?? null;
+
+/** Whether a press or a click landed in `selector`. */
+const within = (target: EventTarget | null, selector: string): boolean => zoneOf(target, selector) !== null;
+
+/** Where the last press landed: a click on text leaves the focus on the page's own body. */
+let pressed: EventTarget | null = null;
 
 /** Whether the engine's menu belongs on this press: a field, an editor, or text chosen to copy. */
 export function engineMenuWanted(target: EventTarget | null, chosen: boolean): boolean {
@@ -43,6 +51,28 @@ export function selectAllWanted(target: EventTarget | null): boolean {
   return within(target, TEXT);
 }
 
+/**
+ * The text zone Ctrl+A takes: the one the focus is in, or, when the focus stayed on the page
+ * itself (a click on text moves it nowhere), the one the last press landed in.
+ */
+export function textZone(target: EventTarget | null, doc: Document = document): Element | null {
+  const el = target instanceof Element && target !== doc.body && target !== doc.documentElement ? target : pressed;
+  return zoneOf(el, SELECTABLE);
+}
+
+/** Chooses the whole text of `zone`, as Ctrl+A does in a field; false when there is nothing to choose. */
+export function selectZone(zone: Element | null, doc: Document = document): boolean {
+  if (!zone) return false;
+  const range = doc.createRange();
+  range.selectNodeContents(zone);
+  if (!range.toString().trim()) return false;
+  const selection = doc.getSelection();
+  if (!selection) return false;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 /** A press the engine must not act on: reloading the page, or the inspector of a built app. */
 export function engineKey(e: KeyboardEvent, release: boolean): boolean {
   if (!release) return false;
@@ -63,8 +93,16 @@ export function keepEngineHandsOff(doc: Document = document, release = true): ()
     const selectAll = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
     if (selectAll ? !selectAllWanted(e.target) : engineKey(e, release)) e.preventDefault();
   };
+  // A press says where the user is when the focus does not: Ctrl+A in a letter reads it (textZone).
+  const onPress = (e: Event) => {
+    pressed = e.target;
+  };
   // The default action of the engine is all this takes, not the event: the window's own handlers,
   // which run either side of this one, keep their presses.
   doc.addEventListener("keydown", onKey, true);
-  return () => doc.removeEventListener("keydown", onKey, true);
+  doc.addEventListener("pointerdown", onPress, true);
+  return () => {
+    doc.removeEventListener("keydown", onKey, true);
+    doc.removeEventListener("pointerdown", onPress, true);
+  };
 }

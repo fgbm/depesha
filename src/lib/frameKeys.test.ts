@@ -16,11 +16,12 @@ afterEach(() => {
 });
 
 describe("the keys a letter's frame is told to stop", () => {
-  it("are the main window's: print, select all, the menu of a row (#124)", () => {
+  it("are the main window's: print and the menu of a row, but never select all (#124)", () => {
     const keys = frameTakes();
     expect(keys).toContainEqual(PRINT);
-    expect(keys).toContainEqual(SELECT_ALL);
     expect(keys).toContainEqual(ROW_MENU);
+    // Ctrl+A in a letter takes the text of the letter, so the page keeps the key.
+    expect(keys).not.toContainEqual(SELECT_ALL);
   });
 
   it("leave select all and the row menu to the letter's own window (#124)", () => {

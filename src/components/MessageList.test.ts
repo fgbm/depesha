@@ -16,6 +16,7 @@ import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, deferred, settings } from "../lib/testing";
 import { registry } from "../plugin-host/registry.svelte";
+import { letterDrag } from "../lib/letterDrag.svelte";
 import { pseudoSelectors, rulesFor, useStyles } from "../lib/cssTesting";
 import type { AccountView, MessageRow } from "../lib/types";
 
@@ -909,6 +910,50 @@ describe("a letter of a thread in a window of its own, and its accessibility (#1
     expect(t.querySelector(".count")!.getAttribute("aria-label")).toContain("3");
     await unfold(t);
     expect(t.querySelector<HTMLElement>(".row")!.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+describe("letters dragged out of the list (letterDrag.svelte.ts)", () => {
+  const press = (el: Element) => el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+  const drag = () => window.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 90, clientY: 90 }));
+  const release = () => window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+
+  afterEach(() => release());
+
+  it("arms a drag of the pressed row once the pointer travels", () => {
+    const t = draw([row(1, "ann@x.example"), row(2, "bob@x.example")]);
+    const rows = t.querySelectorAll<HTMLElement>(".row");
+    press(rows[0]);
+    expect(letterDrag.dragging).toBeNull();
+    drag();
+    expect(letterDrag.dragging?.ids).toEqual([1]);
+    expect(letterDrag.dragging?.account_id).toBe("a");
+  });
+
+  it("carries the rows chosen with the pressed one", () => {
+    const t = draw([row(1, "ann@x.example"), row(2, "bob@x.example")]);
+    app.selection.selected = new Set([1, 2]);
+    flushSync();
+    press(t.querySelectorAll<HTMLElement>(".row")[1]);
+    drag();
+    expect(letterDrag.dragging?.ids).toEqual([1, 2]);
+  });
+
+  it("leaves the counter of a thread its own press", () => {
+    const t = draw([summary()]);
+    press(t.querySelector(".count")!);
+    drag();
+    expect(letterDrag.dragging).toBeNull();
+  });
+
+  it("is no drag of a press that stays: the row is clicked as it was", () => {
+    const t = draw([row(1, "ann@x.example")]);
+    const rowEl = t.querySelector<HTMLElement>(".row")!;
+    press(rowEl);
+    release();
+    expect(letterDrag.dragging).toBeNull();
+    rowEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(app.selection.selected.has(1)).toBe(true);
   });
 });
 

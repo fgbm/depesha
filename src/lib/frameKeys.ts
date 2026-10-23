@@ -21,12 +21,12 @@ export const VIEWER_TAKES = ["ArrowLeft", "ArrowRight", "Mod+s"];
 export function frameTakes(extra: string[] = []): FrameKey[] {
   const r = shortcuts.resolved();
   const main = app.windowOf === null;
-  // The main window takes them all. A letter's own window runs neither «Select all» — there Ctrl+A
-  // selects the text of the letter (App.svelte) — nor what the list of the main window owns
-  // (MAIN_ONLY): those keys keep their meaning for the page.
+  // «Select all» is never the frame's: Ctrl+A in a letter takes the text of the letter, in a
+  // window of its own as in the main one (App.svelte), so the page keeps it. The main window takes
+  // the rest; a letter's own window takes none of what the list of the main window owns (MAIN_ONLY).
   const names = shortcuts
     .commands()
-    .filter((c) => (c.scope === "main" || c.scope === "all") && (main || (c.id !== "core.select-all" && !MAIN_ONLY.test(c.id))))
+    .filter((c) => (c.scope === "main" || c.scope === "all") && c.id !== "core.select-all" && (main || !MAIN_ONLY.test(c.id)))
     .flatMap((c) => r.keys[c.id] ?? []);
   // Enter: the one column of a narrow window takes the letter with it, as App.svelte's Enter does.
   const narrow = layout.single && app.selection.selected.size === 1;

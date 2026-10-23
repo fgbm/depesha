@@ -4,7 +4,7 @@
 // it: that is where cut, copy, paste and the spelling corrections live.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rulesFor, useStyles } from "./cssTesting";
-import { EDITORS, engineKey, engineMenuWanted, keepEngineHandsOff, keepEngineMenuOut, SELECTABLE, selectAllWanted } from "./engine";
+import { EDITORS, engineKey, engineMenuWanted, keepEngineHandsOff, keepEngineMenuOut, SELECTABLE, selectAllWanted, selectZone, textZone } from "./engine";
 
 /** The elements of the window the engine's own things are asked about. */
 function element(html: string): HTMLElement {
@@ -69,6 +69,9 @@ describe("the menu of the right button", () => {
 });
 
 describe("the keys of the document", () => {
+  // The window's selection is faked above: a test of Ctrl+A must see the document's own.
+  afterEach(() => vi.restoreAllMocks());
+
   it("keeps Ctrl+A to fields, editors and the text the user may select", () => {
     chosen(false);
     expect(selectAllWanted(element("<input>"))).toBe(true);
@@ -102,6 +105,40 @@ describe("the keys of the document", () => {
     expect(pressOn(document.body, "F5").defaultPrevented).toBe(true);
     expect(pressOn(document.body, "p", true).defaultPrevented).toBe(false);
     release();
+  });
+});
+
+describe("Ctrl+A in the text of a letter", () => {
+  /** The body of a letter, as ReaderBody.svelte draws it. */
+  const letter = () => element("<div class='plain selectable'>Первая строка <a>ссылка</a></div>");
+
+  it("takes the zone the press landed in, though a press on text moves no focus", () => {
+    const release = keepEngineHandsOff(document, true);
+    const zone = letter();
+    const row = element("<div class='row'>Письмо</div>");
+    // The page itself keeps the focus, and the press is the only thing that says where the user is.
+    zone.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    expect(textZone(document.body)).toBe(zone);
+    row.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    expect(textZone(document.body)).toBeNull();
+    release();
+  });
+
+  it("is the letter's from anywhere in it: a word of the body, a link, the header", () => {
+    const zone = letter();
+    expect(textZone(zone.querySelector("a"))).toBe(zone);
+    expect(textZone(element("<h1 class='subject selectable'>Тема</h1>"))?.textContent).toBe("Тема");
+  });
+
+  it("chooses the whole text of the zone, and nothing of the interface around it", () => {
+    const zone = letter();
+    expect(selectZone(zone)).toBe(true);
+    expect(document.getSelection()?.toString()).toBe("Первая строка ссылка");
+  });
+
+  it("chooses nothing where there is no text of the letter", () => {
+    expect(selectZone(null)).toBe(false);
+    expect(selectZone(element("<div class='selectable'>  </div>"))).toBe(false);
   });
 });
 

@@ -145,6 +145,12 @@ nav.side {
     background: var(--side-2);
   }
 
+  /* A folder under a dragged letter says it takes them: one ground for the folder already open
+     and the one that is not, since the open one keeps its own. */
+  .side .folder-row.drop .item:not(:disabled) {
+    background: color-mix(in srgb, var(--side-ink) 20%, transparent);
+  }
+
   .side .item.disabled {
     color: var(--side-muted);
     cursor: default;

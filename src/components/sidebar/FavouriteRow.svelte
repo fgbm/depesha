@@ -13,6 +13,7 @@
   import { favourites, splitPath, type Favourite } from "../../lib/favourites.svelte";
   import type { AccountView } from "../../lib/types";
   import { sidebarUi, roleIcon } from "./sidebar.svelte";
+  import { letterDrag } from "../../lib/letterDrag.svelte";
   import { count, star } from "./FolderRow.svelte";
   import { labels } from "../../lib/labels.svelte";
 
@@ -41,7 +42,19 @@
   }
 </script>
 
-<div class="folder-row fav-row" class:leaving={favourites.isLeaving(account.id, fav.name, fav.kind ?? "folder")} data-account={account.id} data-folder={fav.name} out:closing>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- The row holds the favourite's button and its star; the pointer here only says where a dragged letter goes. -->
+<div
+  class="folder-row fav-row"
+  class:leaving={favourites.isLeaving(account.id, fav.name, fav.kind ?? "folder")}
+  class:drop={!isLabel && letterDrag.dragging?.over === fav.name && letterDrag.dragging.account_id === account.id}
+  data-account={account.id}
+  data-folder={fav.name}
+  data-drop-folder={!isLabel && !gone ? fav.name : undefined}
+  onpointerenter={() => !isLabel && !gone && letterDrag.hover(account.id, fav.name)}
+  onpointerleave={() => letterDrag.left(account.id, fav.name)}
+  out:closing
+>
   <button
     class="item"
     class:active={!gone && sidebarUi.isActive(v)}

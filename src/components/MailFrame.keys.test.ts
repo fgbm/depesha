@@ -114,20 +114,19 @@ describe("the keys the frame is told about", () => {
     return msg.keys;
   };
 
-  it("are the main window's: print, select all, the menu of a row", () => {
+  it("are the main window's: print and the menu of a row", () => {
     const keys = told(frameOf());
     expect(keys).toContainEqual({ code: "KeyP", mod: true, alt: false, shift: false });
-    expect(keys).toContainEqual({ code: "KeyA", mod: true, alt: false, shift: false });
     expect(keys).toContainEqual({ key: "ContextMenu", mod: false, alt: false, shift: false });
   });
 
-  it("leave the letter text to «Select all» in its own window, which has no rows", () => {
-    // The window of a letter runs no core.select-all (App.svelte): there Ctrl+A selects the
-    // text of the letter, so the frame must not stop it (#124).
-    app.windowOf = 7;
-    const keys = told(frameOf());
-    expect(keys).toContainEqual({ code: "KeyP", mod: true, alt: false, shift: false });
-    expect(keys).not.toContainEqual({ code: "KeyA", mod: true, alt: false, shift: false });
+  it("leave the text of the letter to «Select all», in the main window as in the letter's own", () => {
+    // Ctrl+A in a letter takes the text of the letter inside the frame (App.svelte): the frame
+    // must not stop it (#124), or the rows of the list would be chosen instead.
+    for (const windowOf of [null, 7]) {
+      app.windowOf = windowOf;
+      expect(told(frameOf()), `windowOf=${windowOf}`).not.toContainEqual({ code: "KeyA", mod: true, alt: false, shift: false });
+    }
   });
 
   it("take the surroundings' own keys as well", () => {

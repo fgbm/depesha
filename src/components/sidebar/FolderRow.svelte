@@ -20,6 +20,7 @@
   import { app, type View } from "../../lib/store.svelte";
   import { readOnly } from "../../lib/labels";
   import { sidebarUi, roleIcon } from "./sidebar.svelte";
+  import { letterDrag } from "../../lib/letterDrag.svelte";
   import { labels } from "../../lib/labels.svelte";
 
   // `picked` is called when the row is chosen inside the strip's flyout.
@@ -68,7 +69,17 @@
   ><Star size={15} fill={on && !block ? "currentColor" : "none"} /></button>
 {/snippet}
 
-<div class="folder-row" data-folder={folder.name}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- The row holds the folder's button and its star; the pointer here only says where a dragged letter goes. -->
+<div
+  class="folder-row"
+  class:drop={folder.selectable && letterDrag.dragging?.over === folder.name && letterDrag.dragging.account_id === account.id}
+  data-account={account.id}
+  data-folder={folder.name}
+  data-drop-folder={folder.selectable ? folder.name : undefined}
+  onpointerenter={() => folder.selectable && letterDrag.hover(account.id, folder.name)}
+  onpointerleave={() => letterDrag.left(account.id, folder.name)}
+>
   {#if hasChildren}
     {@const open = !sidebarUi.isFolded(folder)}
     <!-- A triangle of its own: a click on the name still opens the folder. -->

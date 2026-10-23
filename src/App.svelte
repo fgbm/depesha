@@ -9,6 +9,7 @@
   import { shortcuts } from "./lib/shortcuts.svelte";
   import { pressName } from "./lib/keymap";
   import { printKey } from "./lib/print";
+  import { selectZone, textZone } from "./lib/engine";
   import { quitApp } from "./lib/background.svelte";
   import { layout } from "./lib/layout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -179,7 +180,19 @@
       const cmd = shortcuts.command(id);
       if (!cmd || (app.ui.settingsOpen && cmd.owner === "core")) return;
       if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
-      if (cmd.id === "core.select-all" && app.windowOf !== null) return;
+      if (cmd.id === "core.select-all") {
+        // A key pressed in a letter's frame is replayed on the iframe (MailFrame.svelte): there
+        // Ctrl+A is the frame's own and takes the text of the letter inside it.
+        if (app.windowOf !== null || t?.tagName === "IFRAME") return;
+        // The text of the letter, as Ctrl+A takes the text of a field: a click on it moves no
+        // focus, so the zone comes from where the press landed (engine.ts).
+        const zone = textZone(t);
+        if (zone) {
+          e.preventDefault();
+          selectZone(zone);
+          return;
+        }
+      }
       const run = action(id);
       if (run) {
         e.preventDefault();
