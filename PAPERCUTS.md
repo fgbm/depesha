@@ -124,3 +124,7 @@ Vale (`DepeshaRU.SentenceLength`) и `scripts/md-onelines.mjs` тянут в р�
 ## 2026-10-23 10:05 — deepseek-v4.1-flash
 
 WebKitGTK не знает `user-select` без префикса: в 2.52 `CSS.supports('user-select', 'none')` — false, а `getPropertyValue('user-select')` пуст, поэтому правило `user-select: none` в `src/app.css` на Linux не работало ни разу, и выделялся весь интерфейс. Работает только `-webkit-user-select` (Chromium принимает его как двойник). Проверять такие свойства можно без приложения: pygobject + `WebKit2.WebView` в своём Xvfb, `evaluate_javascript` и `JSON.stringify` последним выражением — результат скрипта иначе равен последнему выражению, а не объекту.
+
+## 2026-10-23 12:40 — deepseek-v4.1-flash
+
+Разбор правки на два коммита при общем файле исключений метрик → `git apply --cached` с патчем из `git diff -U0` падает на «при поиске» даже когда строка совпадает побайтно (`--recount`, без строки `index`). Проверка побайтного равенства не помогает; рабочий путь — не дробить файл, а положить его целиком в один коммит, либо руками править отдельные строки патча.
