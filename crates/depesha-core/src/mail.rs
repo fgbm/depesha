@@ -525,7 +525,7 @@ pub async fn folder_total(conn: &mut Conn, store: &Store, account_id: &str, fold
 pub async fn folder_count(conn: &mut Conn, store: &Store, account_id: &str, folder: &str) -> Result<(usize, Bound)> {
     match conn {
         Conn::Imap(c) => {
-            let (n, bound) = ImapServer::new(c, EMPTY_BATCH).count(folder).await?;
+            let (n, bound) = ImapServer::new(c, store, account_id, EMPTY_BATCH).count(folder).await?;
             Ok((n, Bound::Imap(bound)))
         }
         Conn::Ews(s) => {
@@ -563,7 +563,15 @@ pub async fn empty_folder(
     } = wipe;
     match (conn, bound) {
         (Conn::Imap(c), Bound::Imap(b)) => {
-            clear::empty_folder(&mut ImapServer::new(c, batch), folder, how, b, keep, progress).await
+            clear::empty_folder(
+                &mut ImapServer::new(c, store, account_id, batch),
+                folder,
+                how,
+                b,
+                keep,
+                progress,
+            )
+            .await
         }
         (Conn::Ews(s), Bound::Ews(b)) => {
             clear::empty_folder(&mut EwsServer { s, store, account_id }, folder, how, b, keep, progress).await
@@ -584,7 +592,7 @@ pub async fn clear_folder(
 ) -> Performed {
     match (conn, &req.bound) {
         (Conn::Imap(c), Bound::Imap(b)) => {
-            let mut server = ImapServer::new(c, EMPTY_BATCH);
+            let mut server = ImapServer::new(c, store, account_id, EMPTY_BATCH);
             let req = req.with_bound(b.clone());
             clear::perform(&mut server, store, clearing, account_id, &req, progress, cache_forgot).await
         }
@@ -680,14 +688,18 @@ fn within_snapshot(bound: &EwsBound, kept: &[String]) -> Vec<String> {
 /// UIDs it handed out were read under, and every change by them is checked against it.
 pub(crate) struct ImapServer<'a> {
     conn: &'a mut imap::Conn,
+    store: &'a Store,
+    account_id: &'a str,
     batch: usize,
     validity: Option<u32>,
 }
 
 impl<'a> ImapServer<'a> {
-    pub(crate) fn new(conn: &'a mut imap::Conn, batch: usize) -> Self {
+    pub(crate) fn new(conn: &'a mut imap::Conn, store: &'a Store, account_id: &'a str, batch: usize) -> Self {
         Self {
             conn,
+            store,
+            account_id,
             batch,
             validity: None,
         }
@@ -726,9 +738,11 @@ impl MailServer for ImapServer<'_> {
     }
 
     async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
-        imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to)
-            .await
-            .map(drop)
+        let pairs = imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to).await?;
+        // A folder emptied by moving loses its labels the same way a single move does (#201).
+        let pairs = moved_pairs(self.conn, self.store, self.account_id, folder, to, items, pairs).await;
+        self.store.move_local_labels(self.account_id, folder, to, &pairs)?;
+        Ok(())
     }
 
     fn batch(&self) -> usize {
