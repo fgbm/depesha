@@ -287,6 +287,11 @@ struct SendTroubleFields {
     host: String,
     port: u16,
     tls: &'static str,
+    /// `ErrorKind`, as the interface branches on it.
+    kind: &'static str,
+    /// The variant without its parameters (`Error::tag`): `smtp`, `bye`, `say/invalid-address`.
+    tag: &'static str,
+    /// The tag and the numeric codes of a reply, as one field (`smtp 550 5.1.1`).
     error: String,
 }
 
@@ -300,7 +305,9 @@ fn send_trouble_fields(account_id: &str, account: Option<&Account>, error: &depe
         host,
         port,
         tls,
-        error: error_summary(error),
+        kind: error.kind().as_str(),
+        tag: error.tag(),
+        error: error.journal(),
     }
 }
 
@@ -322,21 +329,10 @@ fn mailbox_hash(account_id: &str) -> String {
     format!("{:08x}", hasher.finish() as u32)
 }
 
-/// The error, worded for the log: an SMTP reply keeps only its code and enhanced code, never
-/// the server's own text, which may quote the letter's own addresses back (`550 <x@y> rejected`).
-fn error_summary(error: &depesha_core::Error) -> String {
-    match error {
-        depesha_core::Error::Smtp { code, enhanced, .. } => match enhanced {
-            Some(enhanced) => format!("smtp {code} {enhanced}"),
-            None => format!("smtp {code}"),
-        },
-        other => other.to_string(),
-    }
-}
-
 /// One line per failed attempt: the mailbox by a short hash (never its address), the server and
 /// port it tried, the TLS mode, the step `smtp::open`/`send` actually reached (not guessed from
-/// the kind of error) and the kind of error — never the letter's text or its recipients.
+/// the kind of error), the kind and the variant of the error — never the letter's text, its
+/// recipients or the server's own wording.
 fn log_send_trouble(
     item: &OutboxItem,
     account: Option<&Account>,
@@ -353,6 +349,8 @@ fn log_send_trouble(
         attempt = item.attempts + 1,
         stage,
         transient,
+        kind = f.kind,
+        tag = f.tag,
         error = f.error,
         "outbox: send attempt failed"
     );
@@ -688,6 +686,30 @@ mod tests {
             message: "<a@b> too many".into(),
         };
         assert_eq!(send_trouble_fields("x", None, &enhanced).error, "smtp 421 4.4.2");
+    }
+
+    /// A failure that is not an SMTP reply has no words in the log either: its own text names
+    /// the login, a letter or the server's answer, and the user reads that from the notice.
+    #[test]
+    fn the_fields_of_a_send_trouble_of_another_failure_have_no_server_text() {
+        let login = depesha_core::Error::Auth("535 login user@example.org refused".into());
+        let f = send_trouble_fields("a@b.ru-1", None, &login);
+        let line = format!("{} {} {} {} {} {}", f.mailbox, f.host, f.port, f.tls, f.tag, f.error);
+        for word in ["example.org", "user@", "535 login"] {
+            assert!(!line.contains(word), "{word} in {line}");
+        }
+        assert_eq!((f.kind, f.tag), ("auth", "auth"), "{line}");
+        // The greeting the server refused names the client's own machine: the code stays alone.
+        let hello = depesha_core::Error::SmtpHello {
+            name: "workstation.local".into(),
+            code: 550,
+            message: "no such host <user@example.org>".into(),
+        };
+        let f = send_trouble_fields("x", None, &hello);
+        assert_eq!(
+            (f.kind, f.tag, f.error.as_str()),
+            ("other", "smtp-hello", "smtp-hello 550")
+        );
     }
 
     /// The flow `outbox_retry` and `send_account` follow together without a database column:
