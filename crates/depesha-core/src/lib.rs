@@ -18,6 +18,8 @@ pub mod idle_pace;
 pub mod imap;
 pub mod label_strip;
 mod lock;
+#[cfg(test)]
+mod log_sink;
 pub mod mail;
 pub mod message;
 pub(crate) mod net;

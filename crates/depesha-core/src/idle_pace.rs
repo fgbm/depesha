@@ -55,6 +55,17 @@ impl DropCause {
     fn teaches(&self) -> bool {
         matches!(self, Self::Bye(_) | Self::Eof | Self::Reset)
     }
+
+    /// The cause without the server's words, for a log line: `Bye` keeps the fact, not the text.
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Bye(_) => "bye",
+            Self::Eof => "eof",
+            Self::Reset => "reset",
+            Self::TimedOut => "timeout",
+            Self::Other => "error",
+        }
+    }
 }
 
 impl fmt::Display for DropCause {

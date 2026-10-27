@@ -543,6 +543,8 @@ impl Error {
 
     /// The variant without its parameters: the only part of an error a log line may name
     /// besides the kind, never the words, which may quote a reply, an address or a letter.
+    /// An IMAP failure keeps the distinction its words used to carry: refused, not accepted,
+    /// a broken link.
     pub const fn tag(&self) -> &'static str {
         match self {
             Self::Io(_) => "io",
@@ -554,7 +556,12 @@ impl Error {
             Self::Auth(_) => "auth",
             Self::AuthMechanism(_) => "auth-mechanism",
             Self::ImapUnavailable => "imap-unavailable",
-            Self::Imap(_) => "imap",
+            Self::Imap(e) => match e {
+                async_imap::error::Error::No(_) => "imap-refused",
+                async_imap::error::Error::Bad(_) => "imap-not-accepted",
+                async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost => "imap-lost",
+                _ => "imap-other",
+            },
             Self::Smtp { .. } => "smtp",
             Self::SmtpHello { .. } => "smtp-hello",
             Self::TooLarge { .. } => "too-large",
@@ -886,6 +893,66 @@ mod tests {
         }
         // The words the user reads keep the server's own text: `Display` does not change.
         assert!(login.to_string().contains("example.org"));
+    }
+
+    /// The words of an IMAP failure (`imap_text`) used to tell a refusal from a bad command and
+    /// from a broken link; the tag does that now, so a journal line loses nothing.
+    #[test]
+    fn the_tag_of_an_error_tells_variants_apart() {
+        let io = || std::io::Error::from(std::io::ErrorKind::ConnectionReset);
+        let table: [(Error, &str); 12] = [
+            (
+                Error::Imap(E::No("code: None, info: Some(\"nope\")".into())),
+                "imap-refused",
+            ),
+            (
+                Error::Imap(E::Bad("code: None, info: Some(\"bad\")".into())),
+                "imap-not-accepted",
+            ),
+            (Error::Imap(E::Io(io())), "imap-lost"),
+            (Error::Imap(E::ConnectionLost), "imap-lost"),
+            (Error::ImapOther("a kind that cannot be copied".into()), "imap-other"),
+            (
+                Error::Smtp {
+                    code: 550,
+                    enhanced: None,
+                    message: "x".into(),
+                },
+                "smtp",
+            ),
+            (
+                Error::SmtpHello {
+                    name: "ws".into(),
+                    code: 501,
+                    message: "x".into(),
+                },
+                "smtp-hello",
+            ),
+            (Error::Auth("535 login u@example.org refused".into()), "auth"),
+            (Error::Bye("BYE u@example.org autologout".into()), "bye"),
+            (Error::Protocol("unexpected".into()), "protocol"),
+            (Error::Paused, "paused"),
+            (
+                Error::Said(Say::InvalidAddress {
+                    email: "u@example.org".into(),
+                }),
+                "say/invalid-address",
+            ),
+        ];
+        for (error, tag) in table {
+            assert_eq!(error.tag(), tag, "{error:?}");
+            // The journal field begins with the tag: the codes follow it when a reply gave any.
+            assert!(error.journal().starts_with(tag), "{} of {error:?}", error.journal());
+        }
+        assert_eq!(
+            Error::Smtp {
+                code: 550,
+                enhanced: Some("5.1.1".into()),
+                message: "x".into()
+            }
+            .journal(),
+            "smtp 550 5.1.1"
+        );
     }
 
     #[test]

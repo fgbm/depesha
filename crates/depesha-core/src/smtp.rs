@@ -897,9 +897,18 @@ async fn connect(server: &ServerConfig) -> Result<TcpStream> {
 
 /// A failure of the attempt, logged where it actually happened: never guessed from the kind
 /// of error afterwards, which cannot tell a dropped connection at the greeting from one at
-/// DATA. Host and port only — the mailbox and the letter are the caller's to log, not core's.
+/// DATA. The server, the step and the numbers are the log's; the reply's own words — which may
+/// quote the recipient, the login or the greeting — are the user's to read.
 fn log_stage(server: &ServerConfig, stage: &'static str, error: &Error) {
-    tracing::warn!(host = %server.host, port = server.port, stage, error = %error, "smtp: attempt failed");
+    tracing::warn!(
+        host = %server.host,
+        port = server.port,
+        stage,
+        kind = error.kind().as_str(),
+        tag = error.tag(),
+        error = error.journal(),
+        "smtp: attempt failed"
+    );
 }
 
 /// Connects, upgrades to TLS as configured and logs in when credentials are given. `stage` is
@@ -1141,6 +1150,7 @@ fn dot_stuff(raw: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log_sink::logged;
 
     #[test]
     fn literal_types_parse() {
@@ -1842,5 +1852,41 @@ mod tests {
         .into_error();
         assert!(e.to_string().contains("Send As"), "{e}");
         assert!(!e.is_transient());
+    }
+
+    /// Every failed step is logged, and the log may keep the server and the step, the kind of
+    /// trouble and the numeric codes — never the reply itself, which may quote the recipient,
+    /// the login or the greeting the server refused.
+    #[test]
+    fn a_failed_step_is_logged_without_the_servers_words() {
+        let cfg = ServerConfig {
+            host: "smtp.example.com".into(),
+            port: 465,
+            security: Security::Tls,
+            trusted_cert: None,
+        };
+        let refused = Error::Smtp {
+            code: 550,
+            enhanced: Some("5.1.1".into()),
+            message: "<user@example.org>: no such user".into(),
+        };
+        let login = Error::Auth("535 login user@example.org refused".into());
+        let greeting = Error::SmtpHello {
+            name: "workstation.local".into(),
+            code: 501,
+            message: "syntax error, user@example.org".into(),
+        };
+        let line = logged(|| {
+            log_stage(&cfg, "send", &refused);
+            log_stage(&cfg, "auth", &login);
+            log_stage(&cfg, "ehlo", &greeting);
+        });
+        for word in ["example.org", "user@", "no such user", "535 login", "workstation.local"] {
+            assert!(!line.contains(word), "{word} in {line}");
+        }
+        assert!(line.contains("smtp.example.com") && line.contains("send"), "{line}");
+        // The codes are ours to read: a refused recipient keeps its 550 5.1.1.
+        assert!(line.contains("550") && line.contains("5.1.1"), "{line}");
+        assert!(line.contains("tag=\"smtp\"") && line.contains("tag=\"auth\""), "{line}");
     }
 }
