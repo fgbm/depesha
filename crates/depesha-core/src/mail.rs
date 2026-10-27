@@ -751,6 +751,8 @@ pub(crate) struct ImapServer<'a> {
     account_id: &'a str,
     batch: usize,
     validity: Option<u32>,
+    /// The letters `move_to` has taken: the cache forgets those, and only those, once a run ends.
+    moved: Vec<u32>,
 }
 
 impl<'a> ImapServer<'a> {
@@ -761,6 +763,7 @@ impl<'a> ImapServer<'a> {
             account_id,
             batch,
             validity: None,
+            moved: Vec::new(),
         }
     }
 }
@@ -809,7 +812,12 @@ impl MailServer for ImapServer<'_> {
         };
         let pairs = moved_pairs(self.conn, self.store, self.account_id, moved).await;
         self.store.move_local_labels(self.account_id, folder, to, &pairs)?;
+        self.moved.extend_from_slice(items);
         Ok(())
+    }
+
+    fn moved_uids(&self) -> Option<Vec<u32>> {
+        Some(self.moved.clone())
     }
 
     fn batch(&self) -> usize {
@@ -1296,6 +1304,9 @@ mod tests {
         copyuid: bool,
         next: u32,
         selected: &'static str,
+        /// The ordinal of the MOVE to refuse, and of the one running now.
+        refuse: Option<usize>,
+        moves: usize,
     }
 
     impl Fake {
@@ -1305,7 +1316,15 @@ mod tests {
                 copyuid: true,
                 next: 7,
                 selected: INBOX,
+                refuse: None,
+                moves: 0,
             }
+        }
+
+        /// The MOVE counting `ordinal` from 1 is refused.
+        fn refusing(mut self, ordinal: usize) -> Self {
+            self.refuse = Some(ordinal);
+            self
         }
 
         /// A server without UIDPLUS: a MOVE or a COPY names no UID, and the letters are found
@@ -1372,7 +1391,13 @@ mod tests {
             match sub.as_str() {
                 "SEARCH" => self.search(&up, &tag),
                 "FETCH" => self.fetch(&up, &tag, set),
-                "MOVE" | "COPY" => self.move_letters(&up, &tag, set, sub == "MOVE"),
+                "MOVE" | "COPY" => {
+                    self.moves += 1;
+                    if self.refuse.is_some_and(|ordinal| self.moves >= ordinal) {
+                        return format!("{tag} NO [SERVERBUG] the folder is busy\r\n");
+                    }
+                    self.move_letters(&up, &tag, set, sub == "MOVE")
+                }
                 _ => format!("{tag} OK done\r\n"),
             }
         }
@@ -1541,6 +1566,17 @@ mod tests {
             i += 1;
         }
         parts.join(",")
+    }
+
+    /// Emptying INBOX into Archive, as «Clear» of a folder that moves its letters asks for it.
+    fn to_archive<B>(bound: B) -> crate::clear::Request<B> {
+        crate::clear::Request {
+            folder: INBOX.to_owned(),
+            how: crate::clear::Emptying::ToFolder(ARCHIVE.to_owned()),
+            bound,
+            keep_ids: Vec::new(),
+            drafts: false,
+        }
     }
 
     /// A label the folder keeps here rather than on the server (#112).
@@ -1726,5 +1762,113 @@ mod tests {
                 "{message_id} kept its label"
             );
         }
+    }
+
+    /// A run stopped before its first batch moves nothing, so it takes no label: the letters and the
+    /// memory of them stay as they were (#201).
+    #[tokio::test]
+    async fn a_stopped_empty_keeps_every_label() {
+        let port = spawn_fake(Fake::new(
+            vec![letter(1, "1@x", 100), letter(2, "2@x", 200)],
+            Vec::new(),
+        ))
+        .await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1, 2], &keyword);
+
+        let mut mail_conn = as_mail(conn);
+        let (_, bound) = folder_count(&mut mail_conn, &store, "d", INBOX).await.unwrap();
+        // «Стоп» on the first report, before any batch.
+        let done = clear_folder(
+            &mut mail_conn,
+            &store,
+            &crate::clear::Clearing::default(),
+            "d",
+            &to_archive(bound),
+            &mut |done, _| done > 0,
+            &mut |_| {},
+        )
+        .await;
+        assert!(done.result.unwrap().stopped, "the run stopped before the first batch");
+        let mut conn = back(mail_conn);
+        sync::sync_folder(&mut conn, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        for message_id in ["1@x", "2@x"] {
+            let kept = store
+                .find_by_message_id("d", INBOX, message_id)
+                .unwrap()
+                .expect("the letter was never moved");
+            assert_eq!(
+                kept.keywords,
+                std::slice::from_ref(&keyword),
+                "{message_id} keeps its label"
+            );
+        }
+    }
+
+    /// A batch that fails takes the cache and the labels of what it moved, and only those: the letters
+    /// left on the server keep their labels (#201).
+    #[tokio::test]
+    async fn a_failed_empty_keeps_the_labels_of_what_it_did_not_move() {
+        let port =
+            spawn_fake(Fake::new(vec![letter(1, "1@x", 100), letter(2, "2@x", 200)], Vec::new()).refusing(2)).await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1, 2], &keyword);
+
+        let mut mail_conn = as_mail(conn);
+        let (_, bound) = folder_count(&mut mail_conn, &store, "d", INBOX).await.unwrap();
+        let Bound::Imap(bound) = bound else {
+            unreachable!("the fake is an IMAP server")
+        };
+        // One letter a batch, so the second MOVE is the one the server refuses.
+        let Conn::Imap(c) = &mut mail_conn else {
+            unreachable!("the fake is an IMAP server")
+        };
+        let mut server = ImapServer::new(c, &store, "d", 1);
+        let done = crate::clear::perform(
+            &mut server,
+            &store,
+            &crate::clear::Clearing::default(),
+            "d",
+            &to_archive(bound),
+            &mut |_, _| true,
+            &mut |_| {},
+        )
+        .await;
+        assert!(done.result.is_err(), "the second batch was refused");
+        assert_eq!(
+            store.local_labels("d", ARCHIVE).unwrap(),
+            [(7, keyword.clone())],
+            "the letter that moved took its label"
+        );
+        assert_eq!(
+            store.local_labels("d", INBOX).unwrap(),
+            [(2, keyword.clone())],
+            "the label of the letter left on the server is still here"
+        );
+        drop(server);
+
+        let Conn::Imap(c) = &mut mail_conn else {
+            unreachable!("the fake is an IMAP server")
+        };
+        sync::sync_folder(c, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        let kept = store
+            .find_by_message_id("d", INBOX, "2@x")
+            .unwrap()
+            .expect("the letter stays");
+        assert_eq!(
+            kept.keywords,
+            [keyword],
+            "the letter left on the server keeps its label"
+        );
+        assert!(
+            store.find_by_message_id("d", INBOX, "1@x").unwrap().is_none(),
+            "the letter that moved left the folder"
+        );
     }
 }

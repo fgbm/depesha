@@ -162,8 +162,17 @@ pub async fn perform<S: MailServer>(
         };
         empty_folder(server, &req.folder, &req.how, &req.bound, &keep, &mut step).await
     };
-    if !forgotten && last.1 > 0 {
-        cache_forgot(forget_cached(store, account_id, &req.folder, &keep, &req.bound));
+    if !forgotten {
+        match server.moved_uids() {
+            // Nothing moved: the cache of the folder stands as it was, labels and all.
+            Some(moved) if moved.is_empty() => {}
+            // The letters the moves took are the ones the cache forgets; a run stopped before its last
+            // batch leaves the rest, and the labels remembered for them, where they are (#201).
+            Some(moved) => cache_forgot(forget_uids(store, account_id, &req.folder, &moved)),
+            // A mailbox that cannot name them forgets what the count named, as the erasing does.
+            None if last.1 > 0 => cache_forgot(forget_cached(store, account_id, &req.folder, &keep, &req.bound)),
+            None => {}
+        }
     }
     Performed { result, last, kept_ids }
 }
@@ -184,7 +193,12 @@ fn forget_cached<B: Count>(store: &Store, account_id: &str, folder: &str, keep: 
         Ok(gone) => gone,
         Err(e) => return Forgot::NotRead(e),
     };
-    match store.remove_uids(account_id, folder, &gone) {
+    forget_uids(store, account_id, folder, &gone)
+}
+
+/// Takes these letters of the folder out of the cache.
+fn forget_uids(store: &Store, account_id: &str, folder: &str, uids: &[u32]) -> Forgot {
+    match store.remove_uids(account_id, folder, uids) {
         Ok(_) => Forgot::Done,
         Err(e) => Forgot::NotCleared(e),
     }

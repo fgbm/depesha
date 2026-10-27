@@ -54,6 +54,13 @@ pub trait MailServer: Send {
     /// Moves the messages into the folder `to`.
     fn move_to(&mut self, folder: &str, items: &[Self::Item], to: &str) -> impl Future<Output = Result<()>> + Send;
 
+    /// The cache's UIDs of the messages `move_to` has taken so far, or `None` when this mailbox
+    /// names its messages otherwise than the cache does: `clear::perform` forgets those letters,
+    /// and only those, once the moves are done.
+    fn moved_uids(&self) -> Option<Vec<u32>> {
+        None
+    }
+
     /// How many messages the server takes in one request.
     fn batch(&self) -> usize;
 }
