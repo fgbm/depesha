@@ -127,9 +127,9 @@ pub struct Performed {
 }
 
 /// Runs the request on the server. `progress` is the one of `empty_folder`; `cache_changed`
-/// is told what came of dropping the cached letters (`Forgot`) the run takes, once, as the erasing
-/// begins and not before: the folder shows empty while the server catches up (the sync after
-/// the run brings back whatever was left).
+/// is told what came of dropping the cached letters (`Forgot`) the run takes, once: as the erasing
+/// begins and not before (the folder shows empty while the server catches up, and the sync after
+/// the run brings back whatever was left), or, for a folder emptied by moving, as the moves end.
 pub async fn perform<S: MailServer>(
     server: &mut S,
     store: &Store,
@@ -150,7 +150,11 @@ pub async fn perform<S: MailServer>(
     let result = {
         let mut step = |done: usize, total: usize| {
             last = (done, total);
-            if !forgotten && total > 0 {
+            // The letters a run takes leave the cache as it begins, so the folder shows empty while
+            // the server catches up. One emptied by moving is the exception: the move carries the
+            // labels remembered for its letters (#201), and the cache is not dropped until it has.
+            let at_once = !matches!(req.how, Emptying::ToFolder(_));
+            if at_once && !forgotten && total > 0 {
                 forgotten = true;
                 cache_forgot(forget_cached(store, account_id, &req.folder, &keep, &req.bound));
             }
@@ -158,6 +162,9 @@ pub async fn perform<S: MailServer>(
         };
         empty_folder(server, &req.folder, &req.how, &req.bound, &keep, &mut step).await
     };
+    if !forgotten && last.1 > 0 {
+        cache_forgot(forget_cached(store, account_id, &req.folder, &keep, &req.bound));
+    }
     Performed { result, last, kept_ids }
 }
 

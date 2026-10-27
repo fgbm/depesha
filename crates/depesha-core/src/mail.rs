@@ -1668,4 +1668,63 @@ mod tests {
             .expect("the copy that lay there");
         assert!(earlier.keywords.is_empty(), "the copy that lay there keeps no label");
     }
+
+    /// A folder emptied by moving carries the labels of its letters as they go (#201): the cache
+    /// may be forgotten only after the moves, or the memory of the labels goes with it.
+    #[tokio::test]
+    async fn emptying_a_folder_by_moving_carries_the_labels() {
+        let port = spawn_fake(Fake::new(
+            vec![letter(1, "1@x", 100), letter(2, "2@x", 200)],
+            Vec::new(),
+        ))
+        .await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1, 2], &keyword);
+
+        let mut mail_conn = as_mail(conn);
+        let (_, bound) = folder_count(&mut mail_conn, &store, "d", INBOX).await.unwrap();
+        let request = crate::clear::Request {
+            folder: INBOX.to_owned(),
+            how: crate::clear::Emptying::ToFolder(ARCHIVE.to_owned()),
+            bound,
+            keep_ids: Vec::new(),
+            drafts: false,
+        };
+        let done = clear_folder(
+            &mut mail_conn,
+            &store,
+            &crate::clear::Clearing::default(),
+            "d",
+            &request,
+            &mut |_, _| true,
+            &mut |_| {},
+        )
+        .await;
+        assert_eq!(done.result.unwrap().done, 2);
+        let mut conn = back(mail_conn);
+        assert!(
+            store.known_uids("d", INBOX).unwrap().is_empty(),
+            "the cache forgot the folder"
+        );
+        assert!(
+            store.local_labels("d", INBOX).unwrap().is_empty(),
+            "no row stays under the folder the letters left"
+        );
+
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+        for (uid, message_id) in [(7, "1@x"), (8, "2@x")] {
+            let moved = store
+                .find_by_message_id("d", ARCHIVE, message_id)
+                .unwrap()
+                .expect("the letter arrived");
+            assert_eq!(
+                (moved.uid, moved.keywords),
+                (uid, vec![keyword.clone()]),
+                "{message_id} kept its label"
+            );
+        }
+    }
 }
