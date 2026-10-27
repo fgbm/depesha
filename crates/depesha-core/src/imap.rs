@@ -1608,7 +1608,14 @@ async fn find_copy(conn: &mut Conn, folder: &str, raw: &[u8], message_id: &str) 
     let mailbox = conn.session.examine(folder).await?;
     match uid_search(conn, &header_search(id)).await {
         Ok(uids) => return with_message_id(conn, &uids, id, None).await,
-        Err(e) if refused(&e) => tracing::info!("SEARCH HEADER refused in {folder}, reading the newest letters: {e}"),
+        Err(e) if refused(&e) => {
+            tracing::info!(
+                folder,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "SEARCH HEADER refused, reading the newest letters"
+            )
+        }
         Err(e) => return Err(e),
     }
     let since = sent_at(raw).map(|t| format!("SINCE {}", crate::query::imap_date(t - 86_400)));
@@ -1616,7 +1623,12 @@ async fn find_copy(conn: &mut Conn, folder: &str, raw: &[u8], message_id: &str) 
         Some(query) => match uid_search(conn, &query).await {
             Ok(uids) => Some(uids),
             Err(e) if refused(&e) => {
-                tracing::info!("SEARCH SINCE refused in {folder}, reading the newest UIDs: {e}");
+                tracing::info!(
+                    folder,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "SEARCH SINCE refused, reading the newest UIDs"
+                );
                 None
             }
             Err(e) => return Err(e),
@@ -1628,7 +1640,12 @@ async fn find_copy(conn: &mut Conn, folder: &str, raw: &[u8], message_id: &str) 
     let mut uids = match newest_uids(conn, &mailbox).await {
         Ok(uids) => uids,
         Err(e) if refused(&e) && by_date.is_some() => {
-            tracing::info!("the newest UIDs of {folder} were not read: {e}");
+            tracing::info!(
+                folder,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "the newest UIDs were not read"
+            );
             Vec::new()
         }
         Err(e) => return Err(unchecked(e)),

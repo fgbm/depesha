@@ -98,6 +98,46 @@ pub enum Say {
 }
 
 impl Say {
+    /// The phrase without its parameters, for a log line: `say/` and the variant, never the
+    /// words, which may quote an address or a server's answer.
+    pub const fn tag(&self) -> &'static str {
+        use Say::*;
+        match self {
+            EwsUnavailable { .. } => "say/ews-unavailable",
+            EwsHttp { .. } => "say/ews-http",
+            EwsKerberos => "say/ews-kerberos",
+            EwsWrongLogin => "say/ews-wrong-login",
+            EwsEmptyAnswer => "say/ews-empty-answer",
+            EwsNoFolderRoot => "say/ews-no-folder-root",
+            SearchCharset { .. } => "say/search-charset",
+            UnsubscribeNoSafeWay => "say/unsubscribe-no-safe-way",
+            UnsubscribeHttpsOnly => "say/unsubscribe-https-only",
+            ListUnexpected { .. } => "say/list-unexpected",
+            ListRefused { .. } => "say/list-refused",
+            UnsubscribeBadAddress { .. } => "say/unsubscribe-bad-address",
+            UnsubscribeControlChars => "say/unsubscribe-control-chars",
+            AnswerTooLarge { .. } => "say/answer-too-large",
+            InvalidAddress { .. } => "say/invalid-address",
+            NoSender => "say/no-sender",
+            NoRecipients => "say/no-recipients",
+            SignInPortsBusy { .. } => "say/sign-in-ports-busy",
+            SignInTimeout => "say/sign-in-timeout",
+            SignInCancelled => "say/sign-in-cancelled",
+            OauthNotConfigured { .. } => "say/oauth-not-configured",
+            ProviderDenied => "say/provider-denied",
+            ProviderRefused { .. } => "say/provider-refused",
+            TokenEndpoint { .. } => "say/token-endpoint",
+            OauthInvalidGrant { .. } => "say/oauth-invalid-grant",
+            OauthInvalidClient { .. } => "say/oauth-invalid-client",
+            OauthNoToken => "say/oauth-no-token",
+            OauthNoRefresh { .. } => "say/oauth-no-refresh",
+            OauthNoMailAccess { .. } => "say/oauth-no-mail-access",
+            OauthNoAddress { .. } => "say/oauth-no-address",
+            AccountNotRunning => "say/account-not-running",
+            AuthDetail { .. } => "say/auth-detail",
+        }
+    }
+
     pub fn class(&self) -> Class {
         use Say::*;
         match self {
@@ -143,6 +183,32 @@ impl Say {
             Class::Protocol => format!("unexpected answer from the server: {body}"),
             Class::Compose => format!("the message could not be built: {body}"),
             Class::Transient => format!("network: {body}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A phrase in the journal is its tag, never its parameters: an address or a server's
+    /// answer stay out of the log, and an error said by the core passes the tag on.
+    #[test]
+    fn the_journal_tag_of_a_phrase_names_no_words() {
+        let bad = Say::InvalidAddress {
+            email: "user@example.org".into(),
+        };
+        assert_eq!(bad.tag(), "say/invalid-address");
+        assert_eq!(
+            crate::Error::Said(Say::TokenEndpoint {
+                status: 400,
+                body: "{\"error\":\"user@example.org\"}".into(),
+            })
+            .journal(),
+            "say/token-endpoint"
+        );
+        for tag in [bad.tag(), Say::NoSender.tag(), Say::SignInTimeout.tag()] {
+            assert!(tag.starts_with("say/") && !tag.contains(char::is_whitespace), "{tag}");
         }
     }
 }

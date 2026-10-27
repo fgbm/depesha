@@ -2,12 +2,23 @@
 //! is already gone, a reply nobody waits for. They must not stop the work, and they must not vanish
 //! without a trace either (`let _ =` hides them), so the failure goes to the log at debug level.
 
+use std::any::Any;
 use std::fmt::Display;
 
 /// Runs past a failure of `what`, noting it in the log.
-pub fn best_effort<T, E: Display>(what: &str, result: Result<T, E>) {
-    if let Err(e) = result {
-        tracing::debug!("{what}: {e}");
+pub fn best_effort<T, E: Display + Any>(what: &str, result: Result<T, E>) {
+    let Err(e) = result else { return };
+    // Rust has no specialization: only our own error has facts a log line may keep, so it is
+    // picked out by its type. Another crate's error has just its words, and those may quote a
+    // server's answer (#191).
+    match (&e as &dyn Any).downcast_ref::<crate::Error>() {
+        Some(ours) => tracing::debug!(
+            what,
+            kind = ours.kind().as_str(),
+            tag = ours.tag(),
+            "a step that could be skipped failed"
+        ),
+        None => tracing::debug!("{what}: {e}"),
     }
 }
 
@@ -65,6 +76,7 @@ mod tests {
         let subscriber = tracing_subscriber::fmt()
             .with_writer(sink.clone())
             .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
             .finish();
         tracing::subscriber::with_default(subscriber, run);
         let bytes = sink.0.lock().unwrap().clone();
@@ -88,5 +100,20 @@ mod tests {
         let (tx, rx) = oneshot::channel::<u8>();
         drop(rx);
         unheard(tx.send(1));
+    }
+
+    /// The words of our own error stay out of the log, since they may quote a server's reply;
+    /// its kind and variant tell what went wrong.
+    #[test]
+    fn an_own_error_is_noted_by_kind_and_variant_alone() {
+        let line = logged(|| {
+            best_effort(
+                "leave the copy",
+                Err::<(), _>(crate::Error::Auth("535 login user@example.org refused".into())),
+            )
+        });
+        assert!(line.contains("leave the copy"), "{line}");
+        assert!(line.contains("auth"), "{line}");
+        assert!(!line.contains("example.org") && !line.contains("user@"), "{line}");
     }
 }

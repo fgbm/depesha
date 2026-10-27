@@ -540,6 +540,72 @@ impl Error {
             _ => ErrorKind::Other,
         }
     }
+
+    /// The variant without its parameters: the only part of an error a log line may name
+    /// besides the kind, never the words, which may quote a reply, an address or a letter.
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Io(_) => "io",
+            Self::Timeout(_) => "timeout",
+            Self::Tls(_) => "tls",
+            Self::Certificate(_) => "certificate",
+            Self::NoTls => "no-tls",
+            Self::InvalidHost(_) => "invalid-host",
+            Self::Auth(_) => "auth",
+            Self::AuthMechanism(_) => "auth-mechanism",
+            Self::ImapUnavailable => "imap-unavailable",
+            Self::Imap(_) => "imap",
+            Self::Smtp { .. } => "smtp",
+            Self::SmtpHello { .. } => "smtp-hello",
+            Self::TooLarge { .. } => "too-large",
+            Self::Compose(_) => "compose",
+            Self::Store(_) => "store",
+            Self::Closed => "closed",
+            Self::Bye(_) => "bye",
+            Self::Protocol(_) => "protocol",
+            Self::FolderName(_) => "folder-name",
+            Self::NotFound => "not-found",
+            Self::Parse => "parse",
+            Self::Unreadable => "unreadable",
+            Self::Ews { .. } => "ews",
+            Self::Busy { .. } => "busy",
+            Self::HttpAuth(_) => "http-auth",
+            Self::Paused => "paused",
+            Self::PrivateAddress(_) => "private-address",
+            Self::CacheTooNew { .. } => "cache-too-new",
+            Self::FolderChanged => "folder-changed",
+            Self::LabelStripping => "label-stripping",
+            Self::LabelCheckUnsupported => "label-check-unsupported",
+            Self::CopyRefused(_) => "copy-refused",
+            Self::CopyUnchecked(_) => "copy-unchecked",
+            Self::Said(say) => say.tag(),
+            Self::ImapOther(_) => "imap-other",
+            Self::StoreOther(_) => "store-other",
+        }
+    }
+
+    /// The numeric codes an SMTP reply gave: its code, and its enhanced code when it named one.
+    pub fn smtp_reply(&self) -> Option<(u16, Option<&str>)> {
+        match self {
+            Self::Smtp { code, enhanced, .. } => Some((*code, enhanced.as_deref())),
+            Self::SmtpHello { code, .. } => Some((*code, None)),
+            _ => None,
+        }
+    }
+
+    /// The error as one journal field: its tag and those codes, never its words.
+    pub fn journal(&self) -> String {
+        let mut text = self.tag().to_owned();
+        if let Some((code, enhanced)) = self.smtp_reply() {
+            text.push(' ');
+            text.push_str(&code.to_string());
+            if let Some(enhanced) = enhanced {
+                text.push(' ');
+                text.push_str(enhanced);
+            }
+        }
+        text
+    }
 }
 
 /// What a failed IMAP command or connection comes to, for the edge that words it.
@@ -799,6 +865,27 @@ mod tests {
         for k in ErrorKind::ALL {
             assert_eq!(serde_json::to_string(k).unwrap(), format!("\"{}\"", k.as_str()));
         }
+    }
+
+    /// A log line keeps what a mailbox's trouble is, never what it says: the words stay for the
+    /// user (`Display`), the journal gets the variant and the numeric codes (#191, #164).
+    #[test]
+    fn the_journal_form_of_an_error_names_no_words() {
+        let login = Error::Auth("535 login user@example.org refused".into());
+        let refused = Error::Smtp {
+            code: 550,
+            enhanced: Some("5.1.1".into()),
+            message: "<user@example.org>: no such user".into(),
+        };
+        for (error, journal) in [(&login, "auth"), (&refused, "smtp 550 5.1.1")] {
+            assert_eq!(error.journal(), journal);
+            let line = format!("kind={} tag={}", error.kind().as_str(), error.journal());
+            for word in ["example.org", "user@", "no such user", "535 login"] {
+                assert!(!line.contains(word), "{word} in {line}");
+            }
+        }
+        // The words the user reads keep the server's own text: `Display` does not change.
+        assert!(login.to_string().contains("example.org"));
     }
 
     #[test]
