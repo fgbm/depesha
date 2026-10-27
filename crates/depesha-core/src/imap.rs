@@ -502,9 +502,14 @@ pub async fn folder_props(conn: &mut Conn, folder: &str) -> Result<(Option<Right
 }
 
 /// A mailbox name as an IMAP quoted string: `"` and `\` are escaped. Names arrive as
-/// modified UTF-7 from the folder list, so they are already ASCII.
-fn quoted(name: &str) -> String {
-    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+/// modified UTF-7 from the folder list, so they are already ASCII. A name with a line break
+/// would end the command and have the rest of it read as another one: it is refused.
+fn quoted(name: &str) -> Result<String> {
+    if name.contains(['\r', '\n']) {
+        // The name itself stays out of the message: it may be the whole of the forged command.
+        return Err(Error::Protocol("a mailbox name carries a line break".into()));
+    }
+    Ok(format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\"")))
 }
 
 /// The folder's rights as the server reports them in MYRIGHTS (RFC 4314). `None` when
@@ -512,7 +517,10 @@ fn quoted(name: &str) -> String {
 /// rights". Read-only folders are the common case and this is where they are told.
 pub async fn myrights(conn: &mut Conn, folder: &str) -> Result<Option<Rights>> {
     use async_imap::imap_proto::{Response, Status};
-    let id = conn.session.run_command(format!("MYRIGHTS {}", quoted(folder))).await?;
+    let id = conn
+        .session
+        .run_command(format!("MYRIGHTS {}", quoted(folder)?))
+        .await?;
     let mut rights = None;
     loop {
         let resp = next_response!(conn, "MYRIGHTS answer");
@@ -1198,9 +1206,9 @@ pub async fn move_messages(
     select_at(conn, from, validity).await?;
     let set = uid_set(uids);
     if conn.caps.move_ {
-        return copy_pairs(conn, format!("UID MOVE {set} {}", quoted(to))).await;
+        return copy_pairs(conn, format!("UID MOVE {set} {}", quoted(to)?)).await;
     }
-    let pairs = copy_pairs(conn, format!("UID COPY {set} {}", quoted(to))).await?;
+    let pairs = copy_pairs(conn, format!("UID COPY {set} {}", quoted(to)?)).await?;
     remove(conn, &set).await?;
     Ok(pairs)
 }
@@ -1229,7 +1237,7 @@ pub async fn resume_move(
     let pairs = if missing.is_empty() {
         Vec::new()
     } else {
-        copy_pairs(conn, format!("UID COPY {} {}", uid_set(&missing), quoted(to))).await?
+        copy_pairs(conn, format!("UID COPY {} {}", uid_set(&missing), quoted(to)?)).await?
     };
     remove(conn, &uid_set(uids)).await?;
     Ok(pairs)
@@ -1425,7 +1433,7 @@ pub async fn append_uid(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) 
         .session
         .run_command(format!(
             "APPEND {}{}{} {{{}}}",
-            quoted(folder),
+            quoted(folder)?,
             if flags.is_some() { " " } else { "" },
             flags.as_deref().unwrap_or(""),
             raw.len()
@@ -1949,7 +1957,7 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
             // LARGER and SMALLER take a number, not a string; digits are a valid atom anywhere.
             line.push_str(&format!(" {value}"));
         } else if value.is_ascii() {
-            line.push_str(&format!(" {}", quoted(&value)));
+            line.push_str(&format!(" {}", quoted(&value)?));
         } else if conn.caps.literal_plus {
             line.push_str(&format!(" {{{}+}}\r\n{value}", value.len()));
         } else {
@@ -2247,9 +2255,22 @@ mod tests {
     #[test]
     fn quoted_keeps_the_quotes_of_an_address() {
         // SEARCH FROM "a b"@x: a quoted local part reaches the server with its quotes escaped.
-        assert_eq!(quoted(r#""a b"@x.org"#), r#""\"a b\"@x.org""#);
-        assert_eq!(quoted("olga@example.org"), r#""olga@example.org""#);
-        assert_eq!(quoted(r"a\b"), r#""a\\b""#);
+        assert_eq!(quoted(r#""a b"@x.org"#).unwrap(), r#""\"a b\"@x.org""#);
+        assert_eq!(quoted("olga@example.org").unwrap(), r#""olga@example.org""#);
+        assert_eq!(quoted(r"a\b").unwrap(), r#""a\\b""#);
+    }
+
+    /// A folder whose name carries a line break would end the command and have the rest read as
+    /// another one (#201): no name of the folder list may reach a command line with it.
+    #[test]
+    fn a_folder_name_with_a_line_break_is_refused() {
+        let forged = "Work\r\nUID STORE 1 +FLAGS (\\Deleted)";
+        let err = quoted(forged).expect_err("a line break is refused");
+        assert!(matches!(err, Error::Protocol(_)), "{err:?}");
+        assert!(!format!("{err}").contains("UID STORE"), "the name is not repeated");
+        assert!(quoted("Work\nUID STORE 1 +FLAGS (\\Deleted)").is_err());
+        // The names the server lists are ordinary and go as they did.
+        assert_eq!(quoted("INBOX/2026").unwrap(), r#""INBOX/2026""#);
     }
 
     // The preview's part selection (#177): from a `BODYSTRUCTURE`, where the text is.
