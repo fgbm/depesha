@@ -41,7 +41,12 @@ pub async fn after_sent(
     )
     .await?;
     if let Some(e) = &sent.mark_failed {
-        tracing::debug!(account = %account.id, "the server did not take the mark: {e}");
+        tracing::debug!(
+            account = %account.id,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "the server did not take the mark"
+        );
     }
     if let Some(folder) = &sent.marked {
         state.emit("mail-changed", json!({ "account_id": account.id, "folder": folder }));
@@ -93,19 +98,34 @@ async fn archive_answered(state: &AppState, account: &Account, item: &OutboxItem
             tracing::debug!(account = %account.id, "archive of the answered letter: the mailbox has no archive folder")
         }
         Archived::NotRead(e) => {
-            tracing::warn!(account = %account.id, "archive of the answered letter: the conversation was not read: {e}")
+            tracing::warn!(
+                account = %account.id,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "archive of the answered letter: the conversation was not read"
+            )
         }
         Archived::NothingFound => {
             tracing::debug!(account = %account.id, "archive of the answered letter: no letter found to move")
         }
-        Archived::Failed(e) => tracing::warn!(account = %account.id, "archive of the answered letter: {e}"),
+        Archived::Failed(e) => tracing::warn!(
+            account = %account.id,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "archive of the answered letter failed"
+        ),
         Archived::Moved {
             archive,
             chain,
             not_marked,
         } => {
             if let Some(e) = not_marked {
-                tracing::warn!(account = %account.id, "archive of the answered letter: not marked: {e}");
+                tracing::warn!(
+                    account = %account.id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "archive of the answered letter: not marked"
+                );
             }
             state.emit("counters-changed", json!({}));
             state.emit(
@@ -148,7 +168,12 @@ async fn jobs_of_account(state: &AppState, jobs: Vec<ParkJob>) {
             ParkKind::Back | ParkKind::Undo => bring_back(state, &job).await,
         };
         if let Err(e) = done {
-            tracing::warn!(account = %job.account_id, "waiting: {}", e.message);
+            // The user reads the failure itself in the notice; the log keeps its kind.
+            tracing::warn!(
+                account = %job.account_id,
+                kind = e.kind.as_str(),
+                "waiting: a letter was not taken or brought back"
+            );
         }
     }
 }
@@ -208,7 +233,12 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
     match waiting::bring_back(&state.store, &mut queue, job, now).await? {
         Brought::Back => state.emit("counters-changed", json!({})),
         Brought::Retry(e) => {
-            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
+            tracing::debug!(
+                account = %job.account_id,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "bringing letters back failed"
+            )
         }
         Brought::GaveUp(e) => {
             let error = CmdError::from(e);

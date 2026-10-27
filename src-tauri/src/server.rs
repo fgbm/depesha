@@ -87,7 +87,12 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
     }
     // What the login found is the check; a quota the server is stuck on does not undo it.
     if let Err(e) = refresh_quota(state, &account.id, &mut conn).await {
-        tracing::warn!(account = %account.id, "quota not read: {e}");
+        tracing::warn!(
+            account = %account.id,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "quota not read"
+        );
         changed(state, &account.id);
         return Ok(());
     }
@@ -249,7 +254,12 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
         }
         .await;
         if let Err(e) = &result {
-            tracing::warn!(account = %id, "folder sizes not counted: {e}");
+            tracing::warn!(
+                account = %id,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "folder sizes not counted"
+            );
         }
         // After a stop the task is not this count's to end: a new one may have its key.
         state.end_count(&id, generation, || match result {

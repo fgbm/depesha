@@ -35,7 +35,13 @@ pub async fn run(state: Arc<AppState>) {
             match followups::prune(&state, chrono::Utc::now().timestamp()) {
                 Ok(true) => state.emit("counters-changed", json!({})),
                 Ok(false) => {}
-                Err(e) => tracing::warn!("scheduler: {e}"),
+                Err(e) => {
+                    tracing::warn!(
+                        kind = e.kind().as_str(),
+                        tag = e.tag(),
+                        "scheduler: the old reply waits were not pruned"
+                    )
+                }
             }
         }
         let resolve = event || resolved.is_none_or(|t| t.elapsed() >= RESOLVE_EVERY);
@@ -43,7 +49,7 @@ pub async fn run(state: Arc<AppState>) {
             resolved = Some(Instant::now());
         }
         if let Err(e) = round(state.clone(), resolve).await {
-            tracing::warn!("scheduler: {e}");
+            tracing::warn!(kind = e.kind().as_str(), tag = e.tag(), "scheduler: a round failed");
         }
     }
 }
@@ -110,10 +116,19 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
     };
     let returned = snooze::return_due(&state.store, &due, &mut queue, &mut on_back).await;
     for e in &returned.not_dropped {
-        tracing::warn!("scheduler: {e}");
+        tracing::warn!(
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "scheduler: a snooze time stayed in the cache"
+        );
     }
     for e in &returned.failed {
-        tracing::debug!(account = %account_id, "snooze return failed: {e}");
+        tracing::debug!(
+            account = %account_id,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "snooze return failed"
+        );
     }
     if returned.changed {
         state.emit("counters-changed", json!({}));

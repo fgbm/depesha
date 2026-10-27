@@ -1664,7 +1664,12 @@ pub async fn label_rename(
                 })
                 .await
             {
-                tracing::warn!(account = %account_id, "renaming a category failed: {e}");
+                tracing::warn!(
+                    account = %account_id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "renaming a category failed"
+                );
                 if state.store.rename_label(&account_id, &t, &f).is_ok() {
                     if let Err(e) = state.store.rename_keyword(&account_id, &t, &f) {
                         tracing::warn!(account = %account_id, "the keyword of the renamed category stayed under its old name in the cache: {e}");
@@ -1962,8 +1967,14 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 Ok(n) if n > 0 => {}
                 Ok(_) => return Ok(None),
                 Err(e) => {
+                    // Logged before the words of the interface take its place: only the kind
+                    // and the variant may reach the log.
+                    tracing::warn!(
+                        kind = e.kind().as_str(),
+                        tag = e.tag(),
+                        "unsnooze: a group of letters stayed"
+                    );
                     let e = CmdError::from(e);
-                    tracing::warn!("unsnooze: a group of letters stayed: {}", e.message);
                     return Err(e);
                 }
             }
@@ -2259,7 +2270,11 @@ pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsub
                 Ok(_) => Ok(Unsubscribed::Done),
                 Err(e) => match depesha_core::unsubscribe::after_one_click(&ways) {
                     Some(mail) => {
-                        tracing::info!("one-click unsubscribe failed, offering mail: {e}");
+                        tracing::info!(
+                            kind = e.kind().as_str(),
+                            tag = e.tag(),
+                            "one-click unsubscribe failed, offering mail"
+                        );
                         Ok(Unsubscribed::Confirm {
                             plan: plan_of(&state, &r, mail.clone())?,
                             reason: crate::localize::error_now(&e),
@@ -3610,7 +3625,12 @@ fn discard_failed_text(queued: bool, why: &str) -> String {
 /// way, but a draft left behind is a duplicate the user must know of.
 async fn discard_or_tell(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>, queued: bool) {
     if let Err(e) = discard(state, account_id, id, message_id).await {
-        tracing::warn!(account = %account_id, "the draft stayed in Drafts: {}", e.message);
+        // The notice below carries the words to the user; the log keeps the kind.
+        tracing::warn!(
+            account = %account_id,
+            kind = e.kind.as_str(),
+            "the draft stayed in Drafts"
+        );
         state.emit(
             "app-error",
             serde_json::json!({ "message": discard_failed_text(queued, &e.message) }),

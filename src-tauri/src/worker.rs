@@ -1306,7 +1306,12 @@ impl Ops {
             // server refuses is not asked twice in a session.
             Ok(Err(e)) if e.is_transient() => return,
             Ok(Err(e)) => {
-                tracing::debug!(account = %self.account.id, "the addresses of the mailbox: {e}");
+                tracing::debug!(
+                    account = %self.account.id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "the addresses of the mailbox were not read"
+                );
                 self.addresses_asked = true;
                 return;
             }
@@ -1330,7 +1335,11 @@ impl Ops {
                 // ступень 4).
                 self.state.signatures.forget_headers();
             }
-            Err(e) => tracing::warn!(account = %self.account.id, "the addresses of the mailbox were not kept: {e}"),
+            Err(e) => tracing::warn!(
+                account = %self.account.id,
+                kind = e.kind.as_str(),
+                "the addresses of the mailbox were not kept"
+            ),
         }
     }
 
@@ -1531,10 +1540,20 @@ impl Ops {
             // The quota is a number in the settings: not reading it is no account error, and
             // the next work logs in again if its connection was dropped.
             Err(e) if matches!(work, Work::Quota) => {
-                tracing::warn!(account = %account.id, kind = e.kind().as_str(), "quota not read: {e}");
+                tracing::warn!(
+                    account = %account.id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "quota not read"
+                );
             }
             Err(e) => {
-                tracing::warn!(account = %account.id, kind = e.kind().as_str(), "operation failed: {e}");
+                tracing::warn!(
+                    account = %account.id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "operation failed"
+                );
                 match work {
                     Work::SyncAll => state.task_failed(&self.sync_task(), CmdError::from(e.clone())),
                     Work::Prefetch => state.task_failed(&format!("prefetch:{}", account.id), CmdError::from(e.clone())),
@@ -1582,7 +1601,12 @@ async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> R
     match read {
         Err(e) if e.is_transient() => Err(e),
         Err(e) => {
-            tracing::warn!(account = %account_id, "quota not read: {e}");
+            tracing::warn!(
+                account = %account_id,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "quota not read"
+            );
             Ok(())
         }
         Ok(()) => Ok(()),
@@ -1625,7 +1649,13 @@ async fn perform(
                 Err(e) if pass_stops_on(&e) => Err(e),
                 // One broken folder (Exchange shows some odd ones) must not stop the rest.
                 Err(e) => {
-                    tracing::warn!(account = %id, folder = %folder, "folder sync failed: {e}");
+                    tracing::warn!(
+                        account = %id,
+                        folder,
+                        kind = e.kind().as_str(),
+                        tag = e.tag(),
+                        "folder sync failed"
+                    );
                     Ok(Output::None)
                 }
             };
@@ -1765,7 +1795,13 @@ async fn perform(
                 if move_stops_on_seen(&e) {
                     return Err(e);
                 }
-                tracing::debug!(account = %id, folder = %from, "seen before move: {e}");
+                tracing::debug!(
+                    account = %id,
+                    folder = %from,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "seen before move"
+                );
             }
             if resume {
                 mail::resume_move(conn, store, id, from, *validity, uids, to).await?;
@@ -1792,7 +1828,13 @@ async fn perform(
             // (the caller would report a copy that was made, or append it twice). It shows in
             // the cache with the folder's next sync.
             if let Err(e) = sync_one(state, account, conn, folder, false).await {
-                tracing::warn!(account = %id, "sync after append to {folder} failed: {e}");
+                tracing::warn!(
+                    account = %id,
+                    folder,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "a sync after an append failed"
+                );
             }
             Ok(Output::None)
         }
@@ -1816,7 +1858,13 @@ async fn perform(
             match mail::append_unless_exists(conn, store, id, folder, raw, flags, message_id.as_deref()).await {
                 Ok(()) => {
                     if let Err(e) = sync_one(state, account, conn, folder, false).await {
-                        tracing::warn!(account = %id, "sync after the Sent copy failed: {e}");
+                        tracing::warn!(
+                            account = %id,
+                            folder,
+                            kind = e.kind().as_str(),
+                            tag = e.tag(),
+                            "a sync after the Sent copy failed"
+                        );
                     }
                     state.task_done(&key);
                     Ok(Output::None)
@@ -1856,7 +1904,13 @@ async fn perform(
             // unread). The cache catches up with the next sync.
             for folder in [from, to] {
                 if let Err(e) = sync_one(state, account, conn, folder, false).await {
-                    tracing::warn!(account = %id, "sync of {folder} after a move by Message-ID failed: {e}");
+                    tracing::warn!(
+                        account = %id,
+                        folder,
+                        kind = e.kind().as_str(),
+                        tag = e.tag(),
+                        "a sync after a move by Message-ID failed"
+                    );
                 }
             }
             Ok(Output::Count(n))
@@ -2089,7 +2143,12 @@ async fn idle_loop(
                 c
             }
             Err(e) => {
-                tracing::debug!(account = %account.id, "idle connect failed: {e}");
+                tracing::debug!(
+                    account = %account.id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "idle connect failed"
+                );
                 // A wrong password retried every few minutes locks an AD account: wait for the user.
                 if needs_user(&e) {
                     paused.store(true, Ordering::Relaxed);
@@ -2135,7 +2194,12 @@ async fn idle_loop(
                                 p.pause
                             }
                             None => {
-                                tracing::debug!(account = %account.id, "idle dropped: {}", d.error);
+                                tracing::debug!(
+                                    account = %account.id,
+                                    kind = d.error.kind().as_str(),
+                                    tag = d.error.tag(),
+                                    "idle dropped"
+                                );
                                 busy_pause(d.error.back_off(), 0)
                             }
                         };
@@ -2158,30 +2222,45 @@ async fn idle_loop(
 /// power of two after it are `warn`, the rest `debug`.
 fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
     let renew = match d.renew {
-        Some(r) => format!(", renewing IDLE every {}s", r.as_secs()),
+        Some(r) => format!("renewing IDLE every {}s", r.as_secs()),
         None => String::new(),
     };
     let note = match (p.by_age, p.shortened) {
-        _ if p.at_renewal => "; the server closed the link at our renewal, not a cut of an idle link",
-        (true, _) => "; the connection is cut by its age, not by idleness: renewal kept",
-        (_, Some(_)) => "; cut after the same idle time twice: renewal shortened",
+        _ if p.at_renewal => "the server closed the link at our renewal, not a cut of an idle link",
+        (true, _) => "the connection is cut by its age, not by idleness: renewal kept",
+        (_, Some(_)) => "cut after the same idle time twice: renewal shortened",
         _ => "",
     };
-    let line = format!(
-        "idle dropped ({}) after {}s of the wait, {}s of the connection: {} (in a row: {}{}, pause {}s){}",
-        d.cause,
-        d.since_wait.as_secs(),
-        d.since_connect.as_secs(),
-        d.error,
-        p.drops,
-        renew,
-        p.pause.as_secs(),
-        note
-    );
+    // The server's own words of the break stay out of the line, as everywhere else in the log:
+    // its kind and variant tell what cut the link.
     if p.log {
-        tracing::warn!(account = %account, "{line}");
+        tracing::warn!(
+            account = %account,
+            cause = %d.cause,
+            since_wait = d.since_wait.as_secs(),
+            since_connect = d.since_connect.as_secs(),
+            drops = p.drops,
+            renew,
+            pause = p.pause.as_secs(),
+            kind = d.error.kind().as_str(),
+            tag = d.error.tag(),
+            note,
+            "idle dropped"
+        );
     } else {
-        tracing::debug!(account = %account, "{line}");
+        tracing::debug!(
+            account = %account,
+            cause = %d.cause,
+            since_wait = d.since_wait.as_secs(),
+            since_connect = d.since_connect.as_secs(),
+            drops = p.drops,
+            renew,
+            pause = p.pause.as_secs(),
+            kind = d.error.kind().as_str(),
+            tag = d.error.tag(),
+            note,
+            "idle dropped"
+        );
     }
     if p.to_poll {
         tracing::warn!(

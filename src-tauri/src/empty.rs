@@ -86,8 +86,20 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
             state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
             state.emit("counters-changed", json!({}));
         }
-        Forgot::NotRead(e) => tracing::warn!(account = %id, "cache of {folder} not read: {e}"),
-        Forgot::NotCleared(e) => tracing::warn!(account = %id, "cache of {folder} not cleared: {e}"),
+        Forgot::NotRead(e) => tracing::warn!(
+            account = %id,
+            folder,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "the cache of a folder was not read"
+        ),
+        Forgot::NotCleared(e) => tracing::warn!(
+            account = %id,
+            folder,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "the cache of a folder was not cleared"
+        ),
     };
     let done = mail::clear_folder(
         conn,
@@ -107,7 +119,13 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
     }
     for folder in synced {
         if let Err(e) = sync_one(state, account, conn, folder, false).await {
-            tracing::warn!(account = %id, "sync of {folder} after clearing failed: {e}");
+            tracing::warn!(
+                account = %id,
+                folder,
+                kind = e.kind().as_str(),
+                tag = e.tag(),
+                "a sync after clearing failed"
+            );
         }
     }
     match done.result {

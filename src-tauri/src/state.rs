@@ -338,7 +338,11 @@ impl AppState {
             && tokens.refresh_token != refresh_token
             && let Err(e) = secrets::set(&account.id, tokens.refresh_token.clone()).await
         {
-            tracing::warn!(account = %account.id, "rotated refresh token not saved: {}", e.message);
+            tracing::warn!(
+                account = %account.id,
+                kind = e.kind.as_str(),
+                "rotated refresh token not saved"
+            );
         }
         lock(&self.tokens).insert(account.id.clone(), (tokens.access_token.clone(), tokens.expires_at));
         Ok(Credentials::oauth(account.username.clone(), tokens.access_token))

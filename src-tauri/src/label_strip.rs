@@ -80,7 +80,12 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
     )
     .await;
     match ended {
-        Err(e) => tracing::warn!(account = %account_id, "label strip: {e}"),
+        Err(e) => tracing::warn!(
+            account = %account_id,
+            kind = e.kind().as_str(),
+            tag = e.tag(),
+            "label strip failed"
+        ),
         Ok(Ended::Waiting {
             silent,
             count,
@@ -122,7 +127,12 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
             not_cleaned,
         }) => {
             for e in not_cleaned {
-                tracing::warn!(account = %account_id, "label strip: the cache was not cleaned: {e}");
+                tracing::warn!(
+                    account = %account_id,
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "label strip: the cache was not cleaned"
+                );
             }
             if skipped.is_empty() {
                 state.task_done(&task);
