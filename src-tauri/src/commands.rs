@@ -942,11 +942,16 @@ fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict:
     };
     // Which addresses of the mailbox the check of the step 4 looked for: without them the reason
     // `no_recipient_in_h` says nothing about why the signature named no address of this mailbox
-    // (0.8.13, ступень 4).
+    // (0.8.13, ступень 4). The addresses are named by their tags, since the line must not carry an
+    // address, and the tag is computable for a candidate.
     let mailbox = if mailbox.is_empty() {
         "-".to_owned()
     } else {
-        mailbox.join(",")
+        mailbox
+            .iter()
+            .map(|address| mailbox_tag(address))
+            .collect::<Vec<_>>()
+            .join(",")
     };
     let own = match (evidence.own_full, evidence.own_headers) {
         (Some(s), _) => format!("full:{}", signature_outcome(s)),
@@ -5395,10 +5400,16 @@ mod tests {
         assert!(line.contains("outcome=\"unsigned\""), "{line}");
         // The block of headers the server and the app may read differently (0.8.13, 7.1 Б).
         assert!(line.contains("uneven=false"), "{line}");
-        // Which addresses of the mailbox the check looked for: the operator's own, never an
-        // address of a person (0.8.13, ступень 4).
-        assert!(line.contains("mailbox=me@example.org,me+news@example.org"), "{line}");
-        assert!(!line.contains("security@bank.ru"), "{line}");
+        // Which addresses of the mailbox the check looked for (0.8.13, ступень 4): the operator's
+        // own, each named by its tag, so the line carries no address and two addresses still read
+        // as two.
+        assert!(line.contains("mailbox=855c94f3,bdaa33df"), "{line}");
+        assert!(
+            !line.contains("example.org") && !line.contains("security@bank.ru"),
+            "{line}"
+        );
+        // The tag belongs to the address, not to the run: the same address, given twice, gives one.
+        assert_eq!(mailbox_tag(&mailbox[0]), mailbox_tag("me@example.org"));
     }
 
     #[test]
