@@ -418,8 +418,47 @@ impl Store {
         Ok(n)
     }
 
+    /// Moves the labels remembered here (#112) as a letter moves: its rows follow it to the
+    /// new UID in `to`, so a folder that keeps no keywords does not lose the label. `pairs` is
+    /// old UID → new UID as the move named it; a row already under the new UID is not doubled.
+    pub fn move_local_labels(&self, account_id: &str, from: &str, to: &str, pairs: &[(u32, u32)]) -> Result<usize> {
+        if pairs.is_empty() {
+            return Ok(0);
+        }
+        let moved_to: HashMap<u32, u32> = pairs.iter().copied().collect();
+        let old: Vec<u32> = pairs.iter().map(|(old, _)| *old).collect();
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let rows = tx
+            .prepare_cached(
+                "SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2
+                 AND uid IN (SELECT value FROM json_each(?3))",
+            )?
+            .query_map(params![account_id, from, json_list(&old)], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<Result<Vec<(u32, String)>, _>>()?;
+        let mut moved = 0;
+        {
+            let mut insert = tx.prepare_cached(
+                "INSERT OR IGNORE INTO local_labels (account_id, folder, uid, keyword) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for (uid, keyword) in &rows {
+                if let Some(new) = moved_to.get(uid) {
+                    moved += insert.execute(params![account_id, to, new, keyword])?;
+                }
+            }
+        }
+        tx.execute(
+            "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid IN (SELECT value FROM json_each(?3))",
+            params![account_id, from, json_list(&old)],
+        )?;
+        tx.commit()?;
+        Ok(moved)
+    }
+
     /// The labels remembered for a folder, by UID.
-    pub(super) fn local_labels(&self, account_id: &str, folder: &str) -> Result<Vec<(u32, String)>> {
+    pub(crate) fn local_labels(&self, account_id: &str, folder: &str) -> Result<Vec<(u32, String)>> {
         let conn = self.conn();
         let mut stmt = conn.prepare_cached(
             "SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2 ORDER BY uid, keyword",
@@ -1020,6 +1059,44 @@ mod tests {
         // Another SELECT or a reconnect answers without it: the label stays.
         store.update_keywords("a", "INBOX", &[(1, Vec::new())]).unwrap();
         assert_eq!(store.get(id).unwrap().unwrap().keywords, [kw]);
+    }
+
+    /// A moved letter keeps the labels remembered here (#112, #201): the rows follow it to its
+    /// new UID, the folder it left keeps none of them, and a row already under the new UID is
+    /// not doubled.
+    #[test]
+    fn moved_letters_keep_their_remembered_labels() {
+        let store = mailbox();
+        let invoices = keyword_of("Счета");
+        let work = keyword_of("Работа");
+        store
+            .remember_labels("a", "INBOX", &[1], &[invoices.clone(), work.clone()], &[])
+            .unwrap();
+        store
+            .remember_labels("a", "INBOX", &[2], std::slice::from_ref(&invoices), &[])
+            .unwrap();
+        // The letter at 7 was labelled in Trash before: its row is there already.
+        store
+            .remember_labels("a", "Trash", &[7], std::slice::from_ref(&invoices), &[])
+            .unwrap();
+
+        assert_eq!(
+            store
+                .move_local_labels("a", "INBOX", "Trash", &[(1, 7), (2, 8)])
+                .unwrap(),
+            2,
+            "two rows are new; the third was in Trash already"
+        );
+
+        assert!(
+            store.local_labels("a", "INBOX").unwrap().is_empty(),
+            "nothing stays under the folder the letters left"
+        );
+        let mut moved = store.local_labels("a", "Trash").unwrap();
+        moved.sort();
+        let mut expected = vec![(7, work), (7, invoices.clone()), (8, invoices)];
+        expected.sort();
+        assert_eq!(moved, expected);
     }
 
     /// A label taken off every letter is gone for good, the local memory with it.

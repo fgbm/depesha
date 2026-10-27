@@ -179,8 +179,65 @@ async fn starttls_sync_move_and_fallbacks() {
     conn.session.logout().await.unwrap();
 }
 
+/// A move names the new UID of every letter it took (#201): `COPYUID` pairs the old set with
+/// the new one, and the label of a moved letter is on it in the folder it arrived in.
+#[tokio::test]
+async fn a_move_names_the_new_uid_of_every_letter() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("copyuid").await;
+    assert!(conn.caps.move_ && conn.caps.uidplus, "{:?}", conn.caps);
+    conn.session.create(utf7::encode("Trash")).await.unwrap();
+    let keyword = depesha_core::acl::keyword_of("Счета");
+
+    // MOVE: the pairs come on the move itself.
+    for i in 0..3 {
+        imap::append(&mut conn, "INBOX", &mail(&format!("Метка {i}"), i), "")
+            .await
+            .unwrap();
+    }
+    let (_, uids) = imap::folder_uids(&mut conn, "INBOX").await.unwrap();
+    assert_eq!(uids.len(), 3);
+    imap::set_keywords(&mut conn, "INBOX", None, &uids, std::slice::from_ref(&keyword), &[])
+        .await
+        .unwrap();
+    let pairs = imap::move_messages(&mut conn, "INBOX", None, &uids, "Trash")
+        .await
+        .unwrap();
+    assert_eq!(pairs.len(), uids.len(), "a pair for every moved letter: {pairs:?}");
+    let (_, in_trash) = imap::folder_uids(&mut conn, "Trash").await.unwrap();
+    for (old, new) in &pairs {
+        assert!(uids.contains(old), "{old} was moved");
+        assert!(in_trash.contains(new), "{new} is a letter of Trash: {pairs:?}");
+        assert_eq!(
+            imap::fetch_keywords(&mut conn, "Trash", *new).await.unwrap(),
+            std::slice::from_ref(&keyword),
+            "the label of {old} is on {new}"
+        );
+    }
+
+    // Without MOVE the COPY names them, before the originals are removed.
+    conn.caps.move_ = false;
+    imap::append(&mut conn, "INBOX", &mail("Метка 9", 9), "").await.unwrap();
+    let (_, uids) = imap::folder_uids(&mut conn, "INBOX").await.unwrap();
+    assert_eq!(uids.len(), 1);
+    imap::set_keywords(&mut conn, "INBOX", None, &uids, std::slice::from_ref(&keyword), &[])
+        .await
+        .unwrap();
+    let pairs = imap::move_messages(&mut conn, "INBOX", None, &uids, "Trash")
+        .await
+        .unwrap();
+    assert_eq!(pairs.len(), 1, "a pair from the COPY: {pairs:?}");
+    assert_eq!(
+        imap::fetch_keywords(&mut conn, "Trash", pairs[0].1).await.unwrap(),
+        [keyword],
+        "the copy carries the label"
+    );
+    conn.session.logout().await.unwrap();
+}
+
 /// Criterion (#177): the sync reads the beginning of the text of new letters, in their
-/// own charset and with HTML stripped, without marking any of them read (`PEEK`).
 #[tokio::test]
 async fn a_sync_reads_the_preview_without_marking_read() {
     if !enabled() {
@@ -504,7 +561,7 @@ async fn a_deleted_original_is_not_moved_again() {
     conn.caps.move_ = false;
     conn.caps.uidplus = false;
     let mut conn = mail::Conn::Imap(conn);
-    let n = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
+    let (n, _) = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
         .await
         .unwrap();
     assert_eq!(n, 1);
@@ -520,7 +577,7 @@ async fn a_deleted_original_is_not_moved_again() {
 
     // The original stays on the server, marked \Deleted: moving it again must find nothing.
     let mut conn = mail::Conn::Imap(imap_conn);
-    let n = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
+    let (n, _) = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
         .await
         .unwrap();
     assert_eq!(n, 0, "the \\Deleted original is not moved again");
@@ -597,7 +654,9 @@ async fn actions_on_uids_of_a_recreated_folder_are_refused() {
     }
 
     let mut conn = mail::Conn::Imap(conn);
-    let refused = |r: depesha_core::Result<()>| assert!(matches!(r, Err(Error::FolderChanged)), "{r:?}");
+    fn refused<T: std::fmt::Debug>(r: depesha_core::Result<T>) {
+        assert!(matches!(r, Err(Error::FolderChanged)), "{r:?}");
+    }
     refused(
         mail::set_flag(
             &mut conn,
@@ -2105,13 +2164,15 @@ async fn a_move_with_unseen_brings_the_letter_back_unread() {
     assert_eq!(
         mail::move_by_message_id(&mut conn, &store, "u", "INBOX", &unread, "Back", true)
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
         1
     );
     assert_eq!(
         mail::move_by_message_id(&mut conn, &store, "u", "INBOX", &as_it_was, "Back", false)
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
         1
     );
     let mail::Conn::Imap(mut imap_conn) = conn else {

@@ -394,12 +394,18 @@ pub async fn move_messages(
     validity: u32,
     uids: &[u32],
     to: &str,
-) -> Result<()> {
+) -> Result<Vec<(u32, u32)>> {
     match conn {
-        Conn::Imap(c) => imap::move_messages(c, from, Some(validity), uids, to).await,
+        Conn::Imap(c) => {
+            let pairs = imap::move_messages(c, from, Some(validity), uids, to).await?;
+            Ok(moved_pairs(c, store, account_id, from, to, uids, pairs).await)
+        }
+        // A label on Exchange is a category of the letter itself: it goes with the move, and
+        // nothing of `local_labels` is touched.
         Conn::Ews(s) => {
             ews_check(store, account_id, from, validity)?;
-            ews::move_messages(s, store, account_id, from, uids, to).await
+            ews::move_messages(s, store, account_id, from, uids, to).await?;
+            Ok(Vec::new())
         }
     }
 }
@@ -414,13 +420,78 @@ pub async fn resume_move(
     validity: u32,
     uids: &[u32],
     to: &str,
-) -> Result<()> {
+) -> Result<Vec<(u32, u32)>> {
     match conn {
-        Conn::Imap(c) => imap::resume_move(c, from, Some(validity), uids, to).await,
+        Conn::Imap(c) => {
+            let pairs = imap::resume_move(c, from, Some(validity), uids, to).await?;
+            Ok(moved_pairs(c, store, account_id, from, to, uids, pairs).await)
+        }
         // Exchange's move is atomic: a second call is the ordinary one.
         Conn::Ews(s) => {
             ews_check(store, account_id, from, validity)?;
-            ews::move_messages(s, store, account_id, from, uids, to).await
+            ews::move_messages(s, store, account_id, from, uids, to).await?;
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// The old UID → new UID pairs of a move, with the letters the server left unpaired:
+/// `COPYUID` is absent without UIDPLUS, and a resumed move names only what it copied. A
+/// labelled letter is looked for in `to` by its Message-ID, with the retries a lagging index
+/// needs. One still without a pair keeps no label, and one warning says how many, for `to`
+/// alone: not the letter, and not the server's words.
+async fn moved_pairs(
+    conn: &mut imap::Conn,
+    store: &Store,
+    account_id: &str,
+    from: &str,
+    to: &str,
+    uids: &[u32],
+    mut pairs: Vec<(u32, u32)>,
+) -> Vec<(u32, u32)> {
+    // Only a letter labelled here has a label to carry: the others lose nothing with the UID.
+    let labelled: HashSet<u32> = match store.local_labels(account_id, from) {
+        Ok(rows) => rows.into_iter().map(|(uid, _)| uid).collect(),
+        Err(e) => {
+            best_effort("read the labels a move has to carry", Err::<(), _>(e));
+            HashSet::new()
+        }
+    };
+    let mut lost = 0usize;
+    for &old in uids {
+        if !labelled.contains(&old) || pairs.iter().any(|(paired, _)| *paired == old) {
+            continue;
+        }
+        let message_id = match store.find_by_uid(account_id, from, old) {
+            Ok(row) => row.and_then(|row| row.message_id),
+            Err(e) => {
+                best_effort("read the letter a move renamed", Err::<(), _>(e));
+                None
+            }
+        };
+        match message_id {
+            Some(message_id) => match find_in_target(conn, to, &message_id, &pairs).await {
+                Some(new) => pairs.push((old, new)),
+                None => lost += 1,
+            },
+            None => lost += 1,
+        }
+    }
+    if lost > 0 {
+        tracing::warn!(folder = %to, lost, "labels of moved letters have no new UID");
+    }
+    pairs
+}
+
+/// The UID the letter arrived at, looked for a few times: a search index lags behind a move
+/// as it does behind an APPEND (`imap::find_moved`). A UID another letter took is not this one's.
+async fn find_in_target(conn: &mut imap::Conn, to: &str, message_id: &str, pairs: &[(u32, u32)]) -> Option<u32> {
+    let taken: Vec<u32> = pairs.iter().map(|(_, new)| *new).collect();
+    match imap::find_moved(conn, to, message_id).await {
+        Ok(found) => found.into_iter().find(|uid| !taken.contains(uid)),
+        Err(e) => {
+            best_effort("find a moved letter in the folder it arrived in", Err::<(), _>(e));
+            None
         }
     }
 }
@@ -655,7 +726,9 @@ impl MailServer for ImapServer<'_> {
     }
 
     async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
-        imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to).await
+        imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to)
+            .await
+            .map(drop)
     }
 
     fn batch(&self) -> usize {
@@ -814,7 +887,8 @@ pub async fn create_folder(
     }
 }
 
-/// Moves messages found by Message-ID (UIDs change on every move). Returns how many moved.
+/// Moves messages found by Message-ID (UIDs change on every move). Returns how many moved, and
+/// their old UID → new UID pairs (`moved_pairs`).
 pub async fn move_by_message_id(
     conn: &mut Conn,
     store: &Store,
@@ -823,7 +897,7 @@ pub async fn move_by_message_id(
     message_ids: &[String],
     to: &str,
     unseen: bool,
-) -> Result<usize> {
+) -> Result<(usize, Vec<(u32, u32)>)> {
     match conn {
         Conn::Imap(c) => {
             let (validity, _) = store.folder_state(account_id, from)?;
@@ -842,7 +916,7 @@ pub async fn move_by_message_id(
                 }
             }
             if uids.is_empty() {
-                return Ok(0);
+                return Ok((0, Vec::new()));
             }
             // UIDs from the cache hold only while the folder keeps its UIDVALIDITY.
             let validity = cached.then_some(validity);
@@ -850,10 +924,15 @@ pub async fn move_by_message_id(
             if unseen {
                 imap::set_flag(c, from, validity, &uids, FlagChange::Seen(false)).await?;
             }
-            imap::move_messages(c, from, validity, &uids, to).await?;
-            Ok(uids.len())
+            let pairs = imap::move_messages(c, from, validity, &uids, to).await?;
+            let pairs = moved_pairs(c, store, account_id, from, to, &uids, pairs).await;
+            Ok((uids.len(), pairs))
         }
-        Conn::Ews(s) => ews::move_by_message_id(s, store, account_id, from, message_ids, to, unseen).await,
+        // A category of the letter goes with it on Exchange: no pairs, nothing local moved.
+        Conn::Ews(s) => Ok((
+            ews::move_by_message_id(s, store, account_id, from, message_ids, to, unseen).await?,
+            Vec::new(),
+        )),
     }
 }
 

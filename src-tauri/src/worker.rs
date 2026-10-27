@@ -1803,11 +1803,14 @@ async fn perform(
                     "seen before move"
                 );
             }
-            if resume {
-                mail::resume_move(conn, store, id, from, *validity, uids, to).await?;
+            let pairs = if resume {
+                mail::resume_move(conn, store, id, from, *validity, uids, to).await?
             } else {
-                mail::move_messages(conn, store, id, from, *validity, uids, to).await?;
-            }
+                mail::move_messages(conn, store, id, from, *validity, uids, to).await?
+            };
+            // The labels the folder keeps here rather than on the server follow the letters now,
+            // before a sync sees them gone from `from` and forgets them with the UIDs.
+            store.move_local_labels(id, from, to, &pairs)?;
             sync_one(state, account, conn, from, false).await?;
             sync_one(state, account, conn, to, false).await?;
             Ok(Output::None)
@@ -1898,7 +1901,8 @@ async fn perform(
             to,
             unseen,
         } => {
-            let n = mail::move_by_message_id(conn, store, id, from, message_ids, to, *unseen).await?;
+            let (n, pairs) = mail::move_by_message_id(conn, store, id, from, message_ids, to, *unseen).await?;
+            store.move_local_labels(id, from, to, &pairs)?;
             // The letters are moved: a failed sync is not a failed move. An error here would
             // cut short the caller's next run (the undo of an archive does two, read and
             // unread). The cache catches up with the next sync.

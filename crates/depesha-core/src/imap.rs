@@ -753,15 +753,23 @@ pub async fn check_labels(
 /// Finds a just-appended letter by its exact Message-ID, retrying a few times with a
 /// growing pause: a server's search index (Yandex, some Exchange setups) may lag.
 async fn find_after_append(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Option<u32>> {
+    Ok(find_moved(conn, folder, message_id).await?.first().copied())
+}
+
+/// Every UID of `folder` carrying exactly this Message-ID, looked for a few times with a
+/// growing pause: a search index lags behind a move as it does behind an APPEND.
+pub(crate) async fn find_moved(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
+    let mut found = Vec::new();
     for attempt in 0..5 {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(300 * attempt)).await;
         }
-        if let Some(&uid) = find_by_message_id(conn, folder, message_id).await?.first() {
-            return Ok(Some(uid));
+        found = find_by_message_id(conn, folder, message_id).await?;
+        if !found.is_empty() {
+            break;
         }
     }
-    Ok(None)
+    Ok(found)
 }
 
 /// UIDs of Depesha's label-check test letters left in the folder
@@ -1175,19 +1183,26 @@ pub async fn fetch_raw_many(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
 
 /// Moves messages. Without MOVE (RFC 6851): COPY, then \Deleted, then
 /// UID EXPUNGE. Without UIDPLUS: a plain EXPUNGE that spares what another client marked
-/// deleted (see `remove`).
-pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
+/// deleted (see `remove`). Returns the old UID → new UID pairs (`copy_pairs`): a move gives
+/// every letter a new UID, and what the cache keeps by UID has to follow it.
+pub async fn move_messages(
+    conn: &mut Conn,
+    from: &str,
+    validity: Option<u32>,
+    uids: &[u32],
+    to: &str,
+) -> Result<Vec<(u32, u32)>> {
     if uids.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     select_at(conn, from, validity).await?;
     let set = uid_set(uids);
     if conn.caps.move_ {
-        conn.session.uid_mv(&set, to).await?;
-        return Ok(());
+        return copy_pairs(conn, format!("UID MOVE {set} {}", quoted(to))).await;
     }
-    conn.session.uid_copy(&set, to).await?;
-    remove(conn, &set).await
+    let pairs = copy_pairs(conn, format!("UID COPY {set} {}", quoted(to))).await?;
+    remove(conn, &set).await?;
+    Ok(pairs)
 }
 
 /// Finishes a move that was cut short before MOVE was available. Without MOVE a move is
@@ -1195,18 +1210,29 @@ pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, u
 /// removal would copy the letters a second time if the move were run again. Letters whose
 /// Message-ID and size already reached the target are not copied again, the rest are, and every
 /// original is marked deleted.
-pub async fn resume_move(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
+pub async fn resume_move(
+    conn: &mut Conn,
+    from: &str,
+    validity: Option<u32>,
+    uids: &[u32],
+    to: &str,
+) -> Result<Vec<(u32, u32)>> {
     if uids.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     select_at(conn, from, validity).await?;
     let missing = not_yet_moved(conn, from, uids, to).await?;
     // Reading the target moved the selection there: come back to the source for the COPY.
     select_at(conn, from, validity).await?;
-    if !missing.is_empty() {
-        conn.session.uid_copy(&uid_set(&missing), to).await?;
-    }
-    remove(conn, &uid_set(uids)).await
+    // The copy names the UIDs of what it copied; the letters that already reached the target
+    // are looked up by Message-ID, as they are when the server names none.
+    let pairs = if missing.is_empty() {
+        Vec::new()
+    } else {
+        copy_pairs(conn, format!("UID COPY {} {}", uid_set(&missing), quoted(to))).await?
+    };
+    remove(conn, &uid_set(uids)).await?;
+    Ok(pairs)
 }
 
 /// The UIDs of `from` whose Message-ID is not yet in `to`: those a move cut short after
@@ -1425,20 +1451,86 @@ pub async fn append_uid(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) 
                 return Err(Error::Protocol("APPEND was refused".into()));
             }
             return Ok(match &outcome.code {
-                Some(async_imap::imap_proto::ResponseCode::AppendUid(_, uids)) => uids.first().and_then(uid_of),
+                Some(async_imap::imap_proto::ResponseCode::AppendUid(_, uids)) => uids_of(uids).first().copied(),
                 _ => None,
             });
         }
     }
 }
 
-/// The single UID of an `APPENDUID` set member (a plain UID, or the first of a range).
-fn uid_of(member: &async_imap::imap_proto::rfc4315::UidSetMember) -> Option<u32> {
-    use async_imap::imap_proto::rfc4315::UidSetMember;
-    match member {
-        UidSetMember::Uid(uid) => Some(*uid),
-        UidSetMember::UidRange(range) => Some(*range.start()),
+/// Runs a `UID COPY` or `UID MOVE` and reads the old UID → new UID pairs from the `COPYUID`
+/// answer code (RFC 4315). A server without UIDPLUS names none, and the pairs come back
+/// empty: the caller finds the letters by Message-ID.
+async fn copy_pairs(conn: &mut Conn, command: String) -> Result<Vec<(u32, u32)>> {
+    use async_imap::imap_proto::{Response, Status};
+    let id = conn.session.run_command(command).await?;
+    let mut seen = Vec::new();
+    loop {
+        let resp = next_response!(conn, "copy answer");
+        match resp.parsed() {
+            Response::Done { tag, status, outcome } if *tag == id => {
+                if *status != Status::Ok {
+                    return Err(refused_status(
+                        status,
+                        outcome.code.as_ref(),
+                        outcome.information.as_deref(),
+                    ));
+                }
+                let pairs = copy_uid(outcome.code.as_ref()).unwrap_or_default();
+                return Ok(if pairs.is_empty() { seen } else { pairs });
+            }
+            // Some servers name the pairs in an untagged answer; the tagged one then repeats none.
+            Response::Data { outcome, .. } => {
+                if let Some(pairs) = copy_uid(outcome.code.as_ref()) {
+                    seen = pairs;
+                }
+            }
+            _ => {}
+        }
     }
+}
+
+/// The pairs of a `COPYUID` code: the old set and the new set name the same letters in the
+/// same order, so they are paired member by member, a range on either side expanded. `None`
+/// when the answer carries no code. Sets of different lengths name no trustworthy pair, and
+/// neither do ranges that count down: the letters are looked up by Message-ID instead.
+fn copy_uid(code: Option<&async_imap::imap_proto::ResponseCode<'_>>) -> Option<Vec<(u32, u32)>> {
+    let async_imap::imap_proto::ResponseCode::CopyUid(_, from, to) = code? else {
+        return None;
+    };
+    let (from, to) = (uids_of(from), uids_of(to));
+    if from.len() != to.len() {
+        return None;
+    }
+    Some(from.into_iter().zip(to).collect())
+}
+
+/// The UIDs of an `APPENDUID` or `COPYUID` set: every member, a range expanded.
+fn uids_of(set: &[async_imap::imap_proto::rfc4315::UidSetMember]) -> Vec<u32> {
+    use async_imap::imap_proto::rfc4315::UidSetMember;
+    set.iter()
+        .flat_map(|member| match member {
+            UidSetMember::Uid(uid) => *uid..=*uid,
+            UidSetMember::UidRange(range) => *range.start()..=*range.end(),
+        })
+        .collect()
+}
+
+/// A tagged answer that is not `OK`, made as async-imap makes it: the response code and the
+/// server's words in its text, where `Error::no_rights` and `Error::folder_gone` read them.
+fn refused_status(
+    status: &async_imap::imap_proto::Status,
+    code: Option<&async_imap::imap_proto::ResponseCode<'_>>,
+    information: Option<&str>,
+) -> Error {
+    use async_imap::error::Error as ImapError;
+    use async_imap::imap_proto::Status;
+    let text = format!("code: {code:?}, info: {information:?}");
+    Error::Imap(match status {
+        Status::Bad => ImapError::Bad(text),
+        Status::No => ImapError::No(text),
+        _ => ImapError::Io(std::io::Error::other(text)),
+    })
 }
 
 /// The flag list of APPEND (RFC 3501) is parenthesized. Dovecot does not refuse bare
@@ -2671,6 +2763,26 @@ mod tests {
         assert_eq!(changes.flags[0].0, 7);
         // The convention keyword is not a label.
         assert_eq!(changes.keywords, [(7, vec!["depesha-work".to_owned()])]);
+    }
+
+    /// A moved letter keeps its label where the server keeps no keywords (#201): the move
+    /// names the new UID of every letter it took, so `COPYUID` is read off the answer, with a
+    /// range on either side expanded member by member.
+    #[test]
+    fn copy_uid_pairs_a_set_with_a_range() {
+        fn code(line: &[u8]) -> Option<async_imap::imap_proto::ResponseCode<'_>> {
+            let (_, resp) = Response::parse(line).unwrap();
+            match resp {
+                Response::Done { outcome, .. } => outcome.code,
+                other => panic!("not a tagged answer: {other:?}"),
+            }
+        }
+        assert_eq!(
+            copy_uid(code(b"a1 OK [COPYUID 99 1:3,7 11:13,20] Moved\r\n").as_ref()),
+            Some(vec![(1, 11), (2, 12), (3, 13), (7, 20)])
+        );
+        // Without UIDPLUS the answer names no UID: nothing is known, which is not "nothing moved".
+        assert_eq!(copy_uid(code(b"a2 OK Moved\r\n").as_ref()), None);
     }
 
     #[test]

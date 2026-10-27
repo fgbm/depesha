@@ -125,7 +125,7 @@ async fn a_coalesced_move_of_a_uid_set_is_undone_by_message_id() {
 
     // "z": the letters come back by Message-ID, which the coalesced move kept.
     let mut conn = depesha_core::mail::Conn::Imap(conn);
-    let back = depesha_core::mail::move_by_message_id(&mut conn, &store, "c", "Archive", &mids, "INBOX", false)
+    let (back, _) = depesha_core::mail::move_by_message_id(&mut conn, &store, "c", "Archive", &mids, "INBOX", false)
         .await
         .unwrap();
     assert_eq!(back, n);
