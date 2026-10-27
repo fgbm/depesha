@@ -64,6 +64,7 @@ fn error_ru(err: &Error) -> String {
         Error::Paused => "ящик приостановлен, пока не исправлены его настройки".into(),
         Error::Protocol(m) => format!("сервер ответил непонятно: {m}"),
         Error::FolderName(d) => format!("в имени папки нельзя писать «{d}»: здесь это разделитель папок"),
+        Error::LineBreak => "имя от сервера содержит перевод строки: такую строку нельзя отправить в команде".into(),
         Error::NotFound => "письмо не найдено".into(),
         Error::Unreadable => "сохранённые данные не читаются".into(),
         Error::CacheTooNew { found, known } => format!(

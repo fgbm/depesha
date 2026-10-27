@@ -506,8 +506,9 @@ pub async fn folder_props(conn: &mut Conn, folder: &str) -> Result<(Option<Right
 /// would end the command and have the rest of it read as another one: it is refused.
 fn quoted(name: &str) -> Result<String> {
     if name.contains(['\r', '\n']) {
-        // The name itself stays out of the message: it may be the whole of the forged command.
-        return Err(Error::Protocol("a mailbox name carries a line break".into()));
+        // The name itself stays out of the message (`Error::LineBreak`): it may be the whole of the
+        // forged command.
+        return Err(Error::LineBreak);
     }
     Ok(format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\"")))
 }
@@ -2295,12 +2296,13 @@ mod tests {
     }
 
     /// A folder whose name carries a line break would end the command and have the rest read as
-    /// another one (#201): no name of the folder list may reach a command line with it.
+    /// another one (#201): no name of the folder list may reach a command line with it. The refusal
+    /// says so in the user's language (`Error::LineBreak`), not as a server answer.
     #[test]
     fn a_folder_name_with_a_line_break_is_refused() {
         let forged = "Work\r\nUID STORE 1 +FLAGS (\\Deleted)";
         let err = quoted(forged).expect_err("a line break is refused");
-        assert!(matches!(err, Error::Protocol(_)), "{err:?}");
+        assert!(matches!(err, Error::LineBreak), "{err:?}");
         assert!(!format!("{err}").contains("UID STORE"), "the name is not repeated");
         assert!(quoted("Work\nUID STORE 1 +FLAGS (\\Deleted)").is_err());
         // The names the server lists are ordinary and go as they did.

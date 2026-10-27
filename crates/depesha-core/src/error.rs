@@ -56,6 +56,10 @@ pub enum Error {
     /// A new folder's name holds the delimiter of the place it goes into (#161).
     #[error("a folder name cannot contain \"{0}\": it is the separator of folders here")]
     FolderName(String),
+    /// A name the server gave holds a line break, which would end an IMAP command line and start
+    /// another (#201). The name itself is left out: it may be the whole of the forged command.
+    #[error("a name from the server carries a line break, so it cannot go into a command")]
+    LineBreak,
     #[error("message not found")]
     NotFound,
     #[error("the message could not be parsed")]
@@ -173,6 +177,7 @@ impl Clone for Error {
             Self::Bye(m) => Self::Bye(m.clone()),
             Self::Protocol(m) => Self::Protocol(m.clone()),
             Self::FolderName(d) => Self::FolderName(d.clone()),
+            Self::LineBreak => Self::LineBreak,
             Self::NotFound => Self::NotFound,
             Self::Parse => Self::Parse,
             Self::Unreadable => Self::Unreadable,
@@ -571,6 +576,7 @@ impl Error {
             Self::Bye(_) => "bye",
             Self::Protocol(_) => "protocol",
             Self::FolderName(_) => "folder-name",
+            Self::LineBreak => "line-break",
             Self::NotFound => "not-found",
             Self::Parse => "parse",
             Self::Unreadable => "unreadable",
