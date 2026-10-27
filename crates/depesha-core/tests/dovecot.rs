@@ -238,6 +238,7 @@ async fn a_move_names_the_new_uid_of_every_letter() {
 }
 
 /// Criterion (#177): the sync reads the beginning of the text of new letters, in their
+/// own charset and with HTML stripped, without marking any of them read (`PEEK`).
 #[tokio::test]
 async fn a_sync_reads_the_preview_without_marking_read() {
     if !enabled() {
