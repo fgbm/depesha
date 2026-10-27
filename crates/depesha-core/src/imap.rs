@@ -761,18 +761,19 @@ pub async fn check_labels(
 /// Finds a just-appended letter by its exact Message-ID, retrying a few times with a
 /// growing pause: a server's search index (Yandex, some Exchange setups) may lag.
 async fn find_after_append(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Option<u32>> {
-    Ok(find_moved(conn, folder, message_id).await?.first().copied())
+    Ok(find_moved(conn, folder, message_id, None).await?.first().copied())
 }
 
-/// Every UID of `folder` carrying exactly this Message-ID, looked for a few times with a
-/// growing pause: a search index lags behind a move as it does behind an APPEND.
-pub(crate) async fn find_moved(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
+/// Every UID of `folder` carrying exactly this Message-ID, and this size when one is given, looked
+/// for a few times with a growing pause: a search index lags behind a move as it does behind an
+/// APPEND.
+pub(crate) async fn find_moved(conn: &mut Conn, folder: &str, message_id: &str, size: Option<u32>) -> Result<Vec<u32>> {
     let mut found = Vec::new();
     for attempt in 0..5 {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(300 * attempt)).await;
         }
-        found = find_by_message_id(conn, folder, message_id).await?;
+        found = find_matching(conn, folder, message_id, size).await?;
         if !found.is_empty() {
             break;
         }

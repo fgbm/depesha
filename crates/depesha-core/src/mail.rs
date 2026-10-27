@@ -397,8 +397,16 @@ pub async fn move_messages(
 ) -> Result<Vec<(u32, u32)>> {
     match conn {
         Conn::Imap(c) => {
+            let floor = new_uid_floor(c, store, account_id, from, to).await;
             let pairs = imap::move_messages(c, from, Some(validity), uids, to).await?;
-            Ok(moved_pairs(c, store, account_id, from, to, uids, pairs).await)
+            let moved = Moved {
+                from,
+                to,
+                uids,
+                pairs,
+                floor,
+            };
+            Ok(moved_pairs(c, store, account_id, moved).await)
         }
         // A label on Exchange is a category of the letter itself: it goes with the move, and
         // nothing of `local_labels` is touched.
@@ -423,8 +431,17 @@ pub async fn resume_move(
 ) -> Result<Vec<(u32, u32)>> {
     match conn {
         Conn::Imap(c) => {
+            // No floor here: the letters of the cut run may already lie in the target, and the
+            // resumed COPY names only the rest (`not_yet_moved` knows the others by size).
             let pairs = imap::resume_move(c, from, Some(validity), uids, to).await?;
-            Ok(moved_pairs(c, store, account_id, from, to, uids, pairs).await)
+            let moved = Moved {
+                from,
+                to,
+                uids,
+                pairs,
+                floor: None,
+            };
+            Ok(moved_pairs(c, store, account_id, moved).await)
         }
         // Exchange's move is atomic: a second call is the ordinary one.
         Conn::Ews(s) => {
@@ -435,20 +452,32 @@ pub async fn resume_move(
     }
 }
 
+/// One move, as the labels of its letters need it.
+struct Moved<'a> {
+    from: &'a str,
+    to: &'a str,
+    /// The letters the move took, by their UIDs in `from`.
+    uids: &'a [u32],
+    /// Old UID → new UID as the server named them.
+    pairs: Vec<(u32, u32)>,
+    /// The smallest UID `to` gives a letter that arrives now (`new_uid_floor`): what lies there
+    /// below it is not a letter this move brought.
+    floor: Option<u32>,
+}
+
 /// The old UID → new UID pairs of a move, with the letters the server left unpaired:
 /// `COPYUID` is absent without UIDPLUS, and a resumed move names only what it copied. A
-/// labelled letter is looked for in `to` by its Message-ID, with the retries a lagging index
-/// needs. One still without a pair keeps no label, and one warning says how many, for `to`
-/// alone: not the letter, and not the server's words.
-async fn moved_pairs(
-    conn: &mut imap::Conn,
-    store: &Store,
-    account_id: &str,
-    from: &str,
-    to: &str,
-    uids: &[u32],
-    mut pairs: Vec<(u32, u32)>,
-) -> Vec<(u32, u32)> {
+/// labelled letter is looked for in `to` by its Message-ID and size, with the retries a lagging
+/// index needs. One still without a pair keeps no label, and one warning says how many, for
+/// `to` alone: not the letter, and not the server's words.
+async fn moved_pairs(conn: &mut imap::Conn, store: &Store, account_id: &str, moved: Moved<'_>) -> Vec<(u32, u32)> {
+    let Moved {
+        from,
+        to,
+        uids,
+        mut pairs,
+        floor,
+    } = moved;
     // Only a letter labelled here has a label to carry: the others lose nothing with the UID.
     let labelled: HashSet<u32> = match store.local_labels(account_id, from) {
         Ok(rows) => rows.into_iter().map(|(uid, _)| uid).collect(),
@@ -462,15 +491,16 @@ async fn moved_pairs(
         if !labelled.contains(&old) || pairs.iter().any(|(paired, _)| *paired == old) {
             continue;
         }
-        let message_id = match store.find_by_uid(account_id, from, old) {
-            Ok(row) => row.and_then(|row| row.message_id),
+        let found = match store.find_by_uid(account_id, from, old) {
+            // A size the fetch never carried is no size: the letter is looked for by its name then.
+            Ok(row) => row.and_then(|row| Some((row.message_id?, (row.size > 0).then_some(row.size)))),
             Err(e) => {
                 best_effort("read the letter a move renamed", Err::<(), _>(e));
                 None
             }
         };
-        match message_id {
-            Some(message_id) => match find_in_target(conn, to, &message_id, &pairs).await {
+        match found {
+            Some((message_id, size)) => match find_in_target(conn, to, &message_id, size, &pairs, floor).await {
                 Some(new) => pairs.push((old, new)),
                 None => lost += 1,
             },
@@ -484,13 +514,42 @@ async fn moved_pairs(
 }
 
 /// The UID the letter arrived at, looked for a few times: a search index lags behind a move
-/// as it does behind an APPEND (`imap::find_moved`). A UID another letter took is not this one's.
-async fn find_in_target(conn: &mut imap::Conn, to: &str, message_id: &str, pairs: &[(u32, u32)]) -> Option<u32> {
+/// as it does behind an APPEND (`imap::find_moved`). Another letter is no answer: not one that
+/// took a UID already paired, not one of another size, and not one that lay there before the
+/// move.
+async fn find_in_target(
+    conn: &mut imap::Conn,
+    to: &str,
+    message_id: &str,
+    size: Option<u32>,
+    pairs: &[(u32, u32)],
+    floor: Option<u32>,
+) -> Option<u32> {
     let taken: Vec<u32> = pairs.iter().map(|(_, new)| *new).collect();
-    match imap::find_moved(conn, to, message_id).await {
-        Ok(found) => found.into_iter().find(|uid| !taken.contains(uid)),
+    match imap::find_moved(conn, to, message_id, size).await {
+        Ok(found) => found
+            .into_iter()
+            .find(|uid| !taken.contains(uid) && floor.is_none_or(|floor| *uid >= floor)),
         Err(e) => {
             best_effort("find a moved letter in the folder it arrived in", Err::<(), _>(e));
+            None
+        }
+    }
+}
+
+/// The smallest UID `to` gives a letter that arrives now: what lies there already is not the
+/// letter a move brings, even with the same Message-ID and size (#201). Asked before the move,
+/// and only when a letter of `from` carries a label to carry: an ordinary move pays nothing.
+async fn new_uid_floor(conn: &mut imap::Conn, store: &Store, account_id: &str, from: &str, to: &str) -> Option<u32> {
+    match store.local_labels(account_id, from) {
+        Ok(rows) if rows.is_empty() => return None,
+        Ok(_) => {}
+        Err(e) => best_effort("read the labels a move has to carry", Err::<(), _>(e)),
+    }
+    match imap::folder_mark(conn, to).await {
+        Ok((_, _, next)) => Some(next),
+        Err(e) => {
+            best_effort("read the UID the next letter of the target gets", Err::<(), _>(e));
             None
         }
     }
@@ -738,9 +797,17 @@ impl MailServer for ImapServer<'_> {
     }
 
     async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
+        let floor = new_uid_floor(self.conn, self.store, self.account_id, folder, to).await;
         let pairs = imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to).await?;
         // A folder emptied by moving loses its labels the same way a single move does (#201).
-        let pairs = moved_pairs(self.conn, self.store, self.account_id, folder, to, items, pairs).await;
+        let moved = Moved {
+            from: folder,
+            to,
+            uids: items,
+            pairs,
+            floor,
+        };
+        let pairs = moved_pairs(self.conn, self.store, self.account_id, moved).await;
         self.store.move_local_labels(self.account_id, folder, to, &pairs)?;
         Ok(())
     }
@@ -938,8 +1005,16 @@ pub async fn move_by_message_id(
             if unseen {
                 imap::set_flag(c, from, validity, &uids, FlagChange::Seen(false)).await?;
             }
+            let floor = new_uid_floor(c, store, account_id, from, to).await;
             let pairs = imap::move_messages(c, from, validity, &uids, to).await?;
-            let pairs = moved_pairs(c, store, account_id, from, to, &uids, pairs).await;
+            let moved = Moved {
+                from,
+                to,
+                uids: &uids,
+                pairs,
+                floor,
+            };
+            let pairs = moved_pairs(c, store, account_id, moved).await;
             Ok((uids.len(), pairs))
         }
         // A category of the letter goes with it on Exchange: no pairs, nothing local moved.
@@ -1193,5 +1268,404 @@ mod tests {
         ));
         let (fresh, _) = store.folder_state("a", "INBOX").unwrap();
         ews_check(&store, "a", "INBOX", fresh).unwrap();
+    }
+
+    // The paths a move takes (#201), on a fake server that keeps no keywords.
+
+    const INBOX: &str = "INBOX";
+    const ARCHIVE: &str = "Archive";
+
+    /// A letter of the fake server: its UID, the Message-ID it answers for, and its size.
+    #[derive(Clone)]
+    struct Letter {
+        uid: u32,
+        message_id: &'static str,
+        size: u32,
+    }
+
+    fn letter(uid: u32, message_id: &'static str, size: u32) -> Letter {
+        Letter { uid, message_id, size }
+    }
+
+    /// A fake IMAP server for the paths a move takes: two folders of letters, `MOVE` and `COPY`
+    /// that may or may not name the new UIDs (`COPYUID`, RFC 4315), and no keywords at all —
+    /// every `FLAGS` answer is empty, as Exchange IMAP answers a folder that keeps none (#112).
+    /// The letter a move brings gets UIDs from `next` up.
+    struct Fake {
+        folders: [(&'static str, Vec<Letter>); 2],
+        copyuid: bool,
+        next: u32,
+        selected: &'static str,
+    }
+
+    impl Fake {
+        fn new(inbox: Vec<Letter>, archive: Vec<Letter>) -> Self {
+            Self {
+                folders: [(INBOX, inbox), (ARCHIVE, archive)],
+                copyuid: true,
+                next: 7,
+                selected: INBOX,
+            }
+        }
+
+        /// A server without UIDPLUS: a MOVE or a COPY names no UID, and the letters are found
+        /// by their Message-IDs.
+        fn without_copyuid(mut self) -> Self {
+            self.copyuid = false;
+            self
+        }
+
+        fn letters(&self, folder: &str) -> &[Letter] {
+            &self
+                .folders
+                .iter()
+                .find(|(f, _)| *f == folder)
+                .expect("a folder of the fake")
+                .1
+        }
+
+        fn letters_mut(&mut self, folder: &str) -> &mut Vec<Letter> {
+            &mut self
+                .folders
+                .iter_mut()
+                .find(|(f, _)| *f == folder)
+                .expect("a folder of the fake")
+                .1
+        }
+
+        /// The UID the next letter to arrive in the folder gets.
+        fn uidnext(&self, folder: &str) -> u32 {
+            self.letters(folder)
+                .iter()
+                .map(|l| l.uid)
+                .max()
+                .map_or(self.next, |max| max + 1)
+        }
+
+        fn answer(&mut self, line: &str) -> String {
+            let up = line.to_ascii_uppercase();
+            let mut parts = line.split_whitespace();
+            let tag = parts.next().unwrap_or("*").to_owned();
+            let verb = parts.next().unwrap_or("").to_ascii_uppercase();
+            let sub = parts.next().unwrap_or("").to_ascii_uppercase();
+            if verb == "CAPABILITY" {
+                let uidplus = if self.copyuid { " UIDPLUS" } else { "" };
+                return format!("* CAPABILITY IMAP4rev1 MOVE{uidplus}\r\n{tag} OK done\r\n");
+            }
+            if verb == "LIST" {
+                return format!(
+                    "* LIST () \"/\" \"{INBOX}\"\r\n* LIST (\\Archive) \"/\" \"{ARCHIVE}\"\r\n{tag} OK done\r\n"
+                );
+            }
+            if verb == "SELECT" || verb == "EXAMINE" {
+                self.selected = if up.contains("ARCHIVE") { ARCHIVE } else { INBOX };
+                let exists = self.letters(self.selected).len();
+                let next = self.uidnext(self.selected);
+                return format!(
+                    "* FLAGS ()\r\n* {exists} EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT {next}] ok\r\n{tag} OK [READ-WRITE] done\r\n"
+                );
+            }
+            if verb != "UID" {
+                return format!("{tag} OK done\r\n");
+            }
+            let set = parts.next().unwrap_or_default();
+            match sub.as_str() {
+                "SEARCH" => self.search(&up, &tag),
+                "FETCH" => self.fetch(&up, &tag, set),
+                "MOVE" | "COPY" => self.move_letters(&up, &tag, set, sub == "MOVE"),
+                _ => format!("{tag} OK done\r\n"),
+            }
+        }
+
+        fn search(&self, up: &str, tag: &str) -> String {
+            let by_header = up.contains("HEADER");
+            let found: Vec<String> = self
+                .letters(self.selected)
+                .iter()
+                .filter(|_| !up.contains("DELETED"))
+                .filter(|l| !by_header || up.contains(&l.message_id.to_ascii_uppercase()))
+                .map(|l| l.uid.to_string())
+                .collect();
+            let list = if found.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", found.join(" "))
+            };
+            format!("* SEARCH{list}\r\n{tag} OK done\r\n")
+        }
+
+        fn fetch(&self, up: &str, tag: &str, set: &str) -> String {
+            let mut body = String::new();
+            for (n, l) in self.mine(set).iter().enumerate() {
+                let header = if up.contains("HEADER.FIELDS (MESSAGE-ID)") {
+                    format!("Message-ID: <{}>\r\n\r\n", l.message_id)
+                } else if up.contains("BODY.PEEK[HEADER]") {
+                    format!(
+                        "Subject: Письмо\r\nFrom: Тест <t@example.org>\r\nMessage-ID: <{}>\r\nDate: Fri, 2 Oct 2026 10:00:00 +0300\r\n\r\n",
+                        l.message_id
+                    )
+                } else {
+                    // Flags alone, or the text of a preview: no keyword and no text here.
+                    body += &format!("* {} FETCH (UID {} FLAGS ())\r\n", n + 1, l.uid);
+                    continue;
+                };
+                let part = if up.contains("HEADER.FIELDS") {
+                    "HEADER.FIELDS (MESSAGE-ID)"
+                } else {
+                    "HEADER"
+                };
+                body += &format!(
+                    "* {} FETCH (UID {} FLAGS () RFC822.SIZE {} BODY[{part}] {{{}}}\r\n{header})\r\n",
+                    n + 1,
+                    l.uid,
+                    l.size,
+                    header.len()
+                );
+            }
+            format!("{body}{tag} OK done\r\n")
+        }
+
+        fn move_letters(&mut self, up: &str, tag: &str, set: &str, moving: bool) -> String {
+            let target = if up.contains("ARCHIVE") { ARCHIVE } else { INBOX };
+            let source = self.selected;
+            let (mut from, mut to) = (Vec::new(), Vec::new());
+            for l in &self.mine(set) {
+                from.push(l.uid);
+                to.push(self.next);
+                let arrived = Letter { uid: self.next, ..*l };
+                self.next += 1;
+                self.letters_mut(target).push(arrived);
+            }
+            let taken = uid_set_of(set);
+            if moving {
+                self.letters_mut(source).retain(|l| !taken.contains(&l.uid));
+            }
+            if !self.copyuid {
+                return format!("{tag} OK done\r\n");
+            }
+            format!("{tag} OK [COPYUID 1 {} {}] done\r\n", compress(&from), compress(&to))
+        }
+
+        /// The letters of the selected folder that `set` names.
+        fn mine(&self, set: &str) -> Vec<Letter> {
+            let wanted = uid_set_of(set);
+            self.letters(self.selected)
+                .iter()
+                .filter(|l| wanted.contains(&l.uid))
+                .cloned()
+                .collect()
+        }
+    }
+
+    /// A fake server answering on its own port.
+    async fn spawn_fake(mut fake: Fake) -> u16 {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (r, mut w) = sock.into_split();
+            let mut lines = BufReader::new(r).lines();
+            let greeting = "* OK IMAP4rev1 ready\r\n";
+            if w.write_all(greeting.as_bytes()).await.is_err() {
+                return;
+            }
+            while let Ok(Some(line)) = lines.next_line().await {
+                if w.write_all(fake.answer(&line).as_bytes()).await.is_err() {
+                    return;
+                }
+            }
+        });
+        port
+    }
+
+    async fn connect_to(port: u16) -> imap::Conn {
+        let server = crate::account::ServerConfig::new("127.0.0.1", port, crate::account::Security::Plain);
+        imap::connect(&server, &crate::account::Credentials::new("u", "p"))
+            .await
+            .expect("login")
+    }
+
+    /// The cache of the fake's mailbox, with the folder list and INBOX read.
+    async fn synced(port: u16) -> (imap::Conn, Store) {
+        let mut conn = connect_to(port).await;
+        let store = Store::open_in_memory().unwrap();
+        sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+        sync::sync_folder(&mut conn, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        (conn, store)
+    }
+
+    /// The mail layer of a connection, and the connection again once the call is done.
+    fn as_mail(conn: imap::Conn) -> Conn {
+        Conn::Imap(conn)
+    }
+
+    fn back(conn: Conn) -> imap::Conn {
+        let Conn::Imap(conn) = conn else {
+            unreachable!("the fake is an IMAP server")
+        };
+        conn
+    }
+
+    /// `1:3,7` names four UIDs.
+    fn uid_set_of(set: &str) -> Vec<u32> {
+        let mut uids = Vec::new();
+        for part in set.split(',') {
+            match part.split_once(':') {
+                Some((a, b)) => uids.extend(a.parse::<u32>().unwrap()..=b.parse::<u32>().unwrap()),
+                None => uids.push(part.parse().unwrap()),
+            }
+        }
+        uids
+    }
+
+    /// The set `1:3,7` that names these UIDs.
+    fn compress(uids: &[u32]) -> String {
+        let mut parts = Vec::new();
+        let mut i = 0;
+        while i < uids.len() {
+            let start = uids[i];
+            let mut end = start;
+            while i + 1 < uids.len() && uids[i + 1] == end + 1 {
+                i += 1;
+                end = uids[i];
+            }
+            parts.push(if start == end {
+                start.to_string()
+            } else {
+                format!("{start}:{end}")
+            });
+            i += 1;
+        }
+        parts.join(",")
+    }
+
+    /// A label the folder keeps here rather than on the server (#112).
+    fn labelled(store: &Store, folder: &str, uids: &[u32], keyword: &str) {
+        store
+            .remember_labels("d", folder, uids, std::slice::from_ref(&keyword.to_owned()), &[])
+            .unwrap();
+    }
+
+    /// The label of a letter a folder keeps here rides with it: the move names the new UID, the
+    /// memory goes to it, and the letter shows the label in the folder it arrived in, though the
+    /// server answers no keyword at all (#201).
+    #[tokio::test]
+    async fn a_moved_letter_keeps_its_label_in_the_folder_it_arrived_in() {
+        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new())).await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = move_messages(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        let mut conn = back(conn);
+        assert_eq!(pairs, [(1, 7)], "the move names the new UID");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+
+        let moved = store
+            .find_by_message_id("d", ARCHIVE, "1@x")
+            .unwrap()
+            .expect("the letter arrived");
+        assert_eq!(moved.uid, 7);
+        assert_eq!(moved.keywords, [keyword], "the label is on it in its new folder");
+        assert!(
+            store.local_labels("d", INBOX).unwrap().is_empty(),
+            "nothing stays in the folder the letter left"
+        );
+    }
+
+    /// A server without UIDPLUS names no UID: the letter is found by its Message-ID, and the
+    /// label rides on it all the same (#201).
+    #[tokio::test]
+    async fn a_move_that_names_no_uid_finds_the_letter_by_message_id() {
+        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new()).without_copyuid()).await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = move_messages(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        let mut conn = back(conn);
+        assert_eq!(pairs, [(1, 7)], "the letter found by its Message-ID");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+
+        let moved = store
+            .find_by_message_id("d", ARCHIVE, "1@x")
+            .unwrap()
+            .expect("the letter arrived");
+        assert_eq!((moved.uid, moved.keywords), (7, vec![keyword]));
+    }
+
+    /// One Message-ID and another size is another letter (#201): the label of the one a cut move
+    /// left in the target goes to it, never to its namesake.
+    #[tokio::test]
+    async fn the_size_tells_the_moved_letter_from_its_namesake() {
+        // uid 1 already reached the target before the run was cut, and the target holds another
+        // letter of the same Message-ID, larger.
+        let archive = vec![letter(3, "1@x", 900), letter(5, "1@x", 100)];
+        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], archive)).await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = resume_move(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        let mut conn = back(conn);
+        assert_eq!(pairs, [(1, 5)], "the letter of the same size is the one that moved");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+
+        let namesake = store.find_by_uid("d", ARCHIVE, 3).unwrap().expect("the namesake");
+        assert!(namesake.keywords.is_empty(), "the namesake keeps no label");
+        let moved = store.find_by_uid("d", ARCHIVE, 5).unwrap().expect("the moved letter");
+        assert_eq!(moved.keywords, [keyword], "the label is on the letter that moved");
+    }
+
+    /// A copy that lay in the target before the move is not the letter the move brings, though
+    /// it has the same Message-ID and size (#201): its UID is below the target's own UIDNEXT.
+    #[tokio::test]
+    async fn a_copy_that_lay_in_the_target_is_not_the_moved_letter() {
+        let port =
+            spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], vec![letter(5, "1@x", 100)]).without_copyuid()).await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = move_messages(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        let mut conn = back(conn);
+        assert_eq!(pairs, [(1, 7)], "the letter that arrived, not the copy that lay there");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+
+        let moved = store.find_by_uid("d", ARCHIVE, 7).unwrap().expect("the moved letter");
+        assert_eq!(moved.keywords, [keyword], "the label is on the letter that moved");
+        let earlier = store
+            .find_by_uid("d", ARCHIVE, 5)
+            .unwrap()
+            .expect("the copy that lay there");
+        assert!(earlier.keywords.is_empty(), "the copy that lay there keeps no label");
     }
 }
