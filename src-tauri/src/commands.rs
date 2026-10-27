@@ -3,7 +3,7 @@
     reason = "`#[tauri::command]` on an async fn expands to `let _ = …` in its glue; the commands' own code has none: it goes through `best_effort`"
 )]
 
-use depesha_core::{best_effort, unheard};
+use depesha_core::{best_effort, mailbox_tag, unheard};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1665,14 +1665,14 @@ pub async fn label_rename(
                 .await
             {
                 tracing::warn!(
-                    account = %account_id,
+                    account = %mailbox_tag(&account_id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "renaming a category failed"
                 );
                 if state.store.rename_label(&account_id, &t, &f).is_ok() {
                     if let Err(e) = state.store.rename_keyword(&account_id, &t, &f) {
-                        tracing::warn!(account = %account_id, "the keyword of the renamed category stayed under its old name in the cache: {e}");
+                        tracing::warn!(account = %mailbox_tag(&account_id), "the keyword of the renamed category stayed under its old name in the cache: {e}");
                     }
                     state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
                 }
@@ -3627,7 +3627,7 @@ async fn discard_or_tell(state: &AppState, account_id: &str, id: i64, message_id
     if let Err(e) = discard(state, account_id, id, message_id).await {
         // The notice below carries the words to the user; the log keeps the kind and the variant.
         tracing::warn!(
-            account = %account_id,
+            account = %mailbox_tag(account_id),
             kind = e.kind.as_str(),
             tag = e.tag,
             "the draft stayed in Drafts"

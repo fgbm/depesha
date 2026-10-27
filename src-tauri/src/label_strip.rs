@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::lang::pick;
 use depesha_core::label_strip::{self, Ended};
+use depesha_core::mailbox_tag;
 
 use crate::error::CmdError;
 use crate::state::AppState;
@@ -81,7 +82,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
     .await;
     match ended {
         Err(e) => tracing::warn!(
-            account = %account_id,
+            account = %mailbox_tag(account_id),
             kind = e.kind().as_str(),
             tag = e.tag(),
             "label strip failed"
@@ -128,7 +129,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
         }) => {
             for e in not_cleaned {
                 tracing::warn!(
-                    account = %account_id,
+                    account = %mailbox_tag(account_id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "label strip: the cache was not cleaned"
@@ -143,7 +144,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
                 );
             }
             tell(state, account_id);
-            tracing::debug!(account = %account_id, "took a label off {count} letters");
+            tracing::debug!(account = %mailbox_tag(account_id), "took a label off {count} letters");
         }
     }
 }

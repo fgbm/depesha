@@ -8,7 +8,7 @@ use std::time::Duration;
 use depesha_core::account::Account;
 use depesha_core::outbox::{self, Attempt, Hold, Settled};
 use depesha_core::store::{OutboxItem, Requeued, SentCopy, StuckCopy};
-use depesha_core::{mail, smtp};
+use depesha_core::{mail, mailbox_tag, smtp};
 use serde_json::json;
 
 use crate::error::CmdError;
@@ -310,7 +310,7 @@ fn send_trouble_fields(account_id: &str, account: Option<&Account>, error: &depe
         None => (String::new(), 0, "-"),
     };
     SendTroubleFields {
-        mailbox: mailbox_hash(account_id),
+        mailbox: mailbox_tag(account_id),
         host,
         port,
         tls,
@@ -328,16 +328,7 @@ fn tls_name(security: depesha_core::account::Security) -> &'static str {
     }
 }
 
-/// A short, non-reversible stand-in for an account id, so the same mailbox's lines can be told
-/// apart in the log without naming it: the id itself is `email-timestamp` (`account_save`).
-fn mailbox_hash(account_id: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    account_id.hash(&mut hasher);
-    format!("{:08x}", hasher.finish() as u32)
-}
-
-/// One line per failed attempt: the mailbox by a short hash (never its address), the server and
+/// One line per failed attempt: the mailbox by its tag (never its address), the server and
 /// port it tried, the TLS mode, the step `smtp::open`/`send` actually reached (not guessed from
 /// the kind of error) and the error by its kind, variant and codes — never the letter's text,
 /// its recipients or the server's own wording.

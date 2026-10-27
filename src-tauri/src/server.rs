@@ -3,7 +3,7 @@
 //! network; a check on request; the folder sizes counted at the user's request as a
 //! background task in the tasks window.
 
-use depesha_core::{best_effort, unheard};
+use depesha_core::{best_effort, mailbox_tag, unheard};
 use std::sync::Arc;
 
 use crate::tr;
@@ -40,7 +40,7 @@ pub fn keep_login(state: &AppState, account_id: &str, conn: &imap::Conn) {
     match state.store.save_server_caps(account_id, &caps) {
         Ok(true) => changed(state, account_id),
         Ok(false) => {}
-        Err(e) => tracing::warn!(account = %account_id, "capabilities not kept: {e}"),
+        Err(e) => tracing::warn!(account = %mailbox_tag(account_id), "capabilities not kept: {e}"),
     }
 }
 
@@ -63,7 +63,7 @@ pub async fn refresh_ews_quota(state: &AppState, account_id: &str, s: &mut ews::
         // Folders walked but none reported `PR_MESSAGE_SIZE_EXTENDED`: the account would
         // otherwise show a truthful zero with no sign the property was never there.
         tracing::warn!(
-            account = %account_id,
+            account = %mailbox_tag(account_id),
             folders,
             "Exchange reported no folder size: the occupied space reads as zero"
         );
@@ -88,7 +88,7 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
     // What the login found is the check; a quota the server is stuck on does not undo it.
     if let Err(e) = refresh_quota(state, &account.id, &mut conn).await {
         tracing::warn!(
-            account = %account.id,
+            account = %mailbox_tag(&account.id),
             kind = e.kind().as_str(),
             tag = e.tag(),
             "quota not read"
@@ -255,7 +255,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
         .await;
         if let Err(e) = &result {
             tracing::warn!(
-                account = %id,
+                account = %mailbox_tag(&id),
                 kind = e.kind().as_str(),
                 tag = e.tag(),
                 "folder sizes not counted"

@@ -4,7 +4,7 @@
 //! work: a full sync is a pass taken one folder at a time, and actions sent
 //! meanwhile run between its folders.
 
-use depesha_core::unheard;
+use depesha_core::{mailbox_tag, unheard};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1128,7 +1128,7 @@ impl Ops {
         let pause = busy_pause(e.back_off(), self.busy_streak);
         self.busy_streak += 1;
         self.busy_until = Some(tokio::time::Instant::now() + pause);
-        tracing::info!(account = %self.account.id, "server busy, pausing {pause:?}");
+        tracing::info!(account = %mailbox_tag(&self.account.id), "server busy, pausing {pause:?}");
         pause
     }
 
@@ -1307,7 +1307,7 @@ impl Ops {
             Ok(Err(e)) if e.is_transient() => return,
             Ok(Err(e)) => {
                 tracing::debug!(
-                    account = %self.account.id,
+                    account = %mailbox_tag(&self.account.id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "the addresses of the mailbox were not read"
@@ -1321,7 +1321,7 @@ impl Ops {
         if found.is_empty() {
             // The server named none of the names the app knows: the address it knows stays the
             // only one, as it was before the addresses were asked at all.
-            tracing::debug!(account = %self.account.id, "the server named no address of the mailbox");
+            tracing::debug!(account = %mailbox_tag(&self.account.id), "the server named no address of the mailbox");
             return;
         }
         match self
@@ -1336,7 +1336,7 @@ impl Ops {
                 self.state.signatures.forget_headers();
             }
             Err(e) => tracing::warn!(
-                account = %self.account.id,
+                account = %mailbox_tag(&self.account.id),
                 kind = e.kind.as_str(),
                 "the addresses of the mailbox were not kept"
             ),
@@ -1541,7 +1541,7 @@ impl Ops {
             // the next work logs in again if its connection was dropped.
             Err(e) if matches!(work, Work::Quota) => {
                 tracing::warn!(
-                    account = %account.id,
+                    account = %mailbox_tag(&account.id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "quota not read"
@@ -1549,7 +1549,7 @@ impl Ops {
             }
             Err(e) => {
                 tracing::warn!(
-                    account = %account.id,
+                    account = %mailbox_tag(&account.id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "operation failed"
@@ -1602,7 +1602,7 @@ async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> R
         Err(e) if e.is_transient() => Err(e),
         Err(e) => {
             tracing::warn!(
-                account = %account_id,
+                account = %mailbox_tag(account_id),
                 kind = e.kind().as_str(),
                 tag = e.tag(),
                 "quota not read"
@@ -1650,7 +1650,7 @@ async fn perform(
                 // One broken folder (Exchange shows some odd ones) must not stop the rest.
                 Err(e) => {
                     tracing::warn!(
-                        account = %id,
+                        account = %mailbox_tag(id),
                         folder,
                         kind = e.kind().as_str(),
                         tag = e.tag(),
@@ -1796,7 +1796,7 @@ async fn perform(
                     return Err(e);
                 }
                 tracing::debug!(
-                    account = %id,
+                    account = %mailbox_tag(id),
                     folder = %from,
                     kind = e.kind().as_str(),
                     tag = e.tag(),
@@ -1832,7 +1832,7 @@ async fn perform(
             // the cache with the folder's next sync.
             if let Err(e) = sync_one(state, account, conn, folder, false).await {
                 tracing::warn!(
-                    account = %id,
+                    account = %mailbox_tag(id),
                     folder,
                     kind = e.kind().as_str(),
                     tag = e.tag(),
@@ -1862,7 +1862,7 @@ async fn perform(
                 Ok(()) => {
                     if let Err(e) = sync_one(state, account, conn, folder, false).await {
                         tracing::warn!(
-                            account = %id,
+                            account = %mailbox_tag(id),
                             folder,
                             kind = e.kind().as_str(),
                             tag = e.tag(),
@@ -1909,7 +1909,7 @@ async fn perform(
             for folder in [from, to] {
                 if let Err(e) = sync_one(state, account, conn, folder, false).await {
                     tracing::warn!(
-                        account = %id,
+                        account = %mailbox_tag(id),
                         folder,
                         kind = e.kind().as_str(),
                         tag = e.tag(),
@@ -2148,7 +2148,7 @@ async fn idle_loop(
             }
             Err(e) => {
                 tracing::debug!(
-                    account = %account.id,
+                    account = %mailbox_tag(&account.id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "idle connect failed"
@@ -2199,7 +2199,7 @@ async fn idle_loop(
                             }
                             None => {
                                 tracing::debug!(
-                                    account = %account.id,
+                                    account = %mailbox_tag(&account.id),
                                     kind = d.error.kind().as_str(),
                                     tag = d.error.tag(),
                                     "idle dropped"
@@ -2212,7 +2212,7 @@ async fn idle_loop(
                     }
                 },
                 _ = resumed_from_sleep() => {
-                    tracing::info!(account = %account.id, "resumed from sleep, reconnecting");
+                    tracing::info!(account = %mailbox_tag(&account.id), "resumed from sleep, reconnecting");
                     queue(&tx, &queued, Work::SyncAll).await;
                     break;
                 }
@@ -2239,7 +2239,7 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
     // the cause's tag, the kind and the variant tell what cut the link.
     if p.log {
         tracing::warn!(
-            account = %account,
+            account = %mailbox_tag(account),
             cause = d.cause.tag(),
             since_wait = d.since_wait.as_secs(),
             since_connect = d.since_connect.as_secs(),
@@ -2253,7 +2253,7 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
         );
     } else {
         tracing::debug!(
-            account = %account,
+            account = %mailbox_tag(account),
             cause = d.cause.tag(),
             since_wait = d.since_wait.as_secs(),
             since_connect = d.since_connect.as_secs(),
@@ -2268,7 +2268,7 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
     }
     if p.to_poll {
         tracing::warn!(
-            account = %account,
+            account = %mailbox_tag(account),
             "idle keeps dropping and no renewal holds it: the inbox is checked every {}s instead",
             POLL_WITHOUT_IDLE.as_secs()
         );

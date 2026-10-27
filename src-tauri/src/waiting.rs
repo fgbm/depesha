@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::lang::pick;
 use depesha_core::account::Account;
+use depesha_core::mailbox_tag;
 use depesha_core::store::{OutboxItem, ParkJob, ParkKind};
 use depesha_core::waiting::{self, Archived, Archiving, Brought, Taken};
 use serde_json::json;
@@ -42,7 +43,7 @@ pub async fn after_sent(
     .await?;
     if let Some(e) = &sent.mark_failed {
         tracing::debug!(
-            account = %account.id,
+            account = %mailbox_tag(&account.id),
             kind = e.kind().as_str(),
             tag = e.tag(),
             "the server did not take the mark"
@@ -92,24 +93,24 @@ async fn archive_answered(state: &AppState, account: &Account, item: &OutboxItem
     .await
     {
         Archived::NoQueue => {
-            tracing::warn!(account = %account.id, "archive of the answered letter: the mailbox is not running")
+            tracing::warn!(account = %mailbox_tag(&account.id), "archive of the answered letter: the mailbox is not running")
         }
         Archived::NoArchive => {
-            tracing::debug!(account = %account.id, "archive of the answered letter: the mailbox has no archive folder")
+            tracing::debug!(account = %mailbox_tag(&account.id), "archive of the answered letter: the mailbox has no archive folder")
         }
         Archived::NotRead(e) => {
             tracing::warn!(
-                account = %account.id,
+                account = %mailbox_tag(&account.id),
                 kind = e.kind().as_str(),
                 tag = e.tag(),
                 "archive of the answered letter: the conversation was not read"
             )
         }
         Archived::NothingFound => {
-            tracing::debug!(account = %account.id, "archive of the answered letter: no letter found to move")
+            tracing::debug!(account = %mailbox_tag(&account.id), "archive of the answered letter: no letter found to move")
         }
         Archived::Failed(e) => tracing::warn!(
-            account = %account.id,
+            account = %mailbox_tag(&account.id),
             kind = e.kind().as_str(),
             tag = e.tag(),
             "archive of the answered letter failed"
@@ -121,7 +122,7 @@ async fn archive_answered(state: &AppState, account: &Account, item: &OutboxItem
         } => {
             if let Some(e) = not_marked {
                 tracing::warn!(
-                    account = %account.id,
+                    account = %mailbox_tag(&account.id),
                     kind = e.kind().as_str(),
                     tag = e.tag(),
                     "archive of the answered letter: not marked"
@@ -170,7 +171,7 @@ async fn jobs_of_account(state: &AppState, jobs: Vec<ParkJob>) {
         if let Err(e) = done {
             // The user reads the failure itself in the notice; the log keeps its kind and variant.
             tracing::warn!(
-                account = %job.account_id,
+                account = %mailbox_tag(&job.account_id),
                 kind = e.kind.as_str(),
                 tag = e.tag,
                 "waiting: a letter was not taken or brought back"
@@ -235,7 +236,7 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
         Brought::Back => state.emit("counters-changed", json!({})),
         Brought::Retry(e) => {
             tracing::debug!(
-                account = %job.account_id,
+                account = %mailbox_tag(&job.account_id),
                 kind = e.kind().as_str(),
                 tag = e.tag(),
                 "bringing letters back failed"

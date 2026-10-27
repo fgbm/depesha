@@ -35,6 +35,12 @@ pub fn removed(what: &str, result: std::io::Result<()>) {
     }
 }
 
+/// Eight lowercase hex digits of the id's SHA-256: no address of the mailbox, nor any part of one,
+/// reaches the journal, and the same mailbox joins up in every run of every version.
+pub fn mailbox_tag(account_id: &str) -> String {
+    crate::tls::sha256_hex(account_id.as_bytes())[..8].to_owned()
+}
+
 /// A reply or a signal sent into a channel whose other end is gone: the one who asked has left, so
 /// there is nobody to tell. The refused value is dropped.
 pub fn unheard<T>(sent: Result<(), T>) {
@@ -87,5 +93,29 @@ mod tests {
         assert!(line.contains("leave the copy"), "{line}");
         assert!(line.contains("auth"), "{line}");
         assert!(!line.contains("example.org") && !line.contains("user@"), "{line}");
+    }
+
+    /// The line that names a mailbox: neither its domain nor the part before the `@` is in it,
+    /// and the tag is, so two runs of two versions still join up on one mailbox.
+    #[test]
+    fn a_journal_line_names_no_address_of_the_mailbox() {
+        let id = "user@example.org-1750000000";
+        let line = logged(|| {
+            tracing::warn!(account = %mailbox_tag(id), "the mailbox of this letter is not running");
+        });
+        assert!(line.contains("account=4ebe56f1"), "{line}");
+        assert!(!line.contains("example.org") && !line.contains("user@"), "{line}");
+    }
+
+    /// The tag is a fixed value of the id and not of this build: a hash that shifts between
+    /// releases would keep two runs of two versions apart.
+    #[test]
+    fn a_mailbox_tag_is_eight_hex_digits_of_a_fixed_hash() {
+        assert_eq!(mailbox_tag("user@example.org-1750000000"), "4ebe56f1");
+        assert_ne!(
+            mailbox_tag("user@example.org-1750000000"),
+            mailbox_tag("other@example.org-1750000001")
+        );
+        assert!(!mailbox_tag("user@example.org-1750000000").contains('@'));
     }
 }

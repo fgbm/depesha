@@ -10,6 +10,7 @@ use depesha_core::account::Account;
 use depesha_core::clear::{self, Emptied, Emptying, Forgot};
 use depesha_core::domain::FolderRole;
 use depesha_core::mail::{self, Conn};
+use depesha_core::mailbox_tag;
 use serde::Serialize;
 use serde_json::json;
 
@@ -87,14 +88,14 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
             state.emit("counters-changed", json!({}));
         }
         Forgot::NotRead(e) => tracing::warn!(
-            account = %id,
+            account = %mailbox_tag(id),
             folder,
             kind = e.kind().as_str(),
             tag = e.tag(),
             "the cache of a folder was not read"
         ),
         Forgot::NotCleared(e) => tracing::warn!(
-            account = %id,
+            account = %mailbox_tag(id),
             folder,
             kind = e.kind().as_str(),
             tag = e.tag(),
@@ -120,7 +121,7 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
     for folder in synced {
         if let Err(e) = sync_one(state, account, conn, folder, false).await {
             tracing::warn!(
-                account = %id,
+                account = %mailbox_tag(id),
                 folder,
                 kind = e.kind().as_str(),
                 tag = e.tag(),

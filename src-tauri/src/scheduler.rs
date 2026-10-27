@@ -9,6 +9,7 @@ use crate::followups;
 use crate::lang::pick;
 use crate::state::AppState;
 use crate::worker::Queue;
+use depesha_core::mailbox_tag;
 use depesha_core::snooze;
 
 const TICK: Duration = Duration::from_secs(10);
@@ -111,7 +112,7 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
     };
     // Offline or the account is paused: tried again on the next tick.
     let Ok(mut queue) = Queue::background(state, &account_id) else {
-        tracing::debug!(account = %account_id, "snoozes are due, the mailbox is not running");
+        tracing::debug!(account = %mailbox_tag(&account_id), "snoozes are due, the mailbox is not running");
         return;
     };
     let returned = snooze::return_due(&state.store, &due, &mut queue, &mut on_back).await;
@@ -124,7 +125,7 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
     }
     for e in &returned.failed {
         tracing::debug!(
-            account = %account_id,
+            account = %mailbox_tag(&account_id),
             kind = e.kind().as_str(),
             tag = e.tag(),
             "snooze return failed"

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use depesha_core::account::{Account, AuthMethod, Credentials};
 use depesha_core::store::Store;
-use depesha_core::{mail, oauth};
+use depesha_core::{mail, mailbox_tag, oauth};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
@@ -339,7 +339,7 @@ impl AppState {
             && let Err(e) = secrets::set(&account.id, tokens.refresh_token.clone()).await
         {
             tracing::warn!(
-                account = %account.id,
+                account = %mailbox_tag(&account.id),
                 kind = e.kind.as_str(),
                 "rotated refresh token not saved"
             );
