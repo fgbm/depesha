@@ -1620,6 +1620,9 @@ impl Store {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let id = insert_message(&tx, account_id, folder, msg)?;
+        // A letter that arrives by a move carries the labels remembered here (#201): the merge
+        // a flags pass makes, in this transaction, or the list shows it without them.
+        labels::merge_keywords(&tx, account_id, folder, &[(msg.uid, msg.keywords.clone())])?;
         tx.commit()?;
         Ok(id)
     }
@@ -1633,6 +1636,8 @@ impl Store {
             .iter()
             .map(|m| insert_message(&tx, account_id, folder, m))
             .collect::<Result<_>>()?;
+        let keywords: Vec<(u32, Vec<String>)> = msgs.iter().map(|m| (m.uid, m.keywords.clone())).collect();
+        labels::merge_keywords(&tx, account_id, folder, &keywords)?;
         tx.commit()?;
         Ok(ids)
     }

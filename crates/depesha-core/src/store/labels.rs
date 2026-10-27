@@ -218,15 +218,7 @@ impl Store {
 
     /// The props of one folder: what the card shows.
     pub fn folder_prop(&self, account_id: &str, folder: &str) -> Result<Option<FolderProps>> {
-        Ok(self
-            .conn()
-            .query_row(
-                "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked
-                 FROM folder_props WHERE account_id = ?1 AND folder = ?2",
-                params![account_id, folder],
-                |r| row_props(r, account_id),
-            )
-            .ok())
+        Ok(folder_prop_of(&self.conn(), account_id, folder))
     }
 
     /// Everything known about a folder list, by name; the "Folders" subsection reads it.
@@ -484,55 +476,9 @@ impl Store {
         if rows.is_empty() {
             return Ok(0);
         }
-        // Only a check on a test message proves the folder keeps a keyword (#42, frame 9):
-        // PERMANENTFLAGS promise `\*` on servers that lose the label, and Exchange keeps a
-        // keyword only for the session, so its own answer is no proof either (#112).
-        let keeps = self
-            .folder_prop(account_id, folder)?
-            .and_then(|p| p.label_check)
-            .is_some_and(LabelCheck::saves);
-        let mut local: HashMap<u32, Vec<String>> = HashMap::new();
-        // One read of the folder's memory, for the merge or for the drop below.
-        let remembered = self.local_labels(account_id, folder)?;
-        if !keeps {
-            for (uid, keyword) in &remembered {
-                local.entry(*uid).or_default().push(keyword.clone());
-            }
-        }
-        let merged: Vec<(u32, Vec<String>)> = rows
-            .iter()
-            .map(|(uid, keywords)| {
-                let mut keywords = keywords.clone();
-                for keyword in local.get(uid).into_iter().flatten() {
-                    if !keywords.contains(keyword) {
-                        keywords.push(keyword.clone());
-                    }
-                }
-                (*uid, keywords)
-            })
-            .collect();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        // Each listed UID found by the index, as in `write_flags`.
-        let changed = tx
-            .prepare_cached(
-                "WITH s AS MATERIALIZED (
-                    SELECT m.id AS id, j.value ->> 1 AS keywords
-                    FROM json_each(?3) j CROSS JOIN messages m
-                        ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value ->> 0
-                 )
-                 UPDATE messages SET keywords = s.keywords FROM s
-                 WHERE messages.id = s.id AND messages.keywords IS NOT s.keywords",
-            )?
-            .execute(params![account_id, folder, json_list(&merged)])?;
-        // The folder keeps keywords: its word is the truth, and the memory of a set here is
-        // no longer needed.
-        if keeps && !remembered.is_empty() {
-            tx.execute(
-                "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
-                params![account_id, folder],
-            )?;
-        }
+        let changed = merge_keywords(&tx, account_id, folder, rows)?;
         tx.commit()?;
         Ok(changed)
     }
@@ -619,6 +565,70 @@ impl Store {
     }
 }
 
+/// Writes the keywords the server answered for `rows` into the cache, merged with the labels
+/// remembered here for the same letters (#112): a letter that arrives by a move carries them
+/// (#201). In the caller's transaction, so a batch of headers stays one commit.
+pub(super) fn merge_keywords(
+    tx: &Connection,
+    account_id: &str,
+    folder: &str,
+    rows: &[(u32, Vec<String>)],
+) -> Result<usize> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    // Only a check on a test message proves the folder keeps a keyword (#42, frame 9):
+    // PERMANENTFLAGS promise `\*` on servers that lose the label, and Exchange keeps a
+    // keyword only for the session, so its own answer is no proof either (#112).
+    let keeps = folder_prop_of(tx, account_id, folder)
+        .and_then(|p| p.label_check)
+        .is_some_and(LabelCheck::saves);
+    let mut local: HashMap<u32, Vec<String>> = HashMap::new();
+    // One read of the folder's memory, for the merge or for the drop below.
+    let remembered: Vec<(u32, String)> = tx
+        .prepare_cached("SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2")?
+        .query_map(params![account_id, folder], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    if !keeps {
+        for (uid, keyword) in &remembered {
+            local.entry(*uid).or_default().push(keyword.clone());
+        }
+    }
+    let merged: Vec<(u32, Vec<String>)> = rows
+        .iter()
+        .map(|(uid, keywords)| {
+            let mut keywords = keywords.clone();
+            for keyword in local.get(uid).into_iter().flatten() {
+                if !keywords.contains(keyword) {
+                    keywords.push(keyword.clone());
+                }
+            }
+            (*uid, keywords)
+        })
+        .collect();
+    // Each listed UID found by the index, as in `write_flags`.
+    let changed = tx
+        .prepare_cached(
+            "WITH s AS MATERIALIZED (
+                SELECT m.id AS id, j.value ->> 1 AS keywords
+                FROM json_each(?3) j CROSS JOIN messages m
+                    ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value ->> 0
+             )
+             UPDATE messages SET keywords = s.keywords FROM s
+             WHERE messages.id = s.id AND messages.keywords IS NOT s.keywords",
+        )?
+        .execute(params![account_id, folder, json_list(&merged)])?;
+    // The folder keeps keywords: its word is the truth, and the memory of a set here is
+    // no longer needed.
+    if keeps && !remembered.is_empty() {
+        tx.execute(
+            "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
+            params![account_id, folder],
+        )?;
+    }
+    Ok(changed)
+}
+
 fn row_props(r: &rusqlite::Row<'_>, account_id: &str) -> rusqlite::Result<FolderProps> {
     let rights: Option<String> = r.get(3)?;
     let permanent: String = r.get(5).unwrap_or_else(|_| "[]".into());
@@ -635,6 +645,17 @@ fn row_props(r: &rusqlite::Row<'_>, account_id: &str) -> rusqlite::Result<Folder
         refused: r.get(7)?,
         checked: r.get(8)?,
     })
+}
+
+/// What a folder's opening or check learned, read from any connection of the cache.
+fn folder_prop_of(conn: &Connection, account_id: &str, folder: &str) -> Option<FolderProps> {
+    conn.query_row(
+        "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked
+         FROM folder_props WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, folder],
+        |r| row_props(r, account_id),
+    )
+    .ok()
 }
 
 fn owner_of(kind: &str, name: String) -> Owner {
@@ -972,6 +993,24 @@ mod tests {
             assert_eq!(store.get(id).unwrap().unwrap().keywords, std::slice::from_ref(&kw));
         }
         assert_eq!(store.local_labels("a", "INBOX").unwrap(), [(1, kw)]);
+    }
+
+    /// A letter that arrives in a folder by a move carries the label remembered here (#201):
+    /// the server's keywords of a new row are merged with the memory, as a flags pass does, or
+    /// the list shows the letter without the label the user gave it.
+    #[test]
+    fn a_letter_arriving_by_a_move_gets_the_label_it_carried() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let invoices = keyword_of("Счета");
+        store
+            .remember_labels("a", "INBOX", &[1], std::slice::from_ref(&invoices), &[])
+            .unwrap();
+        store.move_local_labels("a", "INBOX", "Trash", &[(1, 7)]).unwrap();
+
+        let id = put(&store, "Trash", 7, &with_ids("Письмо", 100, "q@x", None), false);
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, [invoices]);
     }
 
     /// A label the user took off here is not put back by the sync that follows.
