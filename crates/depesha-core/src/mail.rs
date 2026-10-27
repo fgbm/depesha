@@ -1150,6 +1150,7 @@ pub async fn wait_for_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn an_imap_count_names_the_uids_below_its_uidnext_of_its_own_validity() {
@@ -1295,13 +1296,15 @@ mod tests {
         Letter { uid, message_id, size }
     }
 
-    /// A fake IMAP server for the paths a move takes: two folders of letters, `MOVE` and `COPY`
-    /// that may or may not name the new UIDs (`COPYUID`, RFC 4315), and no keywords at all —
-    /// every `FLAGS` answer is empty, as Exchange IMAP answers a folder that keeps none (#112).
-    /// The letter a move brings gets UIDs from `next` up.
+    /// A fake IMAP server for the paths a move takes: folders of letters, `MOVE` and `COPY` that may
+    /// or may not name the new UIDs (`COPYUID`, RFC 4315), and no keywords at all — every `FLAGS`
+    /// answer is empty, as Exchange IMAP answers a folder that keeps none (#112). A test changes it
+    /// between two commands through the handle `spawn_fake` gives back.
     struct Fake {
-        folders: [(&'static str, Vec<Letter>); 2],
+        folders: Vec<FakeFolder>,
+        /// Whether a MOVE or a COPY names the new UIDs.
         copyuid: bool,
+        /// The UID the next letter that arrives by a move gets.
         next: u32,
         selected: &'static str,
         /// The ordinal of the MOVE to refuse, and of the one running now.
@@ -1309,10 +1312,27 @@ mod tests {
         moves: usize,
     }
 
+    struct FakeFolder {
+        name: &'static str,
+        validity: u32,
+        letters: Vec<Letter>,
+    }
+
     impl Fake {
         fn new(inbox: Vec<Letter>, archive: Vec<Letter>) -> Self {
             Self {
-                folders: [(INBOX, inbox), (ARCHIVE, archive)],
+                folders: vec![
+                    FakeFolder {
+                        name: INBOX,
+                        validity: 1,
+                        letters: inbox,
+                    },
+                    FakeFolder {
+                        name: ARCHIVE,
+                        validity: 1,
+                        letters: archive,
+                    },
+                ],
                 copyuid: true,
                 next: 7,
                 selected: INBOX,
@@ -1321,35 +1341,52 @@ mod tests {
             }
         }
 
+        /// A server without UIDPLUS: a MOVE or a COPY names no UID, and the letters are found by
+        /// their Message-IDs.
+        fn without_copyuid(mut self) -> Self {
+            self.copyuid = false;
+            self
+        }
+
         /// The MOVE counting `ordinal` from 1 is refused.
         fn refusing(mut self, ordinal: usize) -> Self {
             self.refuse = Some(ordinal);
             self
         }
 
-        /// A server without UIDPLUS: a MOVE or a COPY names no UID, and the letters are found
-        /// by their Message-IDs.
-        fn without_copyuid(mut self) -> Self {
-            self.copyuid = false;
-            self
+        fn folder(&self, name: &str) -> &FakeFolder {
+            self.folders
+                .iter()
+                .find(|f| f.name == name)
+                .expect("a folder of the fake")
+        }
+
+        fn folder_mut(&mut self, name: &str) -> &mut FakeFolder {
+            self.folders
+                .iter_mut()
+                .find(|f| f.name == name)
+                .expect("a folder of the fake")
         }
 
         fn letters(&self, folder: &str) -> &[Letter] {
-            &self
-                .folders
-                .iter()
-                .find(|(f, _)| *f == folder)
-                .expect("a folder of the fake")
-                .1
+            &self.folder(folder).letters
         }
 
-        fn letters_mut(&mut self, folder: &str) -> &mut Vec<Letter> {
-            &mut self
-                .folders
-                .iter_mut()
-                .find(|(f, _)| *f == folder)
-                .expect("a folder of the fake")
-                .1
+        /// The letters of the folder go: the cache drops them on its next pass.
+        fn emptied(&mut self, folder: &str) {
+            self.folder_mut(folder).letters.clear();
+        }
+
+        /// The folder is deleted and made again: a new UIDVALIDITY, and its UIDs from 1.
+        fn renumbered(&mut self, folder: &str) {
+            let f = self.folder_mut(folder);
+            f.letters.clear();
+            f.validity += 1;
+            self.next = 1;
+        }
+
+        fn arriving(&mut self, folder: &str, letter: Letter) {
+            self.folder_mut(folder).letters.push(letter);
         }
 
         /// The UID the next letter to arrive in the folder gets.
@@ -1378,10 +1415,11 @@ mod tests {
             }
             if verb == "SELECT" || verb == "EXAMINE" {
                 self.selected = if up.contains("ARCHIVE") { ARCHIVE } else { INBOX };
-                let exists = self.letters(self.selected).len();
+                let folder = self.folder(self.selected);
+                let (exists, validity) = (folder.letters.len(), folder.validity);
                 let next = self.uidnext(self.selected);
                 return format!(
-                    "* FLAGS ()\r\n* {exists} EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT {next}] ok\r\n{tag} OK [READ-WRITE] done\r\n"
+                    "* FLAGS ()\r\n* {exists} EXISTS\r\n* OK [UIDVALIDITY {validity}] ok\r\n* OK [UIDNEXT {next}] ok\r\n{tag} OK [READ-WRITE] done\r\n"
                 );
             }
             if verb != "UID" {
@@ -1453,22 +1491,28 @@ mod tests {
         fn move_letters(&mut self, up: &str, tag: &str, set: &str, moving: bool) -> String {
             let target = if up.contains("ARCHIVE") { ARCHIVE } else { INBOX };
             let source = self.selected;
+            let letters = self.mine(set);
             let (mut from, mut to) = (Vec::new(), Vec::new());
-            for l in &self.mine(set) {
+            for l in &letters {
                 from.push(l.uid);
                 to.push(self.next);
                 let arrived = Letter { uid: self.next, ..*l };
                 self.next += 1;
-                self.letters_mut(target).push(arrived);
+                self.arriving(target, arrived);
             }
             let taken = uid_set_of(set);
             if moving {
-                self.letters_mut(source).retain(|l| !taken.contains(&l.uid));
+                self.folder_mut(source).letters.retain(|l| !taken.contains(&l.uid));
             }
             if !self.copyuid {
                 return format!("{tag} OK done\r\n");
             }
-            format!("{tag} OK [COPYUID 1 {} {}] done\r\n", compress(&from), compress(&to))
+            let validity = self.folder(source).validity;
+            format!(
+                "{tag} OK [COPYUID {validity} {} {}] done\r\n",
+                compress(&from),
+                compress(&to)
+            )
         }
 
         /// The letters of the selected folder that `set` names.
@@ -1482,12 +1526,15 @@ mod tests {
         }
     }
 
-    /// A fake server answering on its own port.
-    async fn spawn_fake(mut fake: Fake) -> u16 {
+    /// A fake server answering on its own port, and its state, which a test changes between two
+    /// commands of the same connection.
+    async fn spawn_fake(fake: Fake) -> (u16, Arc<Mutex<Fake>>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use tokio::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
+        let shared = Arc::new(Mutex::new(fake));
+        let server = Arc::clone(&shared);
         tokio::spawn(async move {
             let (sock, _) = listener.accept().await.unwrap();
             let (r, mut w) = sock.into_split();
@@ -1497,12 +1544,13 @@ mod tests {
                 return;
             }
             while let Ok(Some(line)) = lines.next_line().await {
-                if w.write_all(fake.answer(&line).as_bytes()).await.is_err() {
+                let reply = server.lock().unwrap().answer(&line);
+                if w.write_all(reply.as_bytes()).await.is_err() {
                     return;
                 }
             }
         });
-        port
+        (port, shared)
     }
 
     async fn connect_to(port: u16) -> imap::Conn {
@@ -1591,7 +1639,7 @@ mod tests {
     /// server answers no keyword at all (#201).
     #[tokio::test]
     async fn a_moved_letter_keeps_its_label_in_the_folder_it_arrived_in() {
-        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new())).await;
+        let (port, _) = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new())).await;
         let (conn, store) = synced(port).await;
         let keyword = crate::acl::keyword_of("Счета");
         labelled(&store, INBOX, &[1], &keyword);
@@ -1623,7 +1671,7 @@ mod tests {
     /// label rides on it all the same (#201).
     #[tokio::test]
     async fn a_move_that_names_no_uid_finds_the_letter_by_message_id() {
-        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new()).without_copyuid()).await;
+        let (port, _) = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new()).without_copyuid()).await;
         let (conn, store) = synced(port).await;
         let keyword = crate::acl::keyword_of("Счета");
         labelled(&store, INBOX, &[1], &keyword);
@@ -1653,7 +1701,7 @@ mod tests {
         // uid 1 already reached the target before the run was cut, and the target holds another
         // letter of the same Message-ID, larger.
         let archive = vec![letter(3, "1@x", 900), letter(5, "1@x", 100)];
-        let port = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], archive)).await;
+        let (port, _) = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], archive)).await;
         let (conn, store) = synced(port).await;
         let keyword = crate::acl::keyword_of("Счета");
         labelled(&store, INBOX, &[1], &keyword);
@@ -1679,7 +1727,7 @@ mod tests {
     /// it has the same Message-ID and size (#201): its UID is below the target's own UIDNEXT.
     #[tokio::test]
     async fn a_copy_that_lay_in_the_target_is_not_the_moved_letter() {
-        let port =
+        let (port, _) =
             spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], vec![letter(5, "1@x", 100)]).without_copyuid()).await;
         let (conn, store) = synced(port).await;
         let keyword = crate::acl::keyword_of("Счета");
@@ -1709,7 +1757,7 @@ mod tests {
     /// may be forgotten only after the moves, or the memory of the labels goes with it.
     #[tokio::test]
     async fn emptying_a_folder_by_moving_carries_the_labels() {
-        let port = spawn_fake(Fake::new(
+        let (port, _) = spawn_fake(Fake::new(
             vec![letter(1, "1@x", 100), letter(2, "2@x", 200)],
             Vec::new(),
         ))
@@ -1768,7 +1816,7 @@ mod tests {
     /// memory of them stay as they were (#201).
     #[tokio::test]
     async fn a_stopped_empty_keeps_every_label() {
-        let port = spawn_fake(Fake::new(
+        let (port, _) = spawn_fake(Fake::new(
             vec![letter(1, "1@x", 100), letter(2, "2@x", 200)],
             Vec::new(),
         ))
@@ -1812,7 +1860,7 @@ mod tests {
     /// left on the server keep their labels (#201).
     #[tokio::test]
     async fn a_failed_empty_keeps_the_labels_of_what_it_did_not_move() {
-        let port =
+        let (port, _) =
             spawn_fake(Fake::new(vec![letter(1, "1@x", 100), letter(2, "2@x", 200)], Vec::new()).refusing(2)).await;
         let (conn, store) = synced(port).await;
         let keyword = crate::acl::keyword_of("Счета");
@@ -1870,5 +1918,36 @@ mod tests {
             store.find_by_message_id("d", INBOX, "1@x").unwrap().is_none(),
             "the letter that moved left the folder"
         );
+    }
+
+    /// A folder that comes back with a new number after the cache dropped every letter of it forgets the
+    /// read marks of the old one: a letter that takes an old UID arrives unread (#201).
+    #[tokio::test]
+    async fn a_new_number_of_a_folder_whose_letters_went_forgets_its_read_marks() {
+        let (port, fake) = spawn_fake(Fake::new(vec![letter(1, "1@x", 100)], Vec::new())).await;
+        let (mut conn, store) = synced(port).await;
+        store.set_local_seen("d", INBOX, &[1], 500).unwrap();
+
+        // The letter goes, and the cache with it; a read mark of UID 1 stays behind.
+        fake.lock().unwrap().emptied(INBOX);
+        sync::sync_folder(&mut conn, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        assert!(store.known_uids("d", INBOX).unwrap().is_empty(), "no letter is cached");
+
+        // The folder is deleted and made again, and a letter takes UID 1 of the new number.
+        fake.lock().unwrap().renumbered(INBOX);
+        fake.lock().unwrap().arriving(INBOX, letter(1, "2@x", 200));
+        sync::sync_folder(&mut conn, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        sync::sync_folder(&mut conn, &store, "d", INBOX, SyncOptions::default())
+            .await
+            .unwrap();
+        let arrived = store
+            .find_by_message_id("d", INBOX, "2@x")
+            .unwrap()
+            .expect("the letter arrived");
+        assert!(!arrived.flags.seen, "the read mark of the old number is gone");
     }
 }

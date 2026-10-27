@@ -201,10 +201,10 @@ pub async fn sync_folder(
     let uidvalidity = mailbox.uid_validity.unwrap_or(0);
     let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
     if known_validity != uidvalidity {
-        // Forgets the mod-sequence too: the next pass is full. A folder the cache never held a
-        // letter of has nothing under an old number to forget, and a label a move carried in
-        // names a letter of the number learned now (#201).
-        if store.uid_range(account_id, folder)?.is_some() {
+        // Forgets the mod-sequence too: the next pass is full. A folder whose number was never known
+        // here has nothing under an old one to forget: a read mark or a label it holds names a letter
+        // of the number learned now (#201).
+        if known_validity != 0 {
             store.clear_folder(account_id, folder)?;
         }
         // The new number at once: the cache never has UIDs of one UIDVALIDITY under
