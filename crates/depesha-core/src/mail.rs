@@ -420,6 +420,12 @@ pub async fn move_messages(
 
 /// Finishes a move that was cut short without MOVE: letters whose copy already reached the
 /// target are not copied a second time. Used by the retry after a dropped connection.
+///
+/// The pairs of this path carry no floor: a letter of the cut run may already lie in the target, and
+/// a letter that arrived before this call has a UID below the target's UIDNEXT now, so a floor would
+/// turn every one of them away. The price is that a copy of the same Message-ID and the same size
+/// that lay in the target before the run may take a label instead of the moved letter; the size and
+/// the retries make that unlikely, and a lost label is cheaper than one on the wrong letter.
 pub async fn resume_move(
     conn: &mut Conn,
     store: &Store,
@@ -460,9 +466,9 @@ struct Moved<'a> {
     uids: &'a [u32],
     /// Old UID → new UID as the server named them.
     pairs: Vec<(u32, u32)>,
-    /// The smallest UID `to` gives a letter that arrives now (`new_uid_floor`): what lies there
-    /// below it is not a letter this move brought.
-    floor: Option<u32>,
+    /// The smallest UID `to` gives a letter that arrives now, and the number it was read under
+    /// (`new_uid_floor`): what lies there below it is not a letter this move brought.
+    floor: Option<imap::Floor>,
 }
 
 /// The old UID → new UID pairs of a move, with the letters the server left unpaired:
@@ -523,31 +529,49 @@ async fn find_in_target(
     message_id: &str,
     size: Option<u32>,
     pairs: &[(u32, u32)],
-    floor: Option<u32>,
+    floor: Option<imap::Floor>,
 ) -> Option<u32> {
     let taken: Vec<u32> = pairs.iter().map(|(_, new)| *new).collect();
-    match imap::find_moved(conn, to, message_id, size).await {
-        Ok(found) => found
-            .into_iter()
-            .find(|uid| !taken.contains(uid) && floor.is_none_or(|floor| *uid >= floor)),
+    let found = match imap::find_moved(conn, to, message_id, size, floor).await {
+        Ok(found) => found,
         Err(e) => {
             best_effort("find a moved letter in the folder it arrived in", Err::<(), _>(e));
-            None
+            return None;
+        }
+    };
+    if let Some(uid) = found.into_iter().find(|uid| !taken.contains(uid)) {
+        return Some(uid);
+    }
+    // A gateway that re-encodes a letter reports another RFC822.SIZE for it (#201): once without the
+    // size it is looked for again, with the same floor and the UIDs already paired left out.
+    if size.is_some() {
+        match imap::find_moved(conn, to, message_id, None, floor).await {
+            Ok(found) => return found.into_iter().find(|uid| !taken.contains(uid)),
+            Err(e) => best_effort("find a moved letter in the folder it arrived in", Err::<(), _>(e)),
         }
     }
+    None
 }
 
 /// The smallest UID `to` gives a letter that arrives now: what lies there already is not the
 /// letter a move brings, even with the same Message-ID and size (#201). Asked before the move,
 /// and only when a letter of `from` carries a label to carry: an ordinary move pays nothing.
-async fn new_uid_floor(conn: &mut imap::Conn, store: &Store, account_id: &str, from: &str, to: &str) -> Option<u32> {
+async fn new_uid_floor(
+    conn: &mut imap::Conn,
+    store: &Store,
+    account_id: &str,
+    from: &str,
+    to: &str,
+) -> Option<imap::Floor> {
     match store.local_labels(account_id, from) {
         Ok(rows) if rows.is_empty() => return None,
         Ok(_) => {}
         Err(e) => best_effort("read the labels a move has to carry", Err::<(), _>(e)),
     }
     match imap::folder_mark(conn, to).await {
-        Ok((_, _, next)) => Some(next),
+        // The number goes with it: a target recreated before the move starts its UIDs over, and the
+        // old floor would turn every letter of the new number away (`imap::with_floor`).
+        Ok((_, validity, next)) => Some(imap::Floor { validity, next }),
         Err(e) => {
             best_effort("read the UID the next letter of the target gets", Err::<(), _>(e));
             None
@@ -1307,6 +1331,12 @@ mod tests {
         /// The UID the next letter that arrives by a move gets.
         next: u32,
         selected: &'static str,
+        /// A folder a MOVE recreates: its letters go and its UIDs start over, as they do in a folder
+        /// deleted and made again on the server (#201).
+        recreate: Option<&'static str>,
+        /// The size the folder reports for a letter that arrives by a move: a gateway that re-encodes
+        /// the letter reports another one (#201).
+        rewrite_size: Option<u32>,
         /// The ordinal of the MOVE to refuse, and of the one running now.
         refuse: Option<usize>,
         moves: usize,
@@ -1336,6 +1366,8 @@ mod tests {
                 copyuid: true,
                 next: 7,
                 selected: INBOX,
+                recreate: None,
+                rewrite_size: None,
                 refuse: None,
                 moves: 0,
             }
@@ -1345,6 +1377,18 @@ mod tests {
         /// their Message-IDs.
         fn without_copyuid(mut self) -> Self {
             self.copyuid = false;
+            self
+        }
+
+        /// A MOVE of this folder recreates the target: its letters go and its UIDs start over.
+        fn recreating(mut self, folder: &'static str) -> Self {
+            self.recreate = Some(folder);
+            self
+        }
+
+        /// The target reports this size for the letters a move brings.
+        fn rewriting_size(mut self, size: u32) -> Self {
+            self.rewrite_size = Some(size);
             self
         }
 
@@ -1492,11 +1536,19 @@ mod tests {
             let target = if up.contains("ARCHIVE") { ARCHIVE } else { INBOX };
             let source = self.selected;
             let letters = self.mine(set);
+            if self.recreate == Some(target) {
+                self.renumbered(target);
+            }
             let (mut from, mut to) = (Vec::new(), Vec::new());
             for l in &letters {
                 from.push(l.uid);
                 to.push(self.next);
-                let arrived = Letter { uid: self.next, ..*l };
+                let size = self.rewrite_size.unwrap_or(l.size);
+                let arrived = Letter {
+                    uid: self.next,
+                    size,
+                    ..*l
+                };
                 self.next += 1;
                 self.arriving(target, arrived);
             }
@@ -1768,19 +1820,12 @@ mod tests {
 
         let mut mail_conn = as_mail(conn);
         let (_, bound) = folder_count(&mut mail_conn, &store, "d", INBOX).await.unwrap();
-        let request = crate::clear::Request {
-            folder: INBOX.to_owned(),
-            how: crate::clear::Emptying::ToFolder(ARCHIVE.to_owned()),
-            bound,
-            keep_ids: Vec::new(),
-            drafts: false,
-        };
         let done = clear_folder(
             &mut mail_conn,
             &store,
             &crate::clear::Clearing::default(),
             "d",
-            &request,
+            &to_archive(bound),
             &mut |_, _| true,
             &mut |_| {},
         )
@@ -1949,5 +1994,61 @@ mod tests {
             .unwrap()
             .expect("the letter arrived");
         assert!(!arrived.flags.seen, "the read mark of the old number is gone");
+    }
+
+    /// The target recreated between the count of its UIDs and the move starts its UIDs over: the old
+    /// number's floor would turn the letter away, and the label would be lost (#201).
+    #[tokio::test]
+    async fn a_target_recreated_before_the_move_still_takes_the_label() {
+        let (port, _) = spawn_fake(
+            Fake::new(vec![letter(1, "1@x", 100)], Vec::new())
+                .without_copyuid()
+                .recreating(ARCHIVE),
+        )
+        .await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = move_messages(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        assert_eq!(pairs, [(1, 1)], "the letter arrived at the first UID of the new number");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        let mut conn = back(conn);
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+        let moved = store.find_by_uid("d", ARCHIVE, 1).unwrap().expect("the letter arrived");
+        assert_eq!(moved.keywords, [keyword], "the label followed the letter");
+    }
+
+    /// A gateway that reports another size for the letter it moved costs no label: the letter is looked
+    /// for by its Message-ID alone, once with its size it is not found (#201).
+    #[tokio::test]
+    async fn another_size_in_the_target_still_finds_the_letter() {
+        let (port, _) = spawn_fake(
+            Fake::new(vec![letter(1, "1@x", 100)], Vec::new())
+                .without_copyuid()
+                .rewriting_size(999),
+        )
+        .await;
+        let (conn, store) = synced(port).await;
+        let keyword = crate::acl::keyword_of("Счета");
+        labelled(&store, INBOX, &[1], &keyword);
+
+        let mut conn = as_mail(conn);
+        let pairs = move_messages(&mut conn, &store, "d", INBOX, 1, &[1], ARCHIVE)
+            .await
+            .unwrap();
+        assert_eq!(pairs, [(1, 7)], "the letter found by its Message-ID alone");
+        store.move_local_labels("d", INBOX, ARCHIVE, &pairs).unwrap();
+        let mut conn = back(conn);
+        sync::sync_folder(&mut conn, &store, "d", ARCHIVE, SyncOptions::default())
+            .await
+            .unwrap();
+        let moved = store.find_by_uid("d", ARCHIVE, 7).unwrap().expect("the letter arrived");
+        assert_eq!(moved.keywords, [keyword], "the label followed the letter");
     }
 }

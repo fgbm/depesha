@@ -761,24 +761,49 @@ pub async fn check_labels(
 /// Finds a just-appended letter by its exact Message-ID, retrying a few times with a
 /// growing pause: a server's search index (Yandex, some Exchange setups) may lag.
 async fn find_after_append(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Option<u32>> {
-    Ok(find_moved(conn, folder, message_id, None).await?.first().copied())
+    Ok(find_moved(conn, folder, message_id, None, None).await?.first().copied())
 }
 
-/// Every UID of `folder` carrying exactly this Message-ID, and this size when one is given, looked
-/// for a few times with a growing pause: a search index lags behind a move as it does behind an
-/// APPEND.
-pub(crate) async fn find_moved(conn: &mut Conn, folder: &str, message_id: &str, size: Option<u32>) -> Result<Vec<u32>> {
+/// The smallest UID a folder gives a letter that arrives after this mark, and the UIDVALIDITY it
+/// was read under: a folder that got a new number meanwhile starts its UIDs over, and nothing is
+/// above an old floor (`with_floor`).
+#[derive(Clone, Copy)]
+pub(crate) struct Floor {
+    pub validity: u32,
+    pub next: u32,
+}
+
+/// Every UID of `folder` carrying exactly this Message-ID, and this size when one is given, and
+/// above `floor` when the folder is still on the number it was read under, looked for a few times
+/// with a growing pause: a search index lags behind a move as it does behind an APPEND.
+pub(crate) async fn find_moved(
+    conn: &mut Conn,
+    folder: &str,
+    message_id: &str,
+    size: Option<u32>,
+    floor: Option<Floor>,
+) -> Result<Vec<u32>> {
     let mut found = Vec::new();
     for attempt in 0..5 {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(300 * attempt)).await;
         }
-        found = find_matching(conn, folder, message_id, size).await?;
+        found = find_matching(conn, folder, message_id, size, floor).await?;
         if !found.is_empty() {
             break;
         }
     }
     Ok(found)
+}
+
+/// The UIDs above the floor, when the folder is still on the number the floor was read under: what
+/// it held before the mark is not a letter that arrived after it. A folder that starts its UIDs
+/// over has nothing to compare with, and every UID it gives stands.
+fn with_floor(uids: Vec<u32>, validity: Option<u32>, floor: Option<Floor>) -> Vec<u32> {
+    match floor {
+        Some(floor) if Some(floor.validity) == validity => uids.into_iter().filter(|uid| *uid >= floor.next).collect(),
+        _ => uids,
+    }
 }
 
 /// UIDs of Depesha's label-check test letters left in the folder
@@ -1263,7 +1288,7 @@ async fn not_yet_moved(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> R
             Some(mid) => {
                 // The size too: another letter of the same Message-ID at the target (a
                 // crosspost) is not this one's copy, and the original would be lost.
-                if find_matching(conn, to, &mid, f.size).await?.is_empty() {
+                if find_matching(conn, to, &mid, f.size, None).await?.is_empty() {
                     missing.push(uid);
                 }
             }
@@ -1559,12 +1584,19 @@ fn append_flags(flags: &str) -> Option<String> {
 /// Message-ID is kept; an id that is empty, or not a Message-ID, finds nothing. A refusal
 /// or a dropped connection is an error, not "nothing found" (`uid_search`).
 pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
-    find_matching(conn, folder, message_id, None).await
+    find_matching(conn, folder, message_id, None, None).await
 }
 
-/// `find_by_message_id`, narrowed to letters of exactly `size` bytes when it is given: a
-/// letter of the same Message-ID but another size (a mailing-list crosspost) is another letter.
-async fn find_matching(conn: &mut Conn, folder: &str, message_id: &str, size: Option<u32>) -> Result<Vec<u32>> {
+/// `find_by_message_id`, narrowed to letters of exactly `size` bytes when it is given (a letter of
+/// the same Message-ID but another size is another letter, a mailing-list crosspost one), and to
+/// those above `floor` when the folder keeps the number the floor was read under.
+async fn find_matching(
+    conn: &mut Conn,
+    folder: &str,
+    message_id: &str,
+    size: Option<u32>,
+    floor: Option<Floor>,
+) -> Result<Vec<u32>> {
     let id = message_id.trim_matches(['<', '>']).trim();
     // Only an empty id (or one with angle brackets still in it) finds nothing: a
     // Message-ID without `@` is unusual but valid, and returning nothing would leave the
@@ -1573,8 +1605,9 @@ async fn find_matching(conn: &mut Conn, folder: &str, message_id: &str, size: Op
     if id.is_empty() || id.contains(['<', '>']) {
         return Ok(Vec::new());
     }
-    conn.session.examine(folder).await?;
+    let mailbox = conn.session.examine(folder).await?;
     let uids = uid_search(conn, &header_search(id)).await?;
+    let uids = with_floor(uids, mailbox.uid_validity, floor);
     with_message_id(conn, &uids, id, size).await
 }
 
