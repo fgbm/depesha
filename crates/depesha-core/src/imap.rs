@@ -506,9 +506,8 @@ pub async fn folder_props(conn: &mut Conn, folder: &str) -> Result<(Option<Right
 /// would end the command and have the rest of it read as another one: it is refused.
 fn quoted(name: &str) -> Result<String> {
     if name.contains(['\r', '\n']) {
-        // The name itself stays out of the message (`Error::LineBreak`): it may be the whole of the
-        // forged command.
-        return Err(Error::LineBreak);
+        // The name itself stays out of the message: it may be the whole of the forged command.
+        return Err(Error::Protocol("a mailbox name carries a line break".into()));
     }
     Ok(format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\"")))
 }
@@ -1607,14 +1606,18 @@ async fn find_matching(
         return Ok(Vec::new());
     }
     let mailbox = conn.session.examine(folder).await?;
-    let uids = uid_search(conn, &header_search(id)).await?;
+    let uids = uid_search(conn, &header_search(id)?).await?;
     let uids = with_floor(uids, mailbox.uid_validity, floor);
     with_message_id(conn, &uids, id, size).await
 }
 
-/// `SEARCH HEADER Message-ID` for a bare id (see `find_matching`).
-fn header_search(id: &str) -> String {
-    format!("HEADER Message-ID \"{}\"", id.replace(['"', '\\'], ""))
+/// `SEARCH HEADER Message-ID` for a bare id (see `find_matching`). A line break in the id would
+/// end the command and have the rest read as another one, as it would in a folder name (`quoted`).
+fn header_search(id: &str) -> Result<String> {
+    if id.contains(['\r', '\n']) {
+        return Err(Error::LineBreak);
+    }
+    Ok(format!("HEADER Message-ID \"{}\"", id.replace(['"', '\\'], "")))
 }
 
 /// Of `uids` in the examined folder, those whose Message-ID is exactly `id` (and whose size is
@@ -1741,7 +1744,7 @@ async fn find_copy(conn: &mut Conn, folder: &str, raw: &[u8], message_id: &str) 
         return Ok(Vec::new());
     }
     let mailbox = conn.session.examine(folder).await?;
-    match uid_search(conn, &header_search(id)).await {
+    match uid_search(conn, &header_search(id)?).await {
         Ok(uids) => return with_message_id(conn, &uids, id, None).await,
         Err(e) if refused(&e) => {
             tracing::info!(
@@ -2295,14 +2298,23 @@ mod tests {
         assert_eq!(quoted(r"a\b").unwrap(), r#""a\\b""#);
     }
 
+    /// A Message-ID with a line break would end the SEARCH and have the rest of it read as another
+    /// command (#201): it is refused, and the id itself stays out of the message.
+    #[test]
+    fn a_message_id_with_a_line_break_is_refused() {
+        let forged = "1@x\r\nUID STORE 1 +FLAGS (\\Deleted)";
+        let err = header_search(forged).expect_err("a line break is refused");
+        assert!(!format!("{err}").contains("UID STORE"), "the id is not repeated");
+        assert_eq!(header_search("1@x").unwrap(), r#"HEADER Message-ID "1@x""#);
+    }
+
     /// A folder whose name carries a line break would end the command and have the rest read as
-    /// another one (#201): no name of the folder list may reach a command line with it. The refusal
-    /// says so in the user's language (`Error::LineBreak`), not as a server answer.
+    /// another one (#201): no name of the folder list may reach a command line with it.
     #[test]
     fn a_folder_name_with_a_line_break_is_refused() {
         let forged = "Work\r\nUID STORE 1 +FLAGS (\\Deleted)";
         let err = quoted(forged).expect_err("a line break is refused");
-        assert!(matches!(err, Error::LineBreak), "{err:?}");
+        assert!(matches!(err, Error::Protocol(_)), "{err:?}");
         assert!(!format!("{err}").contains("UID STORE"), "the name is not repeated");
         assert!(quoted("Work\nUID STORE 1 +FLAGS (\\Deleted)").is_err());
         // The names the server lists are ordinary and go as they did.
