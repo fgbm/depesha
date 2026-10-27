@@ -14,6 +14,8 @@ mod install_secret;
 mod label_strip;
 mod lang;
 mod localize;
+#[cfg(test)]
+mod log_sink;
 mod outbox;
 mod paths;
 #[cfg(target_os = "macos")]

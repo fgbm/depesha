@@ -13,6 +13,10 @@ pub struct CmdError {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional = nullable))]
     pub cert: Option<Box<CertProblem>>,
+    /// The variant of the core error it came from, without its parameters: the other fact a log
+    /// line may carry besides the kind. The interface never sees it.
+    #[serde(skip)]
+    pub tag: &'static str,
 }
 
 impl CmdError {
@@ -21,6 +25,8 @@ impl CmdError {
             kind,
             message: message.into(),
             cert: None,
+            // A failure the app worded itself has no variant of the core's to name.
+            tag: "cmd",
         }
     }
 }
@@ -43,6 +49,7 @@ impl From<depesha_core::Error> for CmdError {
             kind: err.kind(),
             message: crate::localize::error(&err, lang),
             cert,
+            tag: err.tag(),
         }
     }
 }

@@ -3625,10 +3625,11 @@ fn discard_failed_text(queued: bool, why: &str) -> String {
 /// way, but a draft left behind is a duplicate the user must know of.
 async fn discard_or_tell(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>, queued: bool) {
     if let Err(e) = discard(state, account_id, id, message_id).await {
-        // The notice below carries the words to the user; the log keeps the kind.
+        // The notice below carries the words to the user; the log keeps the kind and the variant.
         tracing::warn!(
             account = %account_id,
             kind = e.kind.as_str(),
+            tag = e.tag,
             "the draft stayed in Drafts"
         );
         state.emit(

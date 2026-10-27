@@ -168,10 +168,11 @@ async fn jobs_of_account(state: &AppState, jobs: Vec<ParkJob>) {
             ParkKind::Back | ParkKind::Undo => bring_back(state, &job).await,
         };
         if let Err(e) = done {
-            // The user reads the failure itself in the notice; the log keeps its kind.
+            // The user reads the failure itself in the notice; the log keeps its kind and variant.
             tracing::warn!(
                 account = %job.account_id,
                 kind = e.kind.as_str(),
+                tag = e.tag,
                 "waiting: a letter was not taken or brought back"
             );
         }

@@ -2232,11 +2232,11 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
         _ => "",
     };
     // The server's own words of the break stay out of the line, as everywhere else in the log:
-    // its kind and variant tell what cut the link.
+    // the cause's tag, the kind and the variant tell what cut the link.
     if p.log {
         tracing::warn!(
             account = %account,
-            cause = %d.cause,
+            cause = d.cause.tag(),
             since_wait = d.since_wait.as_secs(),
             since_connect = d.since_connect.as_secs(),
             drops = p.drops,
@@ -2250,7 +2250,7 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
     } else {
         tracing::debug!(
             account = %account,
-            cause = %d.cause,
+            cause = d.cause.tag(),
             since_wait = d.since_wait.as_secs(),
             since_connect = d.since_connect.as_secs(),
             drops = p.drops,
@@ -3160,5 +3160,53 @@ mod tests {
         assert!(slept_since(&mut wall, &mut mono));
         // Right after, no.
         assert!(!slept_since(&mut wall, &mut mono));
+    }
+
+    /// A dropped subscription is one line: its fields say what cut the link, and whether it is
+    /// `warn` or `debug` follows the pace. Both lists are the same list.
+    #[test]
+    fn the_line_of_a_dropped_idle_names_its_fields_and_its_level() {
+        use crate::log_sink::logged;
+        use depesha_core::idle_pace::DropCause;
+
+        let bye = "BYE <user@example.org> autologout";
+        let d = depesha_core::mail::IdleDrop {
+            error: Error::Bye(bye.into()),
+            cause: DropCause::Bye(bye.into()),
+            since_wait: Duration::from_secs(1740),
+            since_connect: Duration::from_secs(1800),
+            renew: Some(Duration::from_secs(1740)),
+            dropped: None,
+        };
+        let mut p = Dropped {
+            pause: Duration::from_secs(240),
+            drops: 4,
+            log: true,
+            probe: false,
+            shortened: None,
+            by_age: false,
+            at_renewal: false,
+            to_poll: false,
+        };
+        let loud = logged(|| log_idle_drop("a@b.ru-1", &d, &p));
+        for word in ["example.org", "user@", "autologout"] {
+            assert!(!loud.contains(word), "{word} in {loud}");
+        }
+        for field in [
+            "since_wait=1740",
+            "since_connect=1800",
+            "drops=4",
+            "renew=\"renewing IDLE every 1740s\"",
+            "pause=240",
+            "kind=\"network\"",
+            "tag=\"bye\"",
+        ] {
+            assert!(loud.contains(field), "{field} in {loud}");
+        }
+        assert!(loud.contains("cause=\"bye\"") && loud.contains("WARN"), "{loud}");
+        p.log = false;
+        let quiet = logged(|| log_idle_drop("a@b.ru-1", &d, &p));
+        assert!(quiet.contains("DEBUG") && !quiet.contains("WARN"), "{quiet}");
+        assert!(quiet.contains("tag=\"bye\"") && quiet.contains("drops=4"), "{quiet}");
     }
 }

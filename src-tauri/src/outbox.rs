@@ -54,9 +54,20 @@ pub async fn run(state: Arc<AppState>) {
         last_wall = wall;
         last_mono = mono;
         if let Err(e) = round(&state, awake_since).await {
-            tracing::error!("outbox: {}", e.message);
+            note_round_failure(&e);
         }
     }
+}
+
+/// A round of sending that failed: the notice names the reason in words, the log keeps the kind
+/// and the variant, since a refusal may quote the server's reply with an address in it.
+fn note_round_failure(e: &CmdError) {
+    tracing::error!(kind = e.kind.as_str(), tag = e.tag, "outbox: a round failed");
+}
+
+/// A copy of a sent letter that stayed behind: the same rule as `note_round_failure`.
+fn note_copy_failure(copy: i64, e: &CmdError) {
+    tracing::warn!(copy, kind = e.kind.as_str(), tag = e.tag, "sent copy: it was not filed");
 }
 
 /// A letter whose send was cut short (the app quit mid-SMTP): whether the server took it
@@ -289,8 +300,6 @@ struct SendTroubleFields {
     tls: &'static str,
     /// `ErrorKind`, as the interface branches on it.
     kind: &'static str,
-    /// The variant without its parameters (`Error::tag`): `smtp`, `bye`, `say/invalid-address`.
-    tag: &'static str,
     /// The tag and the numeric codes of a reply, as one field (`smtp 550 5.1.1`).
     error: String,
 }
@@ -306,7 +315,6 @@ fn send_trouble_fields(account_id: &str, account: Option<&Account>, error: &depe
         port,
         tls,
         kind: error.kind().as_str(),
-        tag: error.tag(),
         error: error.journal(),
     }
 }
@@ -331,8 +339,8 @@ fn mailbox_hash(account_id: &str) -> String {
 
 /// One line per failed attempt: the mailbox by a short hash (never its address), the server and
 /// port it tried, the TLS mode, the step `smtp::open`/`send` actually reached (not guessed from
-/// the kind of error), the kind and the variant of the error — never the letter's text, its
-/// recipients or the server's own wording.
+/// the kind of error) and the error by its kind, variant and codes — never the letter's text,
+/// its recipients or the server's own wording.
 fn log_send_trouble(
     item: &OutboxItem,
     account: Option<&Account>,
@@ -350,7 +358,6 @@ fn log_send_trouble(
         stage,
         transient,
         kind = f.kind,
-        tag = f.tag,
         error = f.error,
         "outbox: send attempt failed"
     );
@@ -461,7 +468,7 @@ pub fn deliver_copies(state: &Arc<AppState>) {
         let state = state.clone();
         tokio::spawn(async move {
             if let Err(e) = deliver_copy(&state, &copy).await {
-                tracing::warn!("sent copy: {}", e.message);
+                note_copy_failure(copy.id, &e);
             }
             state.copy_release(copy.id);
         });
@@ -610,6 +617,7 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log_sink::logged;
 
     #[test]
     #[cfg(not(feature = "e2e"))]
@@ -694,11 +702,11 @@ mod tests {
     fn the_fields_of_a_send_trouble_of_another_failure_have_no_server_text() {
         let login = depesha_core::Error::Auth("535 login user@example.org refused".into());
         let f = send_trouble_fields("a@b.ru-1", None, &login);
-        let line = format!("{} {} {} {} {} {}", f.mailbox, f.host, f.port, f.tls, f.tag, f.error);
+        let line = format!("{} {} {} {} {}", f.mailbox, f.host, f.port, f.tls, f.error);
         for word in ["example.org", "user@", "535 login"] {
             assert!(!line.contains(word), "{word} in {line}");
         }
-        assert_eq!((f.kind, f.tag), ("auth", "auth"), "{line}");
+        assert_eq!((f.kind, f.error.as_str()), ("auth", "auth"), "{line}");
         // The greeting the server refused names the client's own machine: the code stays alone.
         let hello = depesha_core::Error::SmtpHello {
             name: "workstation.local".into(),
@@ -706,10 +714,28 @@ mod tests {
             message: "no such host <user@example.org>".into(),
         };
         let f = send_trouble_fields("x", None, &hello);
-        assert_eq!(
-            (f.kind, f.tag, f.error.as_str()),
-            ("other", "smtp-hello", "smtp-hello 550")
+        assert_eq!((f.kind, f.error.as_str()), ("other", "smtp-hello 550"), "{line}");
+    }
+
+    /// A log line about a failure that already has the words of the interface: the notice names
+    /// the reason to the user, the log may keep the kind and the variant.
+    #[test]
+    fn the_line_of_a_failed_round_or_a_stuck_copy_has_no_server_text() {
+        let refused = CmdError::from(depesha_core::Error::CopyRefused(
+            "550-<user@example.org> rejected by policy".into(),
+        ));
+        let line = logged(|| {
+            note_round_failure(&refused);
+            note_copy_failure(7, &refused);
+        });
+        for word in ["example.org", "user@", "rejected by policy"] {
+            assert!(!line.contains(word), "{word} in {line}");
+        }
+        assert!(
+            line.contains("kind=\"other\"") && line.contains("tag=\"copy-refused\""),
+            "{line}"
         );
+        assert_eq!(refused.tag, "copy-refused", "the variant is kept for the log");
     }
 
     /// The flow `outbox_retry` and `send_account` follow together without a database column:
