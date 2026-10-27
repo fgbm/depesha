@@ -583,11 +583,17 @@ pub(super) fn merge_keywords(
     let keeps = folder_prop_of(tx, account_id, folder)
         .and_then(|p| p.label_check)
         .is_some_and(LabelCheck::saves);
+    let uids: Vec<u32> = rows.iter().map(|(uid, _)| *uid).collect();
     let mut local: HashMap<u32, Vec<String>> = HashMap::new();
-    // One read of the folder's memory, for the merge or for the drop below.
+    // The memory of these letters alone, for the merge or for the drop below.
     let remembered: Vec<(u32, String)> = tx
-        .prepare_cached("SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2")?
-        .query_map(params![account_id, folder], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .prepare_cached(
+            "SELECT uid, keyword FROM local_labels WHERE account_id = ?1 AND folder = ?2
+             AND uid IN (SELECT value FROM json_each(?3))",
+        )?
+        .query_map(params![account_id, folder, json_list(&uids)], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
         .collect::<Result<_, _>>()?;
     if !keeps {
         for (uid, keyword) in &remembered {
@@ -618,12 +624,12 @@ pub(super) fn merge_keywords(
              WHERE messages.id = s.id AND messages.keywords IS NOT s.keywords",
         )?
         .execute(params![account_id, folder, json_list(&merged)])?;
-    // The folder keeps keywords: its word is the truth, and the memory of a set here is
-    // no longer needed.
+    // The folder keeps keywords: its word is the truth for them, and the memory of a set here
+    // is no longer needed.
     if keeps && !remembered.is_empty() {
         tx.execute(
-            "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2",
-            params![account_id, folder],
+            "DELETE FROM local_labels WHERE account_id = ?1 AND folder = ?2 AND uid IN (SELECT value FROM json_each(?3))",
+            params![account_id, folder, json_list(&uids)],
         )?;
     }
     Ok(changed)
