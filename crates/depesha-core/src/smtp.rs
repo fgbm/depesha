@@ -905,7 +905,6 @@ fn log_stage(server: &ServerConfig, stage: &'static str, error: &Error) {
         port = server.port,
         stage,
         kind = error.kind().as_str(),
-        tag = error.tag(),
         error = error.journal(),
         "smtp: attempt failed"
     );
@@ -1885,8 +1884,10 @@ mod tests {
             assert!(!line.contains(word), "{word} in {line}");
         }
         assert!(line.contains("smtp.example.com") && line.contains("send"), "{line}");
-        // The codes are ours to read: a refused recipient keeps its 550 5.1.1.
-        assert!(line.contains("550") && line.contains("5.1.1"), "{line}");
-        assert!(line.contains("tag=\"smtp\"") && line.contains("tag=\"auth\""), "{line}");
+        // A line that carries codes puts the variant and the codes in one field, not beside it.
+        assert!(line.contains("error=\"smtp 550 5.1.1\""), "{line}");
+        assert!(!line.contains("tag="), "{line}");
+        // A failure without codes names its variant on its own.
+        assert!(line.contains("error=\"auth\""), "{line}");
     }
 }
