@@ -2230,6 +2230,9 @@ fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
         None => String::new(),
     };
     let note = match (p.by_age, p.shortened) {
+        _ if p.restored => {
+            "the shortened renewal died at its own renewal: back to the longest renewal, no more shortening"
+        }
         _ if p.at_renewal => "the server closed the link at our renewal, not a cut of an idle link",
         (true, _) => "the connection is cut by its age, not by idleness: renewal kept",
         (_, Some(_)) => "cut after the same idle time twice: renewal shortened",
@@ -3191,6 +3194,7 @@ mod tests {
             by_age: false,
             at_renewal: false,
             to_poll: false,
+            restored: false,
         };
         let loud = logged(|| log_idle_drop("a@b.ru-1", &d, &p));
         for word in ["example.org", "user@", "autologout"] {

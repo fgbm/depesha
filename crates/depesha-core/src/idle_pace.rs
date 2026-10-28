@@ -162,6 +162,10 @@ pub struct IdlePace {
     after_poll: bool,
     /// The switch to polling was told in the log, and nothing has held since.
     poll_told: bool,
+    /// Drops in a row at our own renewal under a shortened one, with no renewal through.
+    renewal_cuts: u32,
+    /// The shortening did not help: nothing is shortened until a healthy connection.
+    no_shorten: bool,
 }
 
 /// What to do after a drop.
@@ -183,12 +187,18 @@ pub struct Dropped {
     pub at_renewal: bool,
     /// This drop turned the inbox over to polling; set once until an IDLE holds again.
     pub to_poll: bool,
+    /// A shortened renewal died at its own renewal: the renewal is back to the longest, and
+    /// it is not shortened again until a connection lives `healthy`.
+    pub restored: bool,
 }
 
-/// Two marks are the same moment if they differ by less than a fifth (and 2 s).
+/// Two marks are the same moment if they differ by less than a twentieth (and 2 s).
+///
+/// A server timer or a proxy cuts within a second of its mark. At a fifth, random breaks in
+/// the 10–300 s range often fell on the same mark, and the pace read scatter as a rule.
 fn near(a: Duration, b: Duration) -> bool {
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    hi - lo <= (hi / 5).max(Duration::from_secs(2))
+    hi - lo <= (hi / 20).max(Duration::from_secs(2))
 }
 
 impl IdlePace {
@@ -212,6 +222,8 @@ impl IdlePace {
             poll_count: 0,
             after_poll: false,
             poll_told: false,
+            renewal_cuts: 0,
+            no_shorten: false,
         }
     }
 
@@ -254,6 +266,7 @@ impl IdlePace {
         self.quick = 0;
         self.after_poll = false;
         self.poll_told = false;
+        self.renewal_cuts = 0;
         self.survived += 1;
         if self.survived >= self.tune.probe_after && self.renew < self.tune.max {
             self.survived = 0;
@@ -265,19 +278,6 @@ impl IdlePace {
     pub fn dropped(&mut self, info: &DropInfo) -> Dropped {
         self.survived = 0;
         self.resync = true;
-        if info.renew.is_some_and(|renew| info.since_wait >= renew) {
-            self.probing = false;
-            return Dropped {
-                pause: self.tune.pause,
-                drops: self.drops,
-                log: false,
-                probe: false,
-                shortened: None,
-                by_age: false,
-                at_renewal: true,
-                to_poll: false,
-            };
-        }
         // Healthy by the age it had before this wait began: a wait that was cut at its own
         // 600th second proves nothing about the connection before it. Nor does the age of a
         // connection that spent the polls: the first IDLE after them is judged on its own.
@@ -287,6 +287,11 @@ impl IdlePace {
             self.quick = 0;
             self.mark = None;
             self.lifetime = None;
+            self.renewal_cuts = 0;
+            self.no_shorten = false;
+        }
+        if let Some(renew) = info.renew.filter(|renew| info.since_wait >= *renew) {
+            return self.at_renewal(renew);
         }
         let probe = std::mem::take(&mut self.probing);
         if !probe {
@@ -307,7 +312,7 @@ impl IdlePace {
                     by_age = true;
                 }
                 (_, Some((wait, _))) if near(info.since_wait, wait) && info.since_wait < renew => {
-                    if info.since_wait >= self.tune.too_soon {
+                    if info.since_wait >= self.tune.too_soon && !self.no_shorten {
                         self.renew = (info.since_wait * 2 / 3).max(self.tune.floor);
                         shortened = Some(self.renew);
                     }
@@ -322,8 +327,10 @@ impl IdlePace {
         if !probe && !aged && info.cause.teaches() && info.since_wait < self.tune.healthy {
             // A cut that a shorter renewal can still mend is the pace's to learn from; only
             // the ones it cannot mend wear the link out.
-            let unmendable =
-                info.renew.is_none() || info.since_wait < self.tune.too_soon || self.renew <= self.tune.floor;
+            let unmendable = info.renew.is_none()
+                || self.no_shorten
+                || info.since_wait < self.tune.too_soon
+                || self.renew <= self.tune.floor;
             self.quick = if unmendable { self.quick + 1 } else { 0 };
         }
         let to_poll = !self.polling && self.quick >= self.tune.poll_after;
@@ -348,6 +355,50 @@ impl IdlePace {
             by_age,
             at_renewal: false,
             to_poll: first_poll,
+            restored: false,
+        }
+    }
+
+    // The server closed the link as our renewal fell due. Under the longest renewal that is
+    // its own way (Gmail does it instead of taking a new IDLE), not a cut of an idle link,
+    // and the series stays as it was. Under a shortened one it means the shortening mends
+    // nothing: the connection is cut by something else and the shorter renewal only burns
+    // traffic on every reconnect. Two such drops in a row take the longest renewal back.
+    fn at_renewal(&mut self, renew: Duration) -> Dropped {
+        self.probing = false;
+        if renew >= self.tune.max {
+            return Dropped {
+                pause: self.tune.pause,
+                drops: self.drops,
+                log: false,
+                probe: false,
+                shortened: None,
+                by_age: false,
+                at_renewal: true,
+                to_poll: false,
+                restored: false,
+            };
+        }
+        self.drops += 1;
+        self.renewal_cuts += 1;
+        let restored = self.renewal_cuts >= 2;
+        if restored {
+            self.renew = self.tune.max;
+            self.no_shorten = true;
+            self.mark = None;
+            self.lifetime = None;
+            self.renewal_cuts = 0;
+        }
+        Dropped {
+            pause: self.tune.pause,
+            drops: self.drops,
+            log: self.drops.is_power_of_two() || restored,
+            probe: false,
+            shortened: None,
+            by_age: false,
+            at_renewal: true,
+            to_poll: false,
+            restored,
         }
     }
 }
@@ -682,6 +733,106 @@ mod tests {
         }
         assert!(!p.polling());
         assert_eq!(p.renew(), IDLE_RENEW, "nothing was learned");
+    }
+
+    /// A connection cut at our own renewal: the server closed the link instead of taking the
+    /// new IDLE of the renewal it was held under.
+    fn renewal_cut(pace: &IdlePace) -> DropInfo {
+        DropInfo {
+            cause: DropCause::Eof,
+            since_wait: pace.renew(),
+            since_connect: pace.renew(),
+            renew: Some(pace.renew()),
+            worked: true,
+        }
+    }
+
+    /// An Exchange cuts the link after ~160 s of silence: a shorter renewal holds it once, and
+    /// then every connection dies at that renewal, hour after hour.
+    #[test]
+    fn a_shortened_renewal_that_dies_at_its_own_renewal_gives_the_longest_one_back() {
+        let mut p = IdlePace::new();
+        p.dropped(&idle_cut(160, &p).unwrap());
+        p.dropped(&idle_cut(160, &p).unwrap());
+        assert!(
+            p.renew() < s(160),
+            "the cut at 160 s shortens the renewal: {:?}",
+            p.renew()
+        );
+        let first = p.dropped(&renewal_cut(&p));
+        assert!(
+            first.at_renewal && !first.restored,
+            "one such cut is no proof: {first:?}"
+        );
+        let second = p.dropped(&renewal_cut(&p));
+        assert!(second.restored && second.log, "{second:?}");
+        assert_eq!(p.renew(), IDLE_RENEW, "back to the longest renewal");
+        // Every later cut at 160 s leaves the renewal alone, and the pace gives up on IDLE.
+        let mut shortenings = 0;
+        let mut cuts = 0;
+        while !p.polling() && cuts < 40 {
+            let info = idle_cut(160, &p).expect("the longest renewal is cut again");
+            shortenings += usize::from(p.dropped(&info).shortened.is_some());
+            cuts += 1;
+        }
+        assert_eq!(p.renew(), IDLE_RENEW);
+        assert_eq!(
+            shortenings, 0,
+            "a shorter renewal mended nothing, so it is not taken again"
+        );
+        assert!(p.polling(), "the cuts are not mended and the inbox is polled");
+        assert!(cuts <= p.tune.poll_after as usize, "{cuts} cuts to polling");
+    }
+
+    #[test]
+    fn a_renewal_that_went_through_between_two_cuts_at_our_own_renewal_keeps_the_shorter_one() {
+        let mut p = IdlePace::new();
+        p.dropped(&idle_cut(160, &p).unwrap());
+        p.dropped(&idle_cut(160, &p).unwrap());
+        let shortened = p.renew();
+        assert!(!p.dropped(&renewal_cut(&p)).restored);
+        p.renewed();
+        let second = p.dropped(&renewal_cut(&p));
+        assert!(second.at_renewal && !second.restored, "{second:?}");
+        assert_eq!(p.renew(), shortened, "the link held the shorter renewal once");
+    }
+
+    /// Breaks scattered over the range a short renewal sees: none may be read as a cut by the
+    /// age of the connection, and the noise must not move the period about.
+    #[test]
+    fn random_breaks_at_a_short_renewal_do_not_teach_the_pace() {
+        let mut p = IdlePace::new();
+        p.dropped(&idle_cut(90, &p).unwrap());
+        p.dropped(&idle_cut(90, &p).unwrap());
+        assert_eq!(p.renew(), s(60), "cut twice at 90 s: two thirds of that");
+        let breaks = [
+            (24, 362),
+            (14, 44),
+            (0, 208),
+            (18, 18),
+            (26, 56),
+            (30, 298),
+            (25, 114),
+            (13, 13),
+            (11, 132),
+            (0, 111),
+        ];
+        let mut shortenings = 0;
+        let mut told_by_age = 0;
+        for (wait, connect) in breaks {
+            let info = DropInfo {
+                worked: true,
+                ..drop_of(DropCause::Eof, wait, connect, &p)
+            };
+            let d = p.dropped(&info);
+            shortenings += usize::from(d.shortened.is_some());
+            told_by_age += usize::from(d.by_age);
+        }
+        assert_eq!(
+            told_by_age, 0,
+            "no break was taken for a cut by the age of the connection"
+        );
+        assert!(shortenings <= 1, "{shortenings} shortenings: the noise moved the pace");
     }
 
     #[test]
