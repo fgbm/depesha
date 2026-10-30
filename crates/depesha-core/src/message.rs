@@ -677,6 +677,103 @@ fn unconfuse(value: &str) -> String {
         .collect()
 }
 
+/// Whether a value starts with a URL scheme (`https:`, `mailto:`, `cid:`): the letters spell
+/// schemes out, and a relative address may have a colon of its own after a path.
+fn is_scheme(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// The value of an attribute in a tag as a mail program wrote it (`href="…"`, `href='…'`,
+/// `href=…`), case kept: a path in an address may be case-sensitive.
+fn tag_attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let skip = |mut i: usize| {
+        while matches!(lower.as_bytes().get(i), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            i += 1;
+        }
+        i
+    };
+    let mut from = 0;
+    while let Some(at) = lower[from..].find(name) {
+        let start = from + at;
+        from = start + name.len();
+        // `data-href` and `xhref` are other attributes; a quote before the name is a value.
+        if start > 0 && matches!(lower.as_bytes()[start - 1], b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_') {
+            continue;
+        }
+        let mut i = skip(from);
+        if lower.as_bytes().get(i) != Some(&b'=') {
+            continue;
+        }
+        i = skip(i + 1);
+        let quote = match lower.as_bytes().get(i) {
+            Some(&q @ (b'"' | b'\'')) => Some(q as char),
+            _ => None,
+        };
+        let begin = if quote.is_some() { i + 1 } else { i };
+        let rest = tag.get(begin..)?;
+        let end = match quote {
+            Some(q) => rest.find(q)?,
+            None => rest.find(|c: char| c.is_ascii_whitespace()).unwrap_or(rest.len()),
+        };
+        if end > 0 {
+            return tag.get(begin..begin + end).map(str::to_owned);
+        }
+    }
+    None
+}
+
+/// Where the letter says its own relative addresses start: its `<base href>`, when that is a
+/// network address. The frame draws the letter as `about:srcdoc`, and nothing resolves there.
+fn letter_base(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("<base") {
+        let start = from + at + "<base".len();
+        let end = lower.get(start..)?.find('>')? + start;
+        from = end;
+        let Some(href) = tag_attribute(html.get(start..end)?, "href").map(|h| unconfuse(&h)) else {
+            continue;
+        };
+        let address = match href.strip_prefix("//") {
+            Some(rest) => format!("https://{rest}"),
+            None => href,
+        };
+        if address.starts_with("http://") || address.starts_with("https://") {
+            return Some(address);
+        }
+    }
+    None
+}
+
+/// The address an attribute of the letter becomes before the frame draws it: a scheme-less one
+/// takes `https:` (or the scheme of the letter's base), a relative one joins that base. `None`
+/// means the value is an address of its own, points inside the letter, or has nothing to stand on.
+fn absolute_url(base: Option<&str>, plain: &str) -> Option<String> {
+    let has_scheme = plain.split_once(':').is_some_and(|(s, _)| is_scheme(s));
+    if plain.is_empty() || plain.starts_with('#') || has_scheme {
+        return None;
+    }
+    if let Some(rest) = plain.strip_prefix("//") {
+        let scheme = base.and_then(|b| b.split_once("://")).map_or("https", |(s, _)| s);
+        return Some(format!("{scheme}://{rest}"));
+    }
+    let base = base?;
+    let (scheme, rest) = base.split_once("://")?;
+    if let Some(path) = plain.strip_prefix('/') {
+        let host = rest.split('/').next().unwrap_or(rest);
+        return Some(format!("{scheme}://{host}/{path}"));
+    }
+    // An address with no path of its own (`https://a.example`) takes the value after a slash.
+    let stem = match base.rfind('/').filter(|&i| i > scheme.len() + 2) {
+        Some(cut) => base.get(..=cut)?.to_owned(),
+        None => format!("{base}/"),
+    };
+    Some(format!("{stem}{plain}"))
+}
+
 pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
     let remote = Arc::new(AtomicBool::new(false));
     let inline = Arc::new(inline.clone());
@@ -707,6 +804,9 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
         .link_rel(Some("noopener noreferrer"));
 
     let flag = remote.clone();
+    // Read before the letter is cleaned: the base tag itself does not survive the cleaning, and
+    // the frame it is drawn in is `about:srcdoc`, where no relative address resolves.
+    let base = letter_base(html);
     builder.attribute_filter(move |element, attribute, value| {
         // The `<code>` of a code block keeps only its language: the reader colours by it.
         if element == "code" && attribute == "class" {
@@ -727,6 +827,19 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
         if lower.starts_with("data:") {
             let ok = element == "img" && attribute == "src" && lower.starts_with("data:image/");
             return ok.then_some(Cow::Borrowed(value));
+        }
+        // A picture or a link the letter addressed without a scheme (`//host/p.png`) or from its
+        // own `<base href>`: neither resolves in the frame, so it is made absolute here. A link
+        // loads nothing and stays either way; a picture obeys the rule of a remote one.
+        let address = (element == "img" && attribute == "src")
+            || attribute == "background"
+            || (element == "a" && attribute == "href");
+        if address && let Some(absolute) = absolute_url(base.as_deref(), &unconfuse(value)) {
+            if element == "a" {
+                return Some(Cow::Owned(absolute));
+            }
+            flag.store(true, Ordering::Relaxed);
+            return allow_remote.then_some(Cow::Owned(absolute));
         }
         // The browser drops tabs and line breaks from a URL and reads `\` as `/`: look for a
         // scheme only after the value is read the same way, or a tracker hides behind that.
@@ -1239,6 +1352,64 @@ JVBERi0xLjQK\r\n\
 
         let allowed = parse_view(MAIL, true).unwrap();
         assert!(allowed.html.unwrap().contains("tracker.example"));
+    }
+
+    #[test]
+    fn a_picture_without_a_scheme_takes_one_the_frame_can_load() {
+        let mail = |allow: bool| sanitize_html("<p>x</p><img src=\"//bank.example/p.png\">", &HashMap::new(), allow);
+        // The frame's document is `about:srcdoc`: `//host/p.png` means nothing there.
+        let (hidden, remote) = mail(false);
+        assert!(remote, "the picture is a remote one");
+        assert!(!hidden.contains("bank.example"), "{hidden}");
+        let (shown, _) = mail(true);
+        assert!(shown.contains("src=\"https://bank.example/p.png\""), "{shown}");
+    }
+
+    #[test]
+    fn a_relative_picture_stands_on_the_base_the_letter_names() {
+        let mail = |allow: bool| {
+            sanitize_html(
+                "<base href=\"https://mailer.example/m/7/\"><img src=\"pic.png\">\
+                 <a href=\"unsub?t=1\">off</a><a href=\"#top\">top</a>",
+                &HashMap::new(),
+                allow,
+            )
+        };
+        let (shown, remote) = mail(true);
+        assert!(remote, "a picture of the letter's own base is remote");
+        assert!(shown.contains("src=\"https://mailer.example/m/7/pic.png\""), "{shown}");
+        // A letter that names its base means its links by that base too; an anchor stays inside.
+        assert!(
+            shown.contains("href=\"https://mailer.example/m/7/unsub?t=1\""),
+            "{shown}"
+        );
+        assert!(shown.contains("href=\"#top\""), "{shown}");
+        assert!(!shown.contains("<base"), "the base tag is not drawn: {shown}");
+        let (hidden, _) = mail(false);
+        assert!(!hidden.contains("pic.png"), "{hidden}");
+        assert!(hidden.contains("unsub?t=1"), "a link loads nothing: {hidden}");
+    }
+
+    #[test]
+    fn a_relative_picture_with_nothing_to_stand_on_is_left_as_it_was() {
+        let (shown, remote) = sanitize_html("<img src=\"pic.png\">", &HashMap::new(), true);
+        assert_eq!(shown, "<img src=\"pic.png\">");
+        assert!(!remote);
+    }
+
+    #[test]
+    fn the_base_of_a_letter_is_read_as_mail_programs_write_it() {
+        for base in [
+            "<base href=https://a.example/m/>",
+            "<BASE HREF='https://a.example/m/'>",
+            "<base target=\"_blank\" href = \"https://a.example/m/\">",
+        ] {
+            let (shown, _) = sanitize_html(&format!("{base}<img src=\"p.png\">"), &HashMap::new(), true);
+            assert!(shown.contains("src=\"https://a.example/m/p.png\""), "{base}: {shown}");
+        }
+        // A base that is no network address is no base at all.
+        let (shown, _) = sanitize_html("<base href=\"javascript:x\"><img src=\"p.png\">", &HashMap::new(), true);
+        assert!(shown.contains("src=\"p.png\""), "{shown}");
     }
 
     fn receiver(domain: &str) -> Receiver {
