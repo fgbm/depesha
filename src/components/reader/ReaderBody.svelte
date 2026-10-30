@@ -2,8 +2,7 @@
   // The letter's text in the form chosen above it: the switch (HTML · Markdown · Текст),
   // the sandboxed frame or the plain column. The choice belongs to the letter open now:
   // another letter, or the same one opened again after leaving it, shows the form the
-  // setting asks for. The frame is recreated when the letter or the trust changes —
-  // WebKitGTK does not reload an iframe when srcdoc changes.
+  // setting asks for.
   import LetterViewSwitch from "../LetterViewSwitch.svelte";
   import HintLine from "../HintLine.svelte";
   import MailFrame from "../MailFrame.svelte";
@@ -132,9 +131,9 @@
 <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
 <div class="body" class:fit hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
-    <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
+    <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} letter={msg.row.id} {fit} />
   {:else if shown === "html" && msg.view.html}
-    <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
+    <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} letter={msg.row.id} {fit} />
   {:else}
     <div class="plain selectable">
       {#each linkify(msg.view.text ?? "") as part, i (i)}

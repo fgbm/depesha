@@ -677,16 +677,16 @@ fn unconfuse(value: &str) -> String {
         .collect()
 }
 
-/// Whether a value starts with a URL scheme (`https:`, `mailto:`, `cid:`): the letters spell
-/// schemes out, and a relative address may have a colon of its own after a path.
+// A value starts with a URL scheme (`https:`, `mailto:`, `cid:`) — the letters spell schemes out.
+// A relative address may have a colon of its own after a path.
 fn is_scheme(s: &str) -> bool {
     let mut chars = s.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
-/// The value of an attribute in a tag as a mail program wrote it (`href="…"`, `href='…'`,
-/// `href=…`), case kept: a path in an address may be case-sensitive.
+// The value of an attribute in a tag as a mail program wrote it (`href="…"`, `href='…'`,
+// `href=…`). The case stays: a path in an address may be case-sensitive.
 fn tag_attribute(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let skip = |mut i: usize| {
@@ -725,8 +725,8 @@ fn tag_attribute(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// Where the letter says its own relative addresses start: its `<base href>`, when that is a
-/// network address. The frame draws the letter as `about:srcdoc`, and nothing resolves there.
+// Where the letter says its own relative addresses start: its `<base href>`, when that is a
+// network address. The frame draws the letter as `about:srcdoc`, and nothing resolves there.
 fn letter_base(html: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();
     let mut from = 0;
@@ -741,16 +741,20 @@ fn letter_base(html: &str) -> Option<String> {
             Some(rest) => format!("https://{rest}"),
             None => href,
         };
-        if address.starts_with("http://") || address.starts_with("https://") {
-            return Some(address);
+        // A mail program may spell the scheme in capitals, as a browser accepts it; the address
+        // leaves with the lowercase one, as the rest of the cleaner writes them.
+        if let Some((scheme, rest)) = address.split_once("://")
+            && (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+        {
+            return Some(format!("{}://{rest}", scheme.to_ascii_lowercase()));
         }
     }
     None
 }
 
-/// The address an attribute of the letter becomes before the frame draws it: a scheme-less one
-/// takes `https:` (or the scheme of the letter's base), a relative one joins that base. `None`
-/// means the value is an address of its own, points inside the letter, or has nothing to stand on.
+// The address an attribute of the letter becomes before the frame draws it: a scheme-less one
+// takes `https:` (or the scheme of the letter's base), a relative one joins that base. `None`
+// means the value is an address of its own, points inside the letter, or has nothing to stand on.
 fn absolute_url(base: Option<&str>, plain: &str) -> Option<String> {
     let has_scheme = plain.split_once(':').is_some_and(|(s, _)| is_scheme(s));
     if plain.is_empty() || plain.starts_with('#') || has_scheme {
@@ -772,6 +776,46 @@ fn absolute_url(base: Option<&str>, plain: &str) -> Option<String> {
         None => format!("{base}/"),
     };
     Some(format!("{stem}{plain}"))
+}
+
+// What the cleaner does with an address of the letter's own.
+enum Addressed<'a> {
+    // Neither a picture nor a link: the caller goes on with its own rules.
+    Other,
+    // What the frame is given in place of the value.
+    Keep(Cow<'a, str>),
+    // The frame is given no such address: a picture waits for the user's permission.
+    Drop,
+}
+
+// A picture or a link the letter addressed without a scheme (`//host/p.png`) or from its own
+// `<base href>`: neither resolves in the frame, so it is made absolute here. A link loads nothing
+// and stays either way; a picture obeys the rule of a remote one.
+fn addressed<'a>(
+    element: &str,
+    attribute: &str,
+    value: &'a str,
+    base: Option<&str>,
+    allow_remote: bool,
+    remote: &AtomicBool,
+) -> Addressed<'a> {
+    let picture = (element == "img" && attribute == "src") || attribute == "background";
+    let link = element == "a" && attribute == "href";
+    if !picture && !link {
+        return Addressed::Other;
+    }
+    let Some(absolute) = absolute_url(base, &unconfuse(value)) else {
+        return Addressed::Other;
+    };
+    if link {
+        return Addressed::Keep(Cow::Owned(absolute));
+    }
+    remote.store(true, Ordering::Relaxed);
+    if allow_remote {
+        Addressed::Keep(Cow::Owned(absolute))
+    } else {
+        Addressed::Drop
+    }
 }
 
 pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
@@ -828,18 +872,10 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
             let ok = element == "img" && attribute == "src" && lower.starts_with("data:image/");
             return ok.then_some(Cow::Borrowed(value));
         }
-        // A picture or a link the letter addressed without a scheme (`//host/p.png`) or from its
-        // own `<base href>`: neither resolves in the frame, so it is made absolute here. A link
-        // loads nothing and stays either way; a picture obeys the rule of a remote one.
-        let address = (element == "img" && attribute == "src")
-            || attribute == "background"
-            || (element == "a" && attribute == "href");
-        if address && let Some(absolute) = absolute_url(base.as_deref(), &unconfuse(value)) {
-            if element == "a" {
-                return Some(Cow::Owned(absolute));
-            }
-            flag.store(true, Ordering::Relaxed);
-            return allow_remote.then_some(Cow::Owned(absolute));
+        match addressed(element, attribute, value, base.as_deref(), allow_remote, &flag) {
+            Addressed::Keep(value) => return Some(value),
+            Addressed::Drop => return None,
+            Addressed::Other => {}
         }
         // The browser drops tabs and line breaks from a URL and reads `\` as `/`: look for a
         // scheme only after the value is read the same way, or a tracker hides behind that.
@@ -1403,6 +1439,8 @@ JVBERi0xLjQK\r\n\
             "<base href=https://a.example/m/>",
             "<BASE HREF='https://a.example/m/'>",
             "<base target=\"_blank\" href = \"https://a.example/m/\">",
+            // A browser accepts the scheme in capitals too.
+            "<base href=\"HTTPS://a.example/m/\">",
         ] {
             let (shown, _) = sanitize_html(&format!("{base}<img src=\"p.png\">"), &HashMap::new(), true);
             assert!(shown.contains("src=\"https://a.example/m/p.png\""), "{base}: {shown}");

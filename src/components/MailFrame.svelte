@@ -23,6 +23,7 @@
     markdown = false,
     fit = false,
     takes = [],
+    letter,
   }: {
     html: string;
     allowRemote: boolean;
@@ -35,6 +36,8 @@
     fit?: boolean;
     /** Keys the surroundings take besides the window's own (VIEWER_TAKES), which the relay stops by itself. */
     takes?: string[];
+    /** The letter drawn here: another one in this frame is another height. */
+    letter?: number | string;
   } = $props();
 
   let frame = $state<HTMLIFrameElement | null>(null);
@@ -100,10 +103,17 @@ ${themed ? themeCss() : ""}
   }
 
   // Another letter in this frame is another height: the old one would stretch or clip it until
-  // the relay of the new letter speaks.
+  // the relay of the new letter speaks. Another text of the same letter keeps its height.
+  $effect(() => {
+    void letter;
+    fitted = 0;
+  });
+
+  // A new document is another letter drawn: no link of the old one is under the pointer any more,
+  // and its relay has nothing to say about this one.
   $effect(() => {
     void srcdoc;
-    fitted = 0;
+    hover = "";
   });
 
   /** What the frame must know before the first press: the keys the app takes, and the theme. */
