@@ -132,14 +132,9 @@
 <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
 <div class="body" class:fit hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
-    {#key `${msg.row.id}:md:${app.reader.allowRemote || msg.trusted_sender}`}
-      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
-    {/key}
+    <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
   {:else if shown === "html" && msg.view.html}
-    <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
-    {#key `${msg.row.id}:${app.reader.allowRemote || msg.trusted_sender}`}
-      <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
-    {/key}
+    <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} {fit} />
   {:else}
     <div class="plain selectable">
       {#each linkify(msg.view.text ?? "") as part, i (i)}

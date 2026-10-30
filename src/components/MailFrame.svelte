@@ -175,7 +175,11 @@ ${themed ? themeCss() : ""}
 </script>
 
 <div class="wrap" class:fit>
-  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-scripts" style:height={fit && fitted ? `${fitted}px` : null} {srcdoc} onload={sync}></iframe>
+  <!-- Another document is another frame: WebKitGTK does not reload an iframe whose `srcdoc` changed,
+       so a letter read again (the pictures allowed, the Markdown coloured) needs a new iframe. -->
+  {#key srcdoc}
+    <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-scripts" style:height={fit && fitted ? `${fitted}px` : null} {srcdoc} onload={sync}></iframe>
+  {/key}
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 
