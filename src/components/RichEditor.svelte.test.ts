@@ -43,10 +43,17 @@ function installExec() {
   return run;
 }
 
-function show(given: { html?: string; locked?: string; readonly?: boolean } = {}) {
+function show(given: { html?: string; locked?: string; readonly?: boolean; replacements?: boolean } = {}) {
+  const { replacements: typed = true, ...rest } = given;
   target = document.createElement("div");
   document.body.append(target);
-  const props = $state({ label: "Письмо", html: "", ...given });
+  // The letter's window passes the live table; the signature editor passes nothing at all.
+  const props = $state({
+    label: "Письмо",
+    html: "",
+    ...rest,
+    replacements: typed ? () => registry.composeReplacements() : undefined,
+  });
   bound = props;
   view = mount(RichEditor, { target, props });
   flushSync();
@@ -231,5 +238,24 @@ describe("the blocks a typed replacement leaves alone", () => {
     expect(e.defaultPrevented).toBe(false);
     expect(exec).not.toHaveBeenCalledWith("insertText", false, EM_DASH);
     expect(body.textContent).toBe("-");
+  });
+
+  it("does not rewrite a pair of hyphens or three dots of a block given no table", async () => {
+    registry.add("composeReplacements", "typography", TABLE);
+    show({ html: "<div></div>", replacements: false });
+    await tick();
+    const body = root().querySelector("div")!;
+    caret(body, 0);
+
+    type("-");
+    expect(press("-").defaultPrevented).toBe(false);
+    expect(body.textContent).toBe("--");
+
+    type("..");
+    expect(press(".").defaultPrevented).toBe(false);
+    expect(body.textContent).toBe("--...");
+
+    expect(exec).not.toHaveBeenCalledWith("insertText", false, EM_DASH);
+    expect(exec).not.toHaveBeenCalledWith("insertText", false, ELLIPSIS);
   });
 });

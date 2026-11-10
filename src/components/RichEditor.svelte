@@ -10,7 +10,7 @@
   import { inSight, placeLockedBlock, type BlockPlace } from "../lib/compose/lockedBlock";
   import { pictureKey, placePicture, type PicturePlace } from "../lib/compose/pictureFrame";
   import { typedReplacement } from "../lib/compose/editableTypography";
-  import { registry } from "../plugin-host/registry.svelte";
+  import type { Replacement } from "@depesha/plugin-api";
 
   let {
     html = $bindable(""),
@@ -22,6 +22,7 @@
     locked = "",
     lockedBar,
     readonly = false,
+    replacements = () => [],
   }: {
     html?: string;
     label: string;
@@ -40,6 +41,8 @@
     lockedBar?: Snippet;
     /** Shown but not edited for a while: the letter is being rewritten. */
     readonly?: boolean;
+    /** The table of typed replacements read on each key: only the letter's body takes one, never a signature. */
+    replacements?: () => Replacement[];
   } = $props();
 
   let el = $state<HTMLDivElement | null>(null);
@@ -250,7 +253,7 @@
     }
     picked = null;
     if (!el || readonly) return;
-    const insert = typedReplacement(e, el, registry.composeReplacements());
+    const insert = typedReplacement(e, el, replacements());
     if (insert !== null) exec("insertText", insert);
   }
 

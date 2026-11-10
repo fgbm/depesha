@@ -415,6 +415,7 @@
             locked={SIGNATURE_CLASS}
             lockedBar={fmt.signature ? signatureChip : undefined}
             readonly={fmt.switching}
+            replacements={() => registry.composeReplacements()}
           />
         {:else}
           {#if fmt.format === "markdown"}
