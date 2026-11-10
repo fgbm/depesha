@@ -24,7 +24,7 @@ use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
 use crate::lock::lock;
 pub use crate::query::Criterion;
 use crate::say::{Say, Xoauth2Detail};
-use crate::watchdog::Watchdog;
+use crate::watchdog::{AnswerLimits, Watchdog};
 use crate::{Error, Result, tls, utf7};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -122,6 +122,9 @@ pub struct Conn {
     /// `wait_for_changes` sets and reads it, so a connection that selects other folders
     /// between waits is not meant to carry it.
     pub idle_folder: Option<String>,
+    /// The answer windows its watchdog arms, shared with the `AnswerWindow`s that shorten
+    /// them while a command the operator waits for runs.
+    limits: Arc<AnswerLimits>,
     /// Set once an IDLE of this connection has started: it has worked, so a later break is
     /// the server's way (a limit on age or idleness), not a connection that fails at once.
     pub worked: Arc<AtomicBool>,
@@ -131,8 +134,38 @@ pub struct Conn {
     pub broken: bool,
 }
 
+/// The answer windows a caller installs on a connection while it holds this: `limit` for
+/// the first byte of an answer and `silence` between bytes, instead of the connection's
+/// own. Dropping it puts the previous pair back, whatever ended the command.
+pub struct AnswerWindow {
+    limits: Arc<AnswerLimits>,
+    previous: (Duration, Duration),
+}
+
+impl AnswerWindow {
+    pub(crate) fn new(limits: Arc<AnswerLimits>, limit: Duration, silence: Duration) -> Self {
+        let previous = (limits.limit(), limits.silence());
+        limits.set(limit, silence);
+        Self { limits, previous }
+    }
+}
+
+impl Drop for AnswerWindow {
+    fn drop(&mut self) {
+        self.limits.set(self.previous.0, self.previous.1);
+    }
+}
+
+impl Conn {
+    /// A window for the answer to one command, held until the guard is dropped: the
+    /// caller's own, whatever the connection's (`ANSWER_TIMEOUT` / `SILENCE_TIMEOUT`).
+    pub fn interactive_with(&self, limit: Duration, silence: Duration) -> AnswerWindow {
+        AnswerWindow::new(self.limits.clone(), limit, silence)
+    }
+}
+
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
-    let (client, greeting, idling) = open(server).await?;
+    let (client, greeting, idling, limits) = open(server).await?;
     let mut session = match creds.xoauth2() {
         Some(initial) => {
             let detail = Arc::new(Mutex::new(None));
@@ -170,6 +203,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         idling,
         receiver: Receiver::default(),
         idle_folder: None,
+        limits,
         worked: Arc::new(AtomicBool::new(false)),
         broken: false,
     })
@@ -210,14 +244,17 @@ fn greeting_line(resp: &Response<'_>) -> Option<String> {
 
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<()> {
-    let (mut client, _, _) = open(server).await?;
+    let (mut client, ..) = open(server).await?;
     best_effort("log out", client.run_command_and_check_ok("LOGOUT", None).await);
     Ok(())
 }
 
 /// Connected and greeted (and secured, for STARTTLS), not yet logged in; with the
-/// greeting's line when it lists capabilities and the flag the silence watchdog reads.
-async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<String>, Arc<AtomicBool>)> {
+/// greeting's line when it lists capabilities, the flag the silence watchdog reads and the
+/// answer windows it arms.
+async fn open(
+    server: &ServerConfig,
+) -> Result<(Client<Box<dyn Io>>, Option<String>, Arc<AtomicBool>, Arc<AnswerLimits>)> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
         .map_err(|_| Error::Timeout("connecting"))??;
@@ -243,13 +280,14 @@ async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<Stri
     };
 
     let idling = Arc::new(AtomicBool::new(false));
-    let stream: Box<dyn Io> = Box::new(Watchdog::new(stream, ANSWER_TIMEOUT, SILENCE_TIMEOUT, idling.clone()));
+    let limits = AnswerLimits::new(ANSWER_TIMEOUT, SILENCE_TIMEOUT);
+    let stream: Box<dyn Io> = Box::new(Watchdog::new(stream, limits.clone(), idling.clone()));
     let mut client = Client::new(stream);
     // There is no second greeting after STARTTLS.
     if server.security != Security::StartTls {
         greeting = read_greeting(&mut client).await?;
     }
-    Ok((client, greeting, idling))
+    Ok((client, greeting, idling, limits))
 }
 
 /// A refused token comes back as a continuation with a JSON error,
@@ -2095,6 +2133,10 @@ pub enum IdleOutcome {
 /// Waits for changes in `folder` with IDLE (renewed after `renew`, see `IdlePace`), or polls
 /// it when IDLE is not supported.
 /// Returns the connection back so it can be reused.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one wait reads from the SELECT to the connection rebuilt after the IDLE"
+)]
 pub async fn wait_for_changes(
     mut conn: Conn,
     folder: &str,
@@ -2143,6 +2185,7 @@ pub async fn wait_for_changes(
         idling,
         receiver,
         idle_folder,
+        limits,
         worked,
         ..
     } = conn;
@@ -2207,6 +2250,7 @@ pub async fn wait_for_changes(
             idling,
             receiver,
             idle_folder,
+            limits,
             worked,
             broken: false,
         },

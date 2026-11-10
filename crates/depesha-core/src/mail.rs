@@ -39,6 +39,16 @@ impl Conn {
             c.broken = true;
         }
     }
+
+    /// The answer windows for one command the operator is waiting for: IMAP waits `limit`
+    /// for the first byte of the answer and `silence` between bytes while the guard is
+    /// held, and takes its own back when it is dropped. Exchange has no such window.
+    pub fn interactive_with(&self, limit: Duration, silence: Duration) -> Option<imap::AnswerWindow> {
+        match self {
+            Conn::Imap(c) => Some(c.interactive_with(limit, silence)),
+            Conn::Ews(_) => None,
+        }
+    }
 }
 
 pub async fn connect(account: &Account, creds: &Credentials) -> Result<Conn> {
