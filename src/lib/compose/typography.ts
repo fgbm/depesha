@@ -42,10 +42,8 @@ export function matchReplacement(text: string, caret: number, typed: string, tab
  * the key completes count: everything else is the field's own typing.
  */
 export function replaceOnKey(e: ReplacementKey, field: HTMLTextAreaElement, table: Replacement[]): boolean {
-  if (table.length === 0 || e.ctrlKey || e.metaKey || e.altKey) return false;
-  if (e.isComposing || e.keyCode === 229) return false;
   if (field.selectionStart !== field.selectionEnd) return false;
-  const match = matchReplacement(field.value, field.selectionStart, e.key, table);
+  const match = keyReplacement(e, field.value, field.selectionStart, table);
   if (match === null) return false;
   e.preventDefault();
   field.setSelectionRange(match.start, match.end);
@@ -53,6 +51,17 @@ export function replaceOnKey(e: ReplacementKey, field: HTMLTextAreaElement, tabl
   field.setRangeText(match.insert, match.start, match.end, "end");
   field.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
+}
+
+/**
+ * The entry a key completes at `caret`, or null when the key is not the table's: modified,
+ * a composition's, or one no entry ends with. A plain field and the Markdown editor share
+ * this guard (markdown/typography.ts).
+ */
+export function keyReplacement(e: ReplacementKey, text: string, caret: number, table: Replacement[]): ReplacementMatch | null {
+  if (table.length === 0 || e.ctrlKey || e.metaKey || e.altKey) return null;
+  if (e.isComposing || e.keyCode === 229) return null;
+  return matchReplacement(text, caret, e.key, table);
 }
 
 /** The editor's own insert command where the build has one: the replacement is then undone as one typing. */

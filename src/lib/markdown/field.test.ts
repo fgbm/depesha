@@ -3,7 +3,7 @@ import { EditorSelection, EditorState, type Transaction } from "@codemirror/stat
 import { history, undo } from "@codemirror/commands";
 import { linesEdit, linkEdit, wrapEdit } from "../mdedit";
 import { markdownSupport } from "./dialect";
-import { editSpec, formatsAt, inTableAt } from "./field";
+import { editSpec, formatsAt, inCodeAt, inTableAt } from "./field";
 
 function stateOf(doc: string, from: number, to = from): EditorState {
   return EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: [history(), markdownSupport()] });
@@ -60,5 +60,19 @@ describe("the formatting row on the Markdown editor", () => {
     // Without the blank line the line joins the table (GFM), so the caret is in it.
     const joined = `${table}\nтекст`;
     expect(inTableAt(stateOf(joined, joined.length - 1), joined.length - 1)).toBe(true);
+  });
+
+  it("says whether the caret stands in code, where a key types its own text", () => {
+    const at = (marked: string) => {
+      const pos = marked.indexOf("|");
+      return inCodeAt(stateOf(marked.replace("|", ""), pos), pos);
+    };
+    expect(at("а `ко|д` б")).toBe(true);
+    expect(at("```\nко|д\n```")).toBe(true);
+    expect(at("    ко|д")).toBe(true);
+    expect(at("простой| текст")).toBe(false);
+    // A table's cell is text of the letter, not code.
+    const table = "| a | b |\n|---|---|";
+    expect(inCodeAt(stateOf(table, 3), 3)).toBe(false);
   });
 });

@@ -60,3 +60,13 @@ export function inTableAt(state: EditorState, pos: number): boolean {
   }
   return false;
 }
+
+const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock"]);
+
+/** Whether a place of the letter is code, where a key types its own text. */
+export function inCodeAt(state: EditorState, pos: number): boolean {
+  for (let node: SyntaxNode | null = under(state, pos); node; node = node.parent) {
+    if (CODE.has(node.name)) return true;
+  }
+  return false;
+}

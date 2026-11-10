@@ -2,6 +2,8 @@
   // The field of a Markdown letter: Live Preview over CodeMirror, loaded in its own chunk
   // when the field first shows. Until then, and if loading fails, a plain field.
   import { onMount } from "svelte";
+  import { registry } from "../plugin-host/registry.svelte";
+  import { replaceOnKey } from "../lib/compose/typography";
   import type { MarkdownField } from "../lib/markdown/types";
   import type { MarkdownEditorHandle } from "../lib/markdown/markdownEditor";
 
@@ -49,6 +51,7 @@
           onselection: () => onselection?.(),
           onfocus: () => onfocus?.(),
           onpictures: (p) => onpictures?.(p),
+          replacements: () => registry.composeReplacements(),
         });
         field = editor.field;
       })
@@ -68,7 +71,7 @@
 </script>
 
 {#if failed}
-  <textarea class="md-fallback" bind:value {readonly} {placeholder} spellcheck="true" aria-label={label}></textarea>
+  <textarea class="md-fallback" bind:value {readonly} {placeholder} spellcheck="true" aria-label={label} onkeydown={(e) => void replaceOnKey(e, e.currentTarget, registry.composeReplacements())}></textarea>
 {:else}
   <div class="md-editor" bind:this={host}></div>
 {/if}

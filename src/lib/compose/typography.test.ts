@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TABLE } from "../../../plugins/typography/table";
-import { matchReplacement, replaceOnKey } from "./typography";
+import { keyReplacement, matchReplacement, replaceOnKey } from "./typography";
 
 const EM_DASH = "\u2014";
 const ELLIPSIS = "\u2026";
@@ -99,6 +99,18 @@ describe("the table a match reads", () => {
       { from: "--", to: "A" },
       { from: "...", to: "B" },
     ]);
+  });
+});
+
+describe("the guard a plain field and the Markdown editor share", () => {
+  it("reaches the table only from an unmodified key outside a composition", () => {
+    expect(keyReplacement({ key: "-", ctrlKey: false, metaKey: false, altKey: false, preventDefault: vi.fn() }, "-", 1, TABLE)).toEqual({ start: 0, end: 1, insert: EM_DASH });
+    for (const mods of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+      expect(keyReplacement({ key: "-", ctrlKey: false, metaKey: false, altKey: false, ...mods, preventDefault: vi.fn() }, "-", 1, TABLE)).toBeNull();
+    }
+    expect(keyReplacement({ key: "-", ctrlKey: false, metaKey: false, altKey: false, isComposing: true, preventDefault: vi.fn() }, "-", 1, TABLE)).toBeNull();
+    expect(keyReplacement({ key: "-", ctrlKey: false, metaKey: false, altKey: false, keyCode: 229, preventDefault: vi.fn() }, "-", 1, TABLE)).toBeNull();
+    expect(keyReplacement({ key: "-", ctrlKey: false, metaKey: false, altKey: false, preventDefault: vi.fn() }, "-", 1, [])).toBeNull();
   });
 });
 

@@ -8,6 +8,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdownKeymap } from "@codemirror/lang-markdown";
 import { tags } from "@lezer/highlight";
+import type { Replacement } from "@depesha/plugin-api";
 import { composeAction } from "../composeKeys";
 import { t } from "../i18n.svelte";
 import { markdownSupport } from "./dialect";
@@ -16,6 +17,7 @@ import { isOwnPicture, previewPieces, type PreviewOptions } from "./preview";
 import { TableView, cellFocus } from "./tableWidget";
 import { codeEdit, headingEdit, imageAt, pictureAltEdit, pictureEdit, pictureRemoveEdit, tableEdit } from "./mdedits";
 import { tableSource } from "./table";
+import { typographySpec } from "./typography";
 import type { Edit } from "../mdedit";
 import type { MarkdownField } from "./types";
 
@@ -31,6 +33,8 @@ export interface EditorOptions {
   onfocus: () => void;
   /** Pictures pasted: the window decides where they go. */
   onpictures: (pictures: Blob[]) => void;
+  /** The replacements of the active plugins, read on every key: a plugin switched on under an open letter starts at once. */
+  replacements?: () => Replacement[];
 }
 
 export interface MarkdownEditorHandle {
@@ -513,6 +517,23 @@ function windowEvents(o: EditorOptions): Extension {
   });
 }
 
+/**
+ * The typography of the plugins, one transaction per key. The focus guard matters: a table
+ * cell or a panel of the editor has the focus then, and the letter's own caret is stale.
+ */
+function typing(o: EditorOptions): Extension {
+  return EditorView.domEventHandlers({
+    keydown: (e, view) => {
+      if (!view.hasFocus || !o.replacements) return false;
+      const spec = typographySpec(view.state, e, o.replacements());
+      if (!spec) return false;
+      e.preventDefault();
+      view.dispatch(spec);
+      return true;
+    },
+  });
+}
+
 /** The editor as the text field the window and the formatting row know. */
 function fieldOf(view: EditorView): MarkdownField {
   return {
@@ -582,7 +603,7 @@ export function createEditor(o: EditorOptions): MarkdownEditorHandle {
       extensions: [
         mode.init(() => ({ focused: false, markup: o.markup })),
         livePreview,
-        Prec.highest(windowEvents(o)),
+        Prec.highest([typing(o), windowEvents(o)]),
         history(),
         markdownSupport(),
         Prec.high(keymap.of([...markdownKeymap, { key: "ArrowDown", run: intoTable(true) }, { key: "ArrowUp", run: intoTable(false) }, { key: "Enter", run: typedTable }])),
