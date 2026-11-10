@@ -94,8 +94,9 @@
   });
 </script>
 
-<!-- The window losing the focus (hidden, switched away from) leaves the field like a click elsewhere does. -->
+<!-- Losing focus or hiding the window leaves the field like a click elsewhere does. -->
 <svelte:window onblur={() => own.commit()} />
+<svelte:document onvisibilitychange={() => { if (document.hidden) own.commit(); }} />
 
 <!-- The events of the fields bubble here: the page decides when a text is committed. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

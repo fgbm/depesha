@@ -203,6 +203,24 @@ describe("a mailbox's page as screen 8 draws it (0.8.12)", () => {
 });
 
 describe("a text typed in a mailbox's page and not left (#120)", () => {
+  it("saves when the document is hidden without another blur event", async () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      const input = target.querySelector<HTMLInputElement>("[data-settings='acc-label'] input")!;
+      input.value = "Hidden";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+      vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(200);
+      expect(stored.label).toBe("Hidden");
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("tells the app that a text is typed until the field is left, and gives it a way to write it (#120, 3)", async () => {
     vi.useFakeTimers();
     try {
