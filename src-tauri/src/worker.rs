@@ -75,6 +75,11 @@ const SLEEP_GAP: Duration = Duration::from_secs(20);
 /// right there, but a very fresh attempt is not repeated (it is still in flight).
 const USER_RETRY_GAP: Duration = Duration::from_secs(10);
 
+/// The answer windows of a body read somebody waits for (#71): the first byte must come within
+/// 30 s, and 25 s between bytes. The connection's own pair (150 s / 60 s) is for the background,
+/// where nobody sits in front of the letter. The download has no total limit, only this silence.
+const OPENED_WINDOW: (Duration, Duration) = (Duration::from_secs(30), Duration::from_secs(25));
+
 #[derive(Debug)]
 pub enum Work {
     /// Every visible folder, one at a time: user actions run between them.
@@ -1238,9 +1243,12 @@ impl Ops {
                     if dropped {
                         self.conn = None;
                     }
+                    // A server stuck on GETQUOTAROOT would be stuck again on a fresh login, and
+                    // a body read whose answer timed out would make its reader wait once more.
+                    let go_again =
+                        dropped && attempt == 0 && !matches!(op, Op::Work(Work::Quota)) && !no_second_attempt(&op, &e);
                     result = Err(e);
-                    // A server stuck on GETQUOTAROOT would be stuck again on a fresh login.
-                    if !(dropped && attempt == 0) || matches!(op, Op::Work(Work::Quota)) {
+                    if !go_again {
                         break;
                     }
                 }
@@ -1626,6 +1634,14 @@ fn move_stops_on_seen(e: &Error) -> bool {
     e.link_lost()
 }
 
+/// Whether `e` ends the work here instead of the worker's one fresh retry: a body read whose
+/// answer timed out would sit out the same window again on a new connection, with the letters
+/// opened meanwhile behind it (#71). Every other trouble, and every other kind of work, keeps
+/// the retry.
+fn no_second_attempt(op: &Op<'_>, e: &Error) -> bool {
+    matches!(op, Op::Work(Work::LoadBody { .. })) && e.is_answer_timeout()
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one match with an arm for each kind of work: the arms are independent and read best side by side"
@@ -1689,7 +1705,7 @@ async fn perform(
         )),
         Work::LoadBody { id: msg_id, gate } => {
             let gate = gate.as_ref().map(|(window, seq)| (window.as_str(), *seq));
-            load_body_gated(conn, store, *msg_id, gate, &state.open_seq).await
+            load_body_gated(conn, store, *msg_id, gate, &state.open_seq, OPENED_WINDOW).await
         }
         Work::SetFlag {
             folder,
@@ -1932,7 +1948,11 @@ async fn load_body_gated(
     msg_id: i64,
     gate: Option<(&str, u64)>,
     opens: &OpenSeqs,
+    answer_window: (Duration, Duration),
 ) -> Result<Output> {
+    // Installed before the first command and held for whatever ends the read: a body, an error,
+    // or an open that moved on. Dropping it gives the connection its own pair back.
+    let _window = conn.interactive_with(answer_window.0, answer_window.1);
     let Some((window, seq)) = gate else {
         return Ok(Output::Body(mail::load_body(conn, store, msg_id).await?));
     };
@@ -3269,6 +3289,11 @@ mod tests {
     /// How long a read of the fake server may take before it is a stall: the body of a letter
     /// is a few dozen bytes, and the test says nothing about downloading slowly.
     const BUDGET: Duration = Duration::from_secs(2);
+    /// The connection's own pair of windows (150 s / 60 s): a test that is not about the
+    /// shorter one of an open letter uses it, so nothing fires while the test runs.
+    const OWN_WINDOW: (Duration, Duration) = (Duration::from_secs(150), Duration::from_secs(60));
+    /// The window an open letter is read with in a test: 30 s / 25 s in production cannot be waited for.
+    const SHORT: Duration = Duration::from_millis(300);
 
     const A_RAW: &[u8] = b"Subject: A\r\nMessage-ID: <a@x.test>\r\n\r\nletter a\r\n";
     const B_RAW: &[u8] = b"Subject: B\r\nMessage-ID: <b@x.test>\r\n\r\nletter b\r\n";
@@ -3411,7 +3436,14 @@ mod tests {
         crate::state::note_open(&opens, "main", 1);
         // Boxed, not pinned in place: the test drops the read itself, and the borrow of the
         // connection with it, to take a fresh one as `attempt` does.
-        let mut read = Box::pin(load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens));
+        let mut read = Box::pin(load_body_gated(
+            &mut conn,
+            &store,
+            a,
+            Some(("main", 1)),
+            &opens,
+            OWN_WINDOW,
+        ));
         tokio::select! {
             started = fake.fetching.recv() => {
                 assert_eq!(started, Some(1), "the server was asked for the letter that is open");
@@ -3432,9 +3464,12 @@ mod tests {
 
         // What `attempt` does with a broken connection: B's read makes a fresh one.
         let mut conn = mail::connect(&account, &creds).await.unwrap();
-        let body = tokio::time::timeout(BUDGET, load_body_gated(&mut conn, &store, b, Some(("main", 2)), &opens))
-            .await
-            .expect("B is read on a connection of its own");
+        let body = tokio::time::timeout(
+            BUDGET,
+            load_body_gated(&mut conn, &store, b, Some(("main", 2)), &opens, OWN_WINDOW),
+        )
+        .await
+        .expect("B is read on a connection of its own");
         match body {
             Ok(Output::Body(raw)) => assert_eq!(raw, B_RAW, "B's body is what came back"),
             Ok(_) => panic!("a body read answered with no body"),
@@ -3458,7 +3493,14 @@ mod tests {
 
         let mut conn = mail::connect(&account, &Credentials::new("u", "p")).await.unwrap();
         crate::state::note_open(&opens, "main", 1);
-        let mut read = Box::pin(load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens));
+        let mut read = Box::pin(load_body_gated(
+            &mut conn,
+            &store,
+            a,
+            Some(("main", 1)),
+            &opens,
+            OWN_WINDOW,
+        ));
         tokio::select! {
             started = fake.fetching.recv() => {
                 assert_eq!(started, Some(1), "the server was asked for the letter that is open");
@@ -3477,5 +3519,58 @@ mod tests {
             matches!(out, Ok(Ok(Output::None))),
             "its own newer open did not end the read"
         );
+    }
+
+    /// The letter somebody opened, whose server stopped answering, fails inside the operator's
+    /// window instead of a background one: the worker holds the window over the whole gated
+    /// read, so the answer of the FETCH is watched with it (#71).
+    #[tokio::test]
+    async fn a_silent_answer_of_an_open_letter_fails_in_the_operator_window() {
+        let (store, a, _) = two_letters();
+        let fake = fake_imap(1).await;
+        let account = account_at(fake.port);
+        let opens = OpenSeqs::default();
+        let mut conn = mail::connect(&account, &Credentials::new("u", "p")).await.unwrap();
+        crate::state::note_open(&opens, "main", 1);
+
+        let read = tokio::time::timeout(
+            BUDGET,
+            load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens, (SHORT, SHORT)),
+        )
+        .await
+        .expect("an answer that fell silent is given up on inside the window of the open letter");
+        let e = match read {
+            Err(e) => e,
+            Ok(_) => panic!("a server that stopped mid-answer answered the read of A"),
+        };
+        assert!(e.is_answer_timeout(), "the read failed with the wrong error: {e:?}");
+    }
+
+    /// The worker's one fresh retry is not spent on a body read whose answer timed out: the
+    /// letter is somebody waiting, and a second window would hold the mailbox for them again.
+    #[test]
+    fn an_answer_timeout_of_a_body_read_is_not_retried() {
+        let read = || Work::LoadBody {
+            id: 1,
+            gate: Some(("main".into(), 1)),
+        };
+        let timed_out = || {
+            Error::Imap(async_imap::error::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the server stopped answering",
+            )))
+        };
+        assert!(timed_out().is_answer_timeout());
+        assert!(no_second_attempt(&Op::Work(&read()), &timed_out()));
+
+        // A lost link is a fresh connection's business: the read is tried again on one.
+        let lost = Error::Imap(async_imap::error::Error::ConnectionLost);
+        assert!(
+            !no_second_attempt(&Op::Work(&read()), &lost),
+            "a lost link keeps its retry"
+        );
+        // And no other work cares: a folder sync waits out the same window once more.
+        let sync = Work::SyncFolder("INBOX".into());
+        assert!(!no_second_attempt(&Op::Work(&sync), &timed_out()));
     }
 }

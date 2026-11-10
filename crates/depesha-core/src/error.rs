@@ -405,6 +405,16 @@ impl Error {
         matches!(self, Self::Timeout(what) if *what == "connecting")
     }
 
+    /// The server went silent over one IMAP answer: its watchdog gave up on it (the first byte
+    /// late, or the answer falling quiet between bytes). Another trouble of the link — a reset,
+    /// a BYE — is not this one, though both cost the connection.
+    pub fn is_answer_timeout(&self) -> bool {
+        matches!(
+            self,
+            Self::Imap(async_imap::error::Error::Io(io)) if io.kind() == std::io::ErrorKind::TimedOut
+        )
+    }
+
     /// Worth trying again later rather than giving up on: the errors a return of waiting
     /// letters meets that say "not now" — the mailbox is paused until its settings are
     /// fixed, the login was refused, Exchange is busy, the folder is busy or locked
@@ -1040,6 +1050,33 @@ mod tests {
         );
         // A refusal that is not one of these is not "try later", and neither is a protocol error.
         assert!(!Error::Protocol("unexpected".into()).retry_later());
+    }
+
+    #[test]
+    fn only_a_silent_imap_answer_is_an_answer_timeout() {
+        // What the silence watchdog leaves behind: an I/O timeout of the IMAP stream.
+        assert!(
+            Error::Imap(E::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the server stopped answering"
+            )))
+            .is_answer_timeout()
+        );
+        // A link that broke, a refusal and a connect timeout are other troubles with other words.
+        assert!(!Error::Imap(E::ConnectionLost).is_answer_timeout());
+        assert!(!Error::Imap(E::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset))).is_answer_timeout());
+        assert!(!Error::Imap(E::No("code: Some(UNAVAILABLE), info: Some(\"later\")".into())).is_answer_timeout());
+        assert!(!Error::Timeout("operation").is_answer_timeout());
+        assert!(!Error::Closed.is_answer_timeout());
+        assert!(!Error::Io(std::io::Error::from(std::io::ErrorKind::TimedOut)).is_answer_timeout());
+        assert!(
+            !Error::Ews {
+                code: "ErrorTimeoutExpired".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .is_answer_timeout()
+        );
     }
 
     #[test]
