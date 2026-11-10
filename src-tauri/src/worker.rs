@@ -1202,8 +1202,9 @@ impl Ops {
             #[allow(clippy::expect_used, reason = "the branch above sets `conn` or returns")]
             let c = self.conn.as_mut().expect("connected above");
             let retry = attempt > 0 || is_unfinished(&self.unfinished_moves, &op);
-            let outcome = match tokio::time::timeout(
-                WORK_TIMEOUT,
+            let limit = work_limit(&op, c, WORK_TIMEOUT);
+            let Some(outcome) = within(
+                limit,
                 perform(
                     &self.state,
                     &self.account,
@@ -1215,15 +1216,12 @@ impl Ops {
                 ),
             )
             .await
-            {
-                Ok(r) => r,
+            else {
                 // The work never finished: the connection is unusable, and a fresh login
                 // would hang the same way, so it is dropped and not retried.
-                Err(_) => {
-                    self.conn = None;
-                    note_move(&mut self.unfinished_moves, &op, false);
-                    return Err(Error::Timeout("operation"));
-                }
+                self.conn = None;
+                note_move(&mut self.unfinished_moves, &op, false);
+                return Err(Error::Timeout("operation"));
             };
             note_move(&mut self.unfinished_moves, &op, outcome.is_ok());
             // An answer the parser refused leaves the connection out of step (#177): the
@@ -1640,6 +1638,29 @@ fn move_stops_on_seen(e: &Error) -> bool {
 /// the retry.
 fn no_second_attempt(op: &Op<'_>, e: &Error) -> bool {
     matches!(op, Op::Work(Work::LoadBody { .. })) && e.is_answer_timeout()
+}
+
+/// The longest one try of `op` may run, or none when the work has no total deadline: a body read
+/// somebody waits for is bounded by its answer windows and by the next letter opened (#71), and
+/// a big letter still streaming must not lose the megabytes it has already downloaded. Every
+/// other work, Exchange's own body read included, keeps `WORK_TIMEOUT`.
+fn work_limit(op: &Op<'_>, conn: &Conn, limit: Duration) -> Option<Duration> {
+    match (op, conn) {
+        (Op::Work(Work::LoadBody { .. }), Conn::Imap(_)) => None,
+        _ => Some(limit),
+    }
+}
+
+/// One try of a piece of work, inside `limit` when it has one: what the work answered, or
+/// `None` when the limit cut it short — `attempt` then drops the connection and gives up.
+async fn within(
+    limit: Option<Duration>,
+    work: impl std::future::Future<Output = Result<Output>>,
+) -> Option<Result<Output>> {
+    match limit {
+        Some(limit) => tokio::time::timeout(limit, work).await.ok(),
+        None => Some(work.await),
+    }
 }
 
 #[allow(
@@ -3294,6 +3315,11 @@ mod tests {
     const OWN_WINDOW: (Duration, Duration) = (Duration::from_secs(150), Duration::from_secs(60));
     /// The window an open letter is read with in a test: 30 s / 25 s in production cannot be waited for.
     const SHORT: Duration = Duration::from_millis(300);
+    /// A body that keeps coming: pieces of `CHUNK` bytes, `CHUNK_GAP` apart — well inside the
+    /// silence window, and the whole answer longer than `SHORT`.
+    const CHUNK: usize = 8;
+    const CHUNK_GAP: Duration = Duration::from_millis(50);
+    const LONG_BODY: usize = 160;
 
     const A_RAW: &[u8] = b"Subject: A\r\nMessage-ID: <a@x.test>\r\n\r\nletter a\r\n";
     const B_RAW: &[u8] = b"Subject: B\r\nMessage-ID: <b@x.test>\r\n\r\nletter b\r\n";
@@ -3382,6 +3408,83 @@ mod tests {
                 return;
             }
         }
+    }
+
+    /// A plain IMAP server whose letter 1 keeps coming: the answer of its FETCH arrives in
+    /// `CHUNK`-sized pieces, `CHUNK_GAP` apart, so a read of it outlasts a short overall limit
+    /// while never falling silent. Answers with the port it listens on.
+    async fn fake_imap_streaming() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let raw = long_raw();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                tokio::spawn(stream_imap(sock, raw.clone()));
+            }
+        });
+        port
+    }
+
+    /// Answers one connection, sending the body of letter 1 piece by piece.
+    async fn stream_imap(sock: TcpStream, raw: Vec<u8>) {
+        let (r, mut w) = sock.into_split();
+        let mut lines = BufReader::new(r).lines();
+        if w.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n").await.is_err() {
+            return;
+        }
+        while let Ok(Some(line)) = lines.next_line().await {
+            let mut parts = line.split_whitespace();
+            let tag = parts.next().unwrap_or("*").to_owned();
+            let command = parts.next().unwrap_or("").to_ascii_uppercase();
+            match command.as_str() {
+                "CAPABILITY" => {
+                    if w.write_all(format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                "UID" => {
+                    // `UID FETCH <set> (UID BODY.PEEK[])`: only letter 1 has a body here.
+                    parts.next();
+                    let uid: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+                    let head = if uid == 1 {
+                        format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", raw.len())
+                    } else {
+                        format!("{tag} OK done\r\n")
+                    };
+                    if w.write_all(head.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    for piece in raw.chunks(CHUNK) {
+                        if w.write_all(piece).await.is_err() {
+                            return;
+                        }
+                        tokio::time::sleep(CHUNK_GAP).await;
+                    }
+                    if w.write_all(format!(")\r\n{tag} OK done\r\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+                _ => {
+                    if w.write_all(format!("* 2 EXISTS\r\n{tag} OK done\r\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The body the streaming server sends: long enough that the answer outlasts a short overall
+    /// limit, short enough to arrive inside the test's own budget.
+    fn long_raw() -> Vec<u8> {
+        let mut raw = b"Subject: Long\r\nMessage-ID: <long@x.test>\r\n\r\n".to_vec();
+        raw.resize(raw.len() + LONG_BODY, b'.');
+        raw
     }
 
     /// A cache of the mailbox "a" with its INBOX, and a letter of it that is not downloaded.
@@ -3572,5 +3675,69 @@ mod tests {
         // And no other work cares: a folder sync waits out the same window once more.
         let sync = Work::SyncFolder("INBOX".into());
         assert!(!no_second_attempt(&Op::Work(&sync), &timed_out()));
+    }
+
+    /// A letter whose body keeps coming finishes with no overall limit at all: the read of an
+    /// open letter is bounded by its silence windows and by the next open (#71), never by
+    /// `WORK_TIMEOUT` — a download outlasting a whole piece of work is still a download, and the
+    /// bytes already in are not thrown away.
+    #[tokio::test]
+    async fn a_body_still_streaming_is_not_cut_by_the_overall_limit() {
+        let (store, a, _) = two_letters();
+        let port = fake_imap_streaming().await;
+        let account = account_at(port);
+        let opens = OpenSeqs::default();
+        let mut conn = mail::connect(&account, &Credentials::new("u", "p")).await.unwrap();
+        crate::state::note_open(&opens, "main", 1);
+
+        let read = Work::LoadBody {
+            id: a,
+            gate: Some(("main".into(), 1)),
+        };
+        // An overall limit far shorter than the download, as `attempt` has `WORK_TIMEOUT`.
+        let limit = work_limit(&Op::Work(&read), &conn, SHORT);
+        let out = tokio::time::timeout(
+            BUDGET * 2,
+            within(
+                limit,
+                load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens, (SHORT, SHORT)),
+            ),
+        )
+        .await
+        .expect("an answer that keeps coming ends the read");
+        let out = out.expect("the body still streaming was cut by the overall limit");
+        assert_eq!(limit, None, "an IMAP body read somebody waits for has no overall limit");
+        match out {
+            Ok(Output::Body(raw)) => assert_eq!(raw, long_raw(), "every piece of the body is kept"),
+            Ok(_) => panic!("a body read answered with no body"),
+            Err(e) => panic!("the body was not read: {e}"),
+        }
+    }
+
+    /// The control: work that keeps the overall limit is cut by the same short one, so the test
+    /// above does not pass because the limit stopped working. The streaming read stands in for
+    /// any work that outlasts its limit; a folder sync carries the limit, an open letter does not.
+    #[tokio::test]
+    async fn the_overall_limit_still_cuts_work_that_keeps_it() {
+        let (store, a, _) = two_letters();
+        let port = fake_imap_streaming().await;
+        let account = account_at(port);
+        let opens = OpenSeqs::default();
+        let mut conn = mail::connect(&account, &Credentials::new("u", "p")).await.unwrap();
+        crate::state::note_open(&opens, "main", 1);
+
+        let sync = Work::SyncFolder("INBOX".into());
+        let limit = work_limit(&Op::Work(&sync), &conn, SHORT);
+        assert_eq!(limit, Some(SHORT), "a folder sync keeps the overall limit");
+        let cut = tokio::time::timeout(
+            BUDGET,
+            within(
+                limit,
+                load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens, (SHORT, SHORT)),
+            ),
+        )
+        .await
+        .expect("the short limit answers at once");
+        assert!(cut.is_none(), "the overall limit did not cut work that outlasts it");
     }
 }
