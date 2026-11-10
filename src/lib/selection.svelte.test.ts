@@ -58,6 +58,75 @@ describe("moving through the list", () => {
   });
 });
 
+// Opening a folder syncs it by itself: the list is already on screen from the cache, so the
+// progress line belongs to what the user asked for and not to what the app does on its own.
+describe("syncing a folder on opening it", () => {
+  it("syncs it once without holding the progress line", async () => {
+    const s = new AppStore();
+    const answer = deferred<void>();
+    api.syncNow.mockReturnValue(answer.promise);
+    vi.useFakeTimers();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    expect(api.syncNow).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+    await flush();
+    expect(api.syncNow).toHaveBeenCalledTimes(1);
+    expect(api.syncNow).toHaveBeenCalledWith("a", "INBOX");
+    expect(s.ui.busy).toBe(0);
+
+    answer.resolve();
+    await flush();
+    expect(s.ui.busy).toBe(0);
+  });
+
+  it("keeps a failed sync out of the progress line and the toasts", async () => {
+    const s = new AppStore();
+    api.syncNow.mockRejectedValue(new Error("offline"));
+    vi.useFakeTimers();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.advanceTimersByTime(300);
+    await flush();
+    expect(api.syncNow).toHaveBeenCalledTimes(1);
+    expect(s.ui.busy).toBe(0);
+    expect(s.ui.toasts).toEqual([]);
+  });
+
+  it("holds nothing while the sync of the folder left behind still runs", async () => {
+    const s = new AppStore();
+    const left = deferred<void>();
+    api.syncNow.mockReturnValueOnce(left.promise).mockResolvedValue(undefined);
+    vi.useFakeTimers();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    vi.advanceTimersByTime(300);
+    await flush();
+
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    vi.advanceTimersByTime(300);
+    await flush();
+    expect(api.syncNow).toHaveBeenLastCalledWith("a", "Archive");
+    expect(s.ui.busy).toBe(0);
+
+    left.resolve();
+    await flush();
+    expect(s.ui.busy).toBe(0);
+  });
+
+  it("still holds the progress line for a change the user asked for", async () => {
+    const s = new AppStore();
+    const answer = deferred<void>();
+    api.setFlag.mockReturnValue(answer.promise);
+    const p = s.selection.flag("seen", true, [1]);
+    await flush();
+    expect(s.ui.busy).toBe(1);
+
+    answer.resolve();
+    await p;
+    expect(s.ui.busy).toBe(0);
+  });
+});
+
 describe("archiving through the list", () => {
   it("takes the next letter with every key while the previous one is still opening", async () => {
     // Rows of conversations: reading one costs the answer of the server, and the key after it

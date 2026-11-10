@@ -116,7 +116,7 @@ export class SelectionController {
     this.host.reader.close();
     this.host.reader.openError = null;
     this.selected = new Set();
-    // The list shows the cache at once; fresh mail from the server follows, with the progress line.
+    // The list shows the cache at once; fresh mail from the server follows quietly after it.
     if (v.kind === "folder") this.scheduleSync(v.account_id, v.folder);
     else this.cancelSync();
     await this.reload();
@@ -130,8 +130,9 @@ export class SelectionController {
     this.cancelSync();
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      // A failing sync is shown by the tasks of the backend (tasks-changed), not here.
-      void this.host.ui.track(api.syncNow(accountId, folder)).catch(() => {});
+      // Nothing is asked of the user here, so the sync stays off the progress line; a failure
+      // is shown by the tasks of the backend (tasks-changed), not here.
+      void api.syncNow(accountId, folder).catch(() => {});
     }, 300);
   }
 
