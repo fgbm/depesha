@@ -103,6 +103,13 @@ export async function run() {
   await step("5.11", "окно письма (#103): ящик в заголовке, «Копия» и «Скрытая» свёрнуты, Alt-клавиши, вложения одной строкой, 160 px тексту", async () => {
     const subj = `Окно письма ${stamp} — тема заведомо длиннее заголовка окна, и ей положено обрезаться многоточием`;
     await newMessage("carol@local.test", subj, "Текст письма.");
+    // The full run has a default signature from list; this layout check needs the unfolded body.
+    if ((await d.findAll(".compose .body-area .dots")).length) {
+      await d.click(await d.find(".compose .body-area .dots"));
+      await d.exec("document.querySelector('.compose .sig-plain .chip').click()");
+      await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Без подписи')]"));
+      await d.until("no signature", async () => (await d.findAll(".compose .sig-plain")).length === 0);
+    }
     const geometry = (css) => d.exec("const r = document.querySelector(arguments[0]).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };", css);
     const rows = () => d.exec("return [...document.querySelectorAll('.compose .fields .row .label')].map((l) => l.innerText)");
     const focusedRow = () => d.exec("return document.activeElement?.closest('.row')?.querySelector('.label')?.innerText ?? ''");
