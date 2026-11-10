@@ -743,6 +743,23 @@ fn lifts_net_pause(user_waits: bool, last_try: Option<SystemTime>, now: SystemTi
     user_waits && may_retry_now(last_try, now)
 }
 
+/// Quiet work the loop has taken from its queue. `handle` is what the loop does with it when
+/// the mailbox takes it: the serve and the report of its outcome.
+///
+/// The mailbox may have been paused after this work was queued: an urgent action then met an
+/// error only the user can fix. Running the work would connect again, and its report would
+/// clear the pause and stand a general error over the real one, so it is refused here.
+async fn dispatch_quiet<F, Fut>(paused: &AtomicBool, handle: F) -> Result<Output>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Output>>,
+{
+    if paused.load(Ordering::Relaxed) {
+        return Err(Error::Paused);
+    }
+    handle().await
+}
+
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (reads, reads_rx) = mpsc::channel(64);
     let (urgent, urgent_rx) = mpsc::channel(64);
@@ -1097,8 +1114,15 @@ impl Ops {
                 // Background work with a caller: the same handling as a user action, only
                 // queued below the user's own and behind the bodies being read.
                 Next::Quiet(work, reply) => {
-                    let result = self.serve(&work, false).await;
-                    self.report(&work, &result, true);
+                    // The serve and the report go inside the guard, so work refused at dispatch
+                    // reaches neither the server nor the mailbox's status.
+                    let paused = self.paused.clone();
+                    let result = dispatch_quiet(&paused, || async {
+                        let result = self.serve(&work, false).await;
+                        self.report(&work, &result, true);
+                        result
+                    })
+                    .await;
                     unheard(reply.send(result));
                 }
                 Next::Step => self.step().await,
@@ -2978,6 +3002,34 @@ mod tests {
         drain_flags(&mut urgent, &mut deferred, &folder, validity, &mut series, &mut replies);
         assert_eq!(replies.len(), 3, "every caller keeps its answer");
         assert_eq!(compact_flags(&series), [(FlagChange::Seen(true), vec![1])]);
+    }
+
+    /// Quiet work queued while the mailbox was fine must not run once an urgent action has
+    /// paused it: that connect would clear the pause, and its report would put a general error
+    /// over the real one. `handle` is the loop's serve together with its report.
+    #[tokio::test]
+    async fn quiet_work_enqueued_before_a_pause_is_not_run() {
+        let attempts = std::sync::atomic::AtomicUsize::new(0);
+        let handle = || {
+            attempts.fetch_add(1, Ordering::Relaxed);
+            async { Ok(Output::None) }
+        };
+        let paused = AtomicBool::new(false);
+        // Queued while the mailbox was well; then a user action met a wrong password.
+        paused.store(true, Ordering::Relaxed);
+
+        let refused = dispatch_quiet(&paused, handle).await;
+        assert_eq!(attempts.load(Ordering::Relaxed), 0, "no connect and no report");
+        assert!(
+            matches!(refused, Err(Error::Paused)),
+            "the caller of the queued work hears that the mailbox is paused"
+        );
+        assert!(paused.load(Ordering::Relaxed), "the pause stays");
+
+        // A mailbox that is not paused runs the same work as before.
+        paused.store(false, Ordering::Relaxed);
+        assert!(matches!(dispatch_quiet(&paused, handle).await, Ok(Output::None)));
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
     }
 
     /// A mailbox paused by an error only the user can fix is not asked again by a folder
