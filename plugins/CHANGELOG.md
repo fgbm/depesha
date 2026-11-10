@@ -4,7 +4,7 @@ Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surfac
 
 ## Unreleased
 
-- `ctx.ui.composeReplacements` and the type `Replacement` (0.8.18): a plugin gives the compose editor a table of typography replacements, `{ from, to }` pairs such as `--` → `—` and `...` → `…`. The core keeps the order of the tables. A plugin that gives none is unaffected; until the editor applies the tables, none of them changes what is typed.
+- `ctx.ui.composeReplacements` and the type `Replacement` (0.8.18): a plugin gives the compose editor a table of typography replacements, `{ from, to }` pairs such as `--` → `—` and `...` → `…`. The core keeps the order of the tables. A plugin that gives none is unaffected; the table applies in every editor of the letter — plain text, visual HTML and Markdown — as the user types, and never to text that came in whole.
 - The built-in plugin `typography` (0.8.18, off until the user switches it on) gives that table: `--` becomes an em dash (U+2014) and `...` an ellipsis (U+2026).
 
 ## 0.8.13

@@ -9,6 +9,8 @@
   import { t } from "../lib/i18n.svelte";
   import { inSight, placeLockedBlock, type BlockPlace } from "../lib/compose/lockedBlock";
   import { pictureKey, placePicture, type PicturePlace } from "../lib/compose/pictureFrame";
+  import { typedReplacement } from "../lib/compose/editableTypography";
+  import { registry } from "../plugin-host/registry.svelte";
 
   let {
     html = $bindable(""),
@@ -247,6 +249,9 @@
       }
     }
     picked = null;
+    if (!el || readonly) return;
+    const insert = typedReplacement(e, el, registry.composeReplacements());
+    if (insert !== null) exec("insertText", insert);
   }
 
   // The picked picture: a frame around it and the panel under it.
