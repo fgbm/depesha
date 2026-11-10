@@ -15,16 +15,16 @@ use depesha_core::domain::{FlagChange, FolderRole};
 use depesha_core::idle_pace::{Dropped, IdlePace};
 use depesha_core::imap::IdleOutcome;
 use depesha_core::mail::{self, Conn};
-use depesha_core::store::ListQuery;
+use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::SyncOptions;
 use depesha_core::{Error, Result};
 use serde_json::json;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::error::CmdError;
-use crate::state::{AccountStatus, AppState, lock};
+use crate::state::{AccountStatus, AppState, OpenSeqs, lock};
 use crate::tr;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -1688,14 +1688,8 @@ async fn perform(
             sync_one(state, account, conn, folder, *notify_new).await?,
         )),
         Work::LoadBody { id: msg_id, gate } => {
-            // The user has moved to another letter meanwhile: do not ask the server for a
-            // body nobody is waiting on any more (#71).
-            if let Some((window, seq)) = gate
-                && !crate::state::open_is_current(&state.open_seq, window, *seq)
-            {
-                return Ok(Output::None);
-            }
-            Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?))
+            let gate = gate.as_ref().map(|(window, seq)| (window.as_str(), *seq));
+            load_body_gated(conn, store, *msg_id, gate, &state.open_seq).await
         }
         Work::SetFlag {
             folder,
@@ -1925,6 +1919,52 @@ async fn perform(
                 state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
             }
             Ok(Output::Count(n))
+        }
+    }
+}
+
+/// Reads a body for one open (`gate`), and lets the read go as soon as that open is no
+/// longer the newest of its window (#71): a stalled answer for a letter nobody waits for
+/// must not hold the mailbox, nor the letters opened after it.
+async fn load_body_gated(
+    conn: &mut Conn,
+    store: &Store,
+    msg_id: i64,
+    gate: Option<(&str, u64)>,
+    opens: &OpenSeqs,
+) -> Result<Output> {
+    let Some((window, seq)) = gate else {
+        return Ok(Output::Body(mail::load_body(conn, store, msg_id).await?));
+    };
+    // Subscribed before the gate is read: an open noted in between bumps the signal, which
+    // the wait below sees, and the recheck there settles what the read missed.
+    let mut opened = opens.subscribe();
+    if !crate::state::open_is_current(opens, window, seq) {
+        return Ok(Output::None);
+    }
+    {
+        let load = mail::load_body(conn, store, msg_id);
+        tokio::pin!(load);
+        tokio::select! {
+            body = &mut load => return Ok(Output::Body(body?)),
+            () = stale_open(&mut opened, opens, window, seq) => {}
+        }
+    }
+    // The read was dropped in the middle of an answer: the rest of it is still in the
+    // connection's buffer, so the connection goes with the letter it was for.
+    conn.note_broken();
+    Ok(Output::None)
+}
+
+/// Waits until the open `(window, seq)` is no longer the newest of its window. An open of
+/// another window changes the signal and brings the loop back here, where the gate decides;
+/// the wakeup alone decides nothing.
+async fn stale_open(opened: &mut watch::Receiver<u64>, opens: &OpenSeqs, window: &str, seq: u64) {
+    while crate::state::open_is_current(opens, window, seq) {
+        if opened.changed().await.is_err() {
+            // The recorder is gone, so no open can make this one stale: wait for nothing
+            // rather than drop a read nobody has moved past.
+            std::future::pending::<()>().await;
         }
     }
 }
@@ -3216,5 +3256,226 @@ mod tests {
         let quiet = logged(|| log_idle_drop("a@b.ru-1", &d, &p));
         assert!(quiet.contains("DEBUG") && !quiet.contains("WARN"), "{quiet}");
         assert!(quiet.contains("tag=\"bye\"") && quiet.contains("drops=4"), "{quiet}");
+    }
+
+    use depesha_core::account::{Account, Credentials};
+    use depesha_core::domain::{Flags, Folder};
+    use depesha_core::message::Summary;
+    use depesha_core::store::NewMessage;
+    use std::sync::atomic::AtomicUsize;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::{TcpListener, TcpStream};
+
+    /// How long a read of the fake server may take before it is a stall: the body of a letter
+    /// is a few dozen bytes, and the test says nothing about downloading slowly.
+    const BUDGET: Duration = Duration::from_secs(2);
+
+    const A_RAW: &[u8] = b"Subject: A\r\nMessage-ID: <a@x.test>\r\n\r\nletter a\r\n";
+    const B_RAW: &[u8] = b"Subject: B\r\nMessage-ID: <b@x.test>\r\n\r\nletter b\r\n";
+
+    /// A plain IMAP server for the body reads: it answers the greeting and the login, and the
+    /// FETCH of `stall` on the first connection stops after the literal header, as a network
+    /// that went away in the middle of an answer does.
+    struct Fake {
+        port: u16,
+        /// Says which uid a FETCH began for, so a test waits on the server, not on a clock.
+        fetching: mpsc::UnboundedReceiver<u32>,
+        /// Connections taken so far: a connection dropped as broken is not used again.
+        connections: Arc<AtomicUsize>,
+    }
+
+    async fn fake_imap(stall: u32) -> Fake {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let (fetching, started) = mpsc::unbounded_channel();
+        let counted = connections.clone();
+        let bodies: Arc<Vec<(u32, Vec<u8>)>> = Arc::new(vec![(1, A_RAW.to_vec()), (2, B_RAW.to_vec())]);
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                let first = counted.fetch_add(1, Ordering::SeqCst) == 0;
+                tokio::spawn(answer_imap(sock, first, stall, bodies.clone(), fetching.clone()));
+            }
+        });
+        Fake {
+            port,
+            fetching: started,
+            connections,
+        }
+    }
+
+    /// Answers one connection; on the first one the FETCH of `stall` is cut short.
+    async fn answer_imap(
+        sock: TcpStream,
+        first: bool,
+        stall: u32,
+        bodies: Arc<Vec<(u32, Vec<u8>)>>,
+        fetching: mpsc::UnboundedSender<u32>,
+    ) {
+        let (r, mut w) = sock.into_split();
+        let mut lines = BufReader::new(r).lines();
+        if w.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n").await.is_err() {
+            return;
+        }
+        while let Ok(Some(line)) = lines.next_line().await {
+            let mut parts = line.split_whitespace();
+            let tag = parts.next().unwrap_or("*").to_owned();
+            let command = parts.next().unwrap_or("").to_ascii_uppercase();
+            let reply = match command.as_str() {
+                "CAPABILITY" => format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n"),
+                "UID" => {
+                    // `UID FETCH <set> (UID BODY.PEEK[])`; the set of one letter is its uid.
+                    parts.next();
+                    let uid: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+                    unheard(fetching.send(uid));
+                    // A letter the server does not have: an OK with no data, as a real one says.
+                    let Some((_, body)) = bodies.iter().find(|(u, _)| *u == uid) else {
+                        if w.write_all(format!("{tag} OK done\r\n").as_bytes()).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    };
+                    let head = format!("* {uid} FETCH (UID {uid} BODY[] {{{}}}\r\n", body.len());
+                    if w.write_all(head.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    if first && uid == stall {
+                        // The answer stops here: the socket stays open and says nothing.
+                        std::future::pending::<()>().await;
+                    }
+                    let mut all = body.to_vec();
+                    all.extend_from_slice(b")\r\n");
+                    all.extend_from_slice(format!("{tag} OK done\r\n").as_bytes());
+                    if w.write_all(&all).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                _ => format!("* 2 EXISTS\r\n{tag} OK done\r\n"),
+            };
+            if w.write_all(reply.as_bytes()).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// A cache of the mailbox "a" with its INBOX, and a letter of it that is not downloaded.
+    fn two_letters() -> (Store, i64, i64) {
+        let store = Store::open_in_memory().unwrap();
+        let inbox = Folder {
+            name: "INBOX".into(),
+            display_name: "INBOX".into(),
+            delimiter: Some("/".into()),
+            role: Some(FolderRole::Inbox),
+            selectable: true,
+            hidden: false,
+        };
+        store.replace_folders("a", &[inbox]).unwrap();
+        fn cached(store: &Store, uid: u32) -> i64 {
+            let summary = Summary::default();
+            let msg = NewMessage {
+                uid,
+                summary: &summary,
+                fallback_date: 1,
+                size: 1,
+                flags: Flags::default(),
+                keywords: Vec::new(),
+            };
+            store.insert_message("a", "INBOX", &msg).unwrap()
+        }
+        let (a, b) = (cached(&store, 1), cached(&store, 2));
+        (store, a, b)
+    }
+
+    /// The mailbox the fake server stands for.
+    fn account_at(port: u16) -> Account {
+        serde_json::from_str(&format!(
+            r#"{{"id":"a","display_name":"A","email":"a@x.test","username":"u",
+                "imap":{{"host":"127.0.0.1","port":{port},"security":"plain"}},
+                "smtp":{{"host":"127.0.0.1","port":{port},"security":"plain"}}}}"#
+        ))
+        .unwrap()
+    }
+
+    /// The user opens B while the server is stuck in the middle of A's answer: the read of A
+    /// is let go at once, and its connection with it, so B is read on a fresh one (#71).
+    #[tokio::test]
+    async fn a_newer_open_cancels_a_stalled_body_read() {
+        let (store, a, b) = two_letters();
+        let mut fake = fake_imap(1).await;
+        let account = account_at(fake.port);
+        let creds = Credentials::new("u", "p");
+        let opens = OpenSeqs::default();
+
+        let mut conn = mail::connect(&account, &creds).await.unwrap();
+        crate::state::note_open(&opens, "main", 1);
+        // Boxed, not pinned in place: the test drops the read itself, and the borrow of the
+        // connection with it, to take a fresh one as `attempt` does.
+        let mut read = Box::pin(load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens));
+        tokio::select! {
+            started = fake.fetching.recv() => {
+                assert_eq!(started, Some(1), "the server was asked for the letter that is open");
+            }
+            _ = &mut read => panic!("the read of A cannot end: the server has not finished the answer"),
+        }
+
+        // The user opens B. Nothing is asked of the server for it: the open alone ends A.
+        crate::state::note_open(&opens, "main", 2);
+        let given_up = tokio::time::timeout(BUDGET, &mut read).await;
+        let given_up = given_up.expect("the read of A is let go once the window moved on");
+        assert!(matches!(given_up, Ok(Output::None)), "a read let go answers no body");
+        drop(read);
+        assert!(
+            conn.is_broken(),
+            "a read dropped mid-answer leaves the connection out of step"
+        );
+
+        // What `attempt` does with a broken connection: B's read makes a fresh one.
+        let mut conn = mail::connect(&account, &creds).await.unwrap();
+        let body = tokio::time::timeout(BUDGET, load_body_gated(&mut conn, &store, b, Some(("main", 2)), &opens))
+            .await
+            .expect("B is read on a connection of its own");
+        match body {
+            Ok(Output::Body(raw)) => assert_eq!(raw, B_RAW, "B's body is what came back"),
+            Ok(_) => panic!("a body read answered with no body"),
+            Err(e) => panic!("B is not read: {e}"),
+        }
+        assert_eq!(
+            fake.connections.load(Ordering::SeqCst),
+            2,
+            "the stalled connection was used again"
+        );
+    }
+
+    /// A letter opened in another window is no reason to drop this window's read: only its own
+    /// newer open is (the signal wakes the read, and the gate decides).
+    #[tokio::test]
+    async fn an_open_of_another_window_does_not_cancel_the_read() {
+        let (store, a, _) = two_letters();
+        let mut fake = fake_imap(1).await;
+        let account = account_at(fake.port);
+        let opens = OpenSeqs::default();
+
+        let mut conn = mail::connect(&account, &Credentials::new("u", "p")).await.unwrap();
+        crate::state::note_open(&opens, "main", 1);
+        let mut read = Box::pin(load_body_gated(&mut conn, &store, a, Some(("main", 1)), &opens));
+        tokio::select! {
+            started = fake.fetching.recv() => {
+                assert_eq!(started, Some(1), "the server was asked for the letter that is open");
+            }
+            _ = &mut read => panic!("the read of A cannot end: the server has not finished the answer"),
+        }
+
+        crate::state::note_open(&opens, "message-7", 1);
+        let early = tokio::time::timeout(Duration::from_millis(200), &mut read).await;
+        assert!(early.is_err(), "another window's open let the read of this one go");
+
+        // Its own window moving on still lets it go at once.
+        crate::state::note_open(&opens, "main", 2);
+        let out = tokio::time::timeout(BUDGET, &mut read).await;
+        assert!(
+            matches!(out, Ok(Ok(Output::None))),
+            "its own newer open did not end the read"
+        );
     }
 }

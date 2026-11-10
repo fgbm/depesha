@@ -8,7 +8,7 @@ use depesha_core::store::Store;
 use depesha_core::{mail, mailbox_tag, oauth};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use crate::config::{self, Config, Settings};
 use crate::error::{CmdError, CmdResult};
@@ -97,18 +97,40 @@ pub struct AppState {
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
-/// the user has already moved past.
-pub type OpenSeqs = Mutex<HashMap<String, u64>>;
+/// the user has already moved past, and a signal a load waits on to hear of an open at all.
+pub struct OpenSeqs {
+    newest: Mutex<HashMap<String, u64>>,
+    /// Bumped by every open of every window. A load waits for it instead of the network
+    /// answer, then rechecks its own gate: another window's open is not its business (#71).
+    epoch: watch::Sender<u64>,
+}
 
-/// Records `seq` as the newest open of `window`.
+impl Default for OpenSeqs {
+    fn default() -> Self {
+        Self {
+            newest: Mutex::new(HashMap::new()),
+            epoch: watch::Sender::new(0),
+        }
+    }
+}
+
+impl OpenSeqs {
+    /// A receiver that changes whenever an open is recorded; the value itself means nothing.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.epoch.subscribe()
+    }
+}
+
+/// Records `seq` as the newest open of `window`, and wakes the loads waiting on a body.
 pub fn note_open(seqs: &OpenSeqs, window: &str, seq: u64) {
-    lock(seqs).insert(window.to_owned(), seq);
+    lock(&seqs.newest).insert(window.to_owned(), seq);
+    seqs.epoch.send_modify(|epoch| *epoch = epoch.wrapping_add(1));
 }
 
 /// Whether an open with `seq` is still the newest for `window`: a newer open has already
 /// made it stale, and its body need not be fetched.
 pub fn open_is_current(seqs: &OpenSeqs, window: &str, seq: u64) -> bool {
-    match lock(seqs).get(window) {
+    match lock(&seqs.newest).get(window) {
         Some(newest) => *newest <= seq,
         None => true,
     }
@@ -450,7 +472,7 @@ mod tests {
 
     #[test]
     fn a_newer_open_makes_an_older_one_stale() {
-        let seqs: OpenSeqs = Mutex::new(HashMap::new());
+        let seqs = OpenSeqs::default();
         note_open(&seqs, "main", 3);
         assert!(open_is_current(&seqs, "main", 3));
         // The window moved to the next letter: the older open is stale now.
@@ -459,6 +481,24 @@ mod tests {
         assert!(open_is_current(&seqs, "main", 4));
         // Another window's opens are its own.
         assert!(open_is_current(&seqs, "message-7", 1));
+    }
+
+    /// A body load waits on the signal, not on its own window: every open wakes it, and its
+    /// gate is what decides then (the worker rechecks it).
+    #[test]
+    fn any_open_wakes_a_waiting_load() {
+        let seqs = OpenSeqs::default();
+        note_open(&seqs, "main", 1);
+        let waiting = seqs.subscribe();
+        assert!(
+            !waiting.has_changed().unwrap_or(true),
+            "a fresh waiter has nothing to hear"
+        );
+        note_open(&seqs, "message-7", 1);
+        assert!(
+            waiting.has_changed().unwrap_or(false),
+            "an open of another window is not heard"
+        );
     }
 
     /// The settings a command patches are merged and written under one lock: two windows

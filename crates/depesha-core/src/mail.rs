@@ -30,7 +30,10 @@ impl Conn {
         matches!(self, Conn::Imap(c) if c.broken)
     }
 
-    /// Marks the connection out of step (#177); the worker drops it after this work.
+    /// Marks the connection out of step (#177); the worker drops it after this work. An answer
+    /// the parser refused is one reason; a body read dropped in the middle of one, because the
+    /// window opened another letter, is the other: the rest of the answer is still in the
+    /// buffer (#71).
     pub fn note_broken(&mut self) {
         if let Conn::Imap(c) = self {
             c.broken = true;
