@@ -23,6 +23,7 @@ import { d, driverProc, env, failFirst, profile, results, retried, root, screens
 import { run as setup } from "./sections/setup.mjs";
 import { run as list } from "./sections/list.mjs";
 import { run as send } from "./sections/send.mjs";
+import { run as typography } from "./sections/typography.mjs";
 import { run as triage } from "./sections/triage.mjs";
 import { run as triage2 } from "./sections/triage2.mjs";
 import { run as sendlater } from "./sections/sendlater.mjs";
@@ -36,7 +37,7 @@ try {
   await startSession();
   console.log(`Профиль: ${profile}`);
   // A section the part does not run still goes through its code: its steps are skipped (e2e/shard.mjs).
-  for (const section of [setup, list, send, triage, triage2, sendlater, reminders, reminders2, settings, second]) await section();
+  for (const section of [setup, list, send, typography, triage, triage2, sendlater, reminders, reminders2, settings, second]) await section();
 } catch (e) {
   if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);
   else console.error("Прогон прерван:", e);

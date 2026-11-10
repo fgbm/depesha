@@ -17,6 +17,7 @@
 export const SECTIONS = [
   { name: "list", weight: 123 },
   { name: "send", weight: 129 },
+  { name: "typography", weight: 3 },
   { name: "triage", weight: 66 },
   { name: "triage2", weight: 100 },
   { name: "sendlater", weight: 21 },
