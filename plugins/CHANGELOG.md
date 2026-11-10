@@ -2,6 +2,11 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
+## Unreleased
+
+- `ctx.ui.composeReplacements` and the type `Replacement` (0.8.18): a plugin gives the compose editor a table of typography replacements, `{ from, to }` pairs such as `--` → `—` and `...` → `…`. The core keeps the order of the tables. A plugin that gives none is unaffected; until the editor applies the tables, none of them changes what is typed.
+- The built-in plugin `typography` (0.8.18, off until the user switches it on) gives that table: `--` becomes an em dash (U+2014) and `...` an ellipsis (U+2026).
+
 ## 0.8.13
 
 - `Unverified` has six more reasons (0.8.13, 5.1 Б): `no_time` — the signature names no time of the letter and covers no `Date`, which is not the same as `replay` (the signature is of another time); `not_aligned` — the signature is of another organization than the `From`; `expired` — the signature has expired; `strict_policy` — the sender's DMARC asks for the exact name in `d=`; `uneven_headers` — the server and the app may read the block of headers differently; `no_recipient_in_h` — the signature covers neither the `To` nor the `Cc` the mailbox's address stands in, as with a list, an alias or a Bcc. None of them says the signature was forged, because none of them means that. A plugin that only reads a letter is unaffected; one that matches on `why_unverified` must take the new values into account.

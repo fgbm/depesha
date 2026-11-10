@@ -1,17 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginContext } from "../plugin-api";
 
 const { settings, applied } = vi.hoisted(() => ({
   settings: { disabled_plugins: [] as string[], enabled_plugins: [] as string[] },
   applied: [] as Record<string, unknown>[],
 }));
 const { callMock } = vi.hoisted(() => ({ callMock: vi.fn(async () => ({})) }));
+const { table } = vi.hoisted(() => ({
+  table: [
+    { from: "--", to: "\u2014" },
+    { from: "...", to: "\u2026" },
+  ],
+}));
 
 vi.mock("../lib/api", () => ({ call: callMock }));
 
 vi.mock("../../plugins", () => ({
   BUILTIN: [
     { manifest: { id: "always-on", name: { en: "A", ru: "А" }, description: { en: "", ru: "" } }, activate: vi.fn() },
-    { manifest: { id: "off-by-default", name: { en: "B", ru: "Б" }, description: { en: "", ru: "" }, defaultOff: true }, activate: vi.fn() },
+    {
+      manifest: { id: "off-by-default", name: { en: "B", ru: "Б" }, description: { en: "", ru: "" }, defaultOff: true },
+      activate: vi.fn((ctx: PluginContext) => ctx.ui.composeReplacements(table)),
+    },
   ],
 }));
 
@@ -184,5 +194,24 @@ describe("keys of plugins", () => {
     expect(item.id).toBe("always-on.key.g");
     expect(item.key).toBe("g");
     expect(item.title()).toBe("A");
+  });
+});
+
+describe("the replacement table of a compose plugin", () => {
+  it("goes to the registry whole, both entries in the order the plugin gave them", () => {
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    host.setEnabled("always-on", false);
+    host.sync();
+    host.setEnabled("always-on", true);
+    host.sync();
+    const ctx = vi.mocked(alwaysOn.activate).mock.calls.at(-1)![0];
+    ctx.ui.composeReplacements(table);
+    expect(registry.add).toHaveBeenCalledWith("composeReplacements", "always-on", table);
+  });
+
+  it("is left out while its plugin stays off, and an unrelated plugin adds none", () => {
+    host.sync();
+    expect(offByDefault.activate).not.toHaveBeenCalled();
+    expect(vi.mocked(registry.add).mock.calls.filter((c) => c[0] === "composeReplacements")).toEqual([]);
   });
 });

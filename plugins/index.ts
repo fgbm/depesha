@@ -9,5 +9,6 @@ import preflight from "./preflight";
 import sendLater from "./send-later";
 import snooze from "./snooze";
 import templates from "./templates";
+import typography from "./typography";
 
-export const BUILTIN: Plugin[] = [commandPalette, accountColor, snooze, followups, newsletters, sendLater, templates, preflight];
+export const BUILTIN: Plugin[] = [commandPalette, accountColor, snooze, followups, newsletters, sendLater, templates, typography, preflight];

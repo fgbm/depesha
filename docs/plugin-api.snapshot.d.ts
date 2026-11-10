@@ -364,6 +364,7 @@ export interface PluginContext {
             order?: number;
             slot?: "send" | "footer" | "line" | "from";
         }): void;
+        composeReplacements(table: Replacement[]): void;
         sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;
         settingsSection(s: {
             title: () => string;
@@ -413,6 +414,11 @@ export interface Preset {
 export interface Rendered {
     component: Component<any>;
     props?: Record<string, unknown>;
+}
+
+export interface Replacement {
+    from: string;
+    to: string;
 }
 
 export interface RowAction {

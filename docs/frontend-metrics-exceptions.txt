@@ -83,3 +83,5 @@ component	src/components/Confirm.svelte	132	вопрос о массовом д�
 function	src/components/Confirm.svelte::onKey	17	вопрос о массовом действии (#196): Enter подтверждает, хотя фокус стоит на «Отмена»
 component	src/components/reader/AttachmentStrip.svelte	181	проп onForwardAttachment: он же у файла в свёрнутом списке и у чипа (#97)
 component	src/components/reader/ReaderHeader.svelte	251	проп onForwardAttachment и его проброс в строку вложений (#97)
+function	src/plugin-host/host.svelte.ts::context	81	точка подключения плагина к таблице замен композера (типографика, 0.8.18): одна строка в ui рядом с composeControl
+function	src/plugin-host/registry.svelte.ts::empty	19	таблица замен композера (типографика, 0.8.18): ещё одна строка списка рядом с sendChecks

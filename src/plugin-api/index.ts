@@ -189,6 +189,12 @@ export interface ListFilter {
   count?: (list: ListScope, id: string) => Partial<ListQuery> | undefined;
 }
 
+/** One entry of a typography table: the characters typed, and those that stand in their place. */
+export interface Replacement {
+  from: string;
+  to: string;
+}
+
 /** The compose window as plugins see it. */
 export interface ComposeContext {
   /**
@@ -327,6 +333,11 @@ export interface PluginContext {
        */
       slot?: "send" | "footer" | "line" | "from";
     }): void;
+    /**
+     * A table of typography replacements for the compose editor: `from` as the user typed it,
+     * `to` in its place. The core keeps the order of the tables it holds.
+     */
+    composeReplacements(table: Replacement[]): void;
     /** Warnings before sending; returning any stops sending until the user confirms. */
     sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;
     /**

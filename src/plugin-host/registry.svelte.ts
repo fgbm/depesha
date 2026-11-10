@@ -4,7 +4,7 @@
 
 import type { Component } from "svelte";
 import type { FileViewer } from "../lib/viewer";
-import type { Banner, Command, KeyBinding, ComposeContext, ComposeDraft, ListFilter, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
+import type { Banner, Command, KeyBinding, ComposeContext, ComposeDraft, ListFilter, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, Replacement, RowAction, RowTag, View } from "../plugin-api";
 
 export interface Owned<T> {
   owner: string;
@@ -41,6 +41,7 @@ interface Lists {
   listFilters: Owned<ListFilter>[];
   composeControls: Owned<ComposeControl>[];
   sendChecks: Owned<(draft: ComposeDraft, accountEmail: string) => string[]>[];
+  composeReplacements: Owned<Replacement[]>[];
   settingsSections: Owned<SettingsSection>[];
   overlays: Owned<Rendered>[];
   /** Renderers of the attachment viewer; the core's are owned by "core". */
@@ -61,6 +62,7 @@ const empty = (): Lists => ({
   listFilters: [],
   composeControls: [],
   sendChecks: [],
+  composeReplacements: [],
   settingsSections: [],
   overlays: [],
   fileViewers: [],
@@ -88,6 +90,11 @@ class Registry {
 
   view(id: string): View | undefined {
     return this.lists.views.find((v) => v.item.id === id)?.item;
+  }
+
+  /** Every replacement the active plugins give, one table after another, in the order the plugins registered them. */
+  composeReplacements(): Replacement[] {
+    return this.lists.composeReplacements.flatMap((e) => e.item);
   }
 
   /** Banners, row tags and similar providers: a plugin that throws only loses its own. */

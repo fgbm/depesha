@@ -137,6 +137,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       view: (v) => registry.add("views", id, v),
       listFilter: (f) => registry.add("listFilters", id, f),
       composeControl: (c) => registry.add("composeControls", id, c),
+      composeReplacements: (t) => registry.add("composeReplacements", id, t),
       sendCheck: (c) => registry.add("sendChecks", id, c),
       settingsSection: (s) => registry.add("settingsSections", id, s),
       overlay: (r) => registry.add("overlays", id, r),

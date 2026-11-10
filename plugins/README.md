@@ -12,7 +12,7 @@ All plugins live in this repository for now. Once the contract settles, they mov
 | Language | TypeScript and Svelte, bundled with the app | plain JavaScript, `main.js` up to 512 KB |
 | Runs | in the window, trusted | in a Web Worker inside a sandboxed frame (`ext://`), no access to the app or IPC |
 | Sees | `@depesha/plugin-api` | the `depesha` object and the data its permissions allow |
-| Can add | buttons, menus, banners, list views, list tabs, row labels, compose controls, send checks, settings sections, keys, overlays, attachment formats | banners, commands, send warnings, actions on new mail |
+| Can add | buttons, menus, banners, list views, list tabs, row labels, compose controls, typography tables, send checks, settings sections, keys, overlays, attachment formats | banners, commands, send warnings, actions on new mail |
 
 ## Built-in plugins
 
@@ -58,6 +58,7 @@ Plugin points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-api/i
 | `view` | a list of its own with a sidebar entry (shown while `count` or `shown` says so); `tabs` puts a segmented switch over its list |
 | `listFilter` | a choice in the list's "View" menu that narrows its query (People / Newsletters); each list keeps its own |
 | `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button, `slot: "line"` makes it a quiet line above the buttons |
+| `composeReplacements` | a table of typography replacements for the compose editor: `{ from, to }` pairs, e.g. `--` → `—`. The order of the tables is kept, and the editor applies them in that order |
 | `sendCheck` | warnings before sending |
 | `settingsSection` | a group in Settings, marked «plugin», on the «Plugins» page; the old `page` is accepted and ignored |
 | `overlay` | a component on top of the window, in the main window and in a window of one message |
