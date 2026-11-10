@@ -16,6 +16,8 @@ import { peopleBook } from "../lib/peopleBook.svelte";
 import { emptyDraft } from "../lib/compose";
 import { i18n } from "../lib/i18n.svelte";
 import { api, settings } from "../lib/testing";
+import { registry } from "../plugin-host/registry.svelte";
+import { TABLE } from "../../plugins/typography/table";
 
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
 // jsdom has no layout observers; the window watches its size and its editor.
@@ -37,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   if (view) unmount(view);
   view = null;
+  registry.removeOwner("typography");
   document.body.innerHTML = "";
 });
 
@@ -299,5 +302,99 @@ describe("the opened quote of a plain reply (А27)", () => {
     expect(rule).not.toMatch(/font-size|color:|(^|\s)height:|background/);
     expect(rule).toContain("border-left: 3px solid var(--line)");
     expect(rule).toMatch(/margin: 8px/);
+  });
+});
+
+const EM_DASH = "\u2014";
+const ELLIPSIS = "\u2026";
+
+/** One key of a letter's text, with the insertion the browser would make when no handler stops it. */
+function press(field: HTMLTextAreaElement, k: string) {
+  const e = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+  field.dispatchEvent(e);
+  flushSync();
+  if (e.defaultPrevented) return;
+  field.setRangeText(k, field.selectionStart, field.selectionEnd, "end");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+}
+
+function type(field: HTMLTextAreaElement, keys: string) {
+  for (const k of keys) press(field, k);
+}
+
+const body = (t: HTMLElement) => t.querySelector<HTMLTextAreaElement>(".body-area > textarea");
+
+describe("the typography of a plain letter", () => {
+  it("turns the second hyphen into an em dash and the third dot into an ellipsis, the caret right after", () => {
+    registry.add("composeReplacements", "typography", TABLE);
+    const { win, target } = open(false);
+    const field = body(target)!;
+    expect(field.value).toBe("");
+
+    type(field, "-");
+    expect(field.value).toBe("-");
+    type(field, "-");
+    expect(field.value).toBe(EM_DASH);
+    expect(field.selectionStart).toBe(1);
+    expect(field.selectionStart).toBe(field.selectionEnd);
+    expect(win.draft.text).toBe(EM_DASH);
+
+    type(field, "a...");
+    expect(field.value).toBe(`${EM_DASH}a${ELLIPSIS}`);
+    expect(win.draft.text).toBe(`${EM_DASH}a${ELLIPSIS}`);
+    expect(field.selectionStart).toBe(field.value.length);
+  });
+
+  it("leaves the hyphens as typed while the typography plugin is off", () => {
+    const { win, target } = open(false);
+    const field = body(target)!;
+    type(field, "--...");
+    expect(field.value).toBe("--...");
+    expect(win.draft.text).toBe("--...");
+  });
+
+  it("turns the separators typed into the text alone, and keeps the signature separator of the draft", () => {
+    registry.add("composeReplacements", "typography", TABLE);
+    const { win, target } = open(false, true);
+    expect(win.draft.text).toContain("\n\n-- \nКэрол, отдел ИТ");
+    const field = body(target)!;
+    type(field, "--");
+    expect(field.value).toBe(EM_DASH);
+    expect(win.draft.text).toContain(`${EM_DASH}\n\n-- \nКэрол, отдел ИТ`);
+    expect(win.draft.to).toEqual([{ name: "Иван", email: "ivan@example.com" }]);
+    expect(win.draft.subject).toBe("Re: Акт");
+  });
+
+  it("takes the table of the plugins as they are now: switched on while the letter is open it starts at once, switched off it stops", () => {
+    const { target } = open(false);
+    const field = body(target)!;
+
+    type(field, "--");
+    expect(field.value).toBe("--");
+
+    registry.add("composeReplacements", "typography", TABLE);
+    flushSync();
+    type(field, "-");
+    expect(field.value).toBe(`-${EM_DASH}`);
+
+    registry.removeOwner("typography");
+    flushSync();
+    type(field, "--");
+    expect(field.value).toBe(`-${EM_DASH}--`);
+  });
+});
+
+describe("the table of replacements of an open letter", () => {
+  it("does not rewrite a double hyphen that came into the field whole", () => {
+    registry.add("composeReplacements", "typography", TABLE);
+    const { win, target } = open(false);
+    const field = body(target)!;
+    win.draft.text = "Ставка -- 5%...";
+    flushSync();
+    expect(field.value).toBe("Ставка -- 5%...");
+    type(field, "x");
+    expect(field.value).toBe("Ставка -- 5%...x");
+    expect(win.draft.text).toBe("Ставка -- 5%...x");
   });
 });

@@ -42,6 +42,8 @@
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
   import { ComposeAttachments } from "../lib/compose/attachments.svelte";
+  import { replaceOnKey } from "../lib/compose/typography";
+  import { registry } from "../plugin-host/registry.svelte";
   import LostFilesNotice from "./LostFilesNotice.svelte";
   import { FULL_STRIP_ROWS, MIN_BODY_PX, mailboxName, visibleChips } from "../lib/compose/layout";
   import { ATTACH_LIMIT } from "../lib/compose";
@@ -432,6 +434,7 @@
               bind:this={fmt.body}
               bind:value={fmt.head}
               onfocus={() => fmt.onBodyFocus()}
+              onkeydown={(e) => void replaceOnKey(e, e.currentTarget, registry.composeReplacements())}
               readonly={fmt.switching}
               spellcheck="true"
               rows="1"
