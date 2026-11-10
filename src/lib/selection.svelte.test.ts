@@ -2,12 +2,14 @@
 // at once, not wait for the previous one to open and then open the same letter again.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@tauri-apps/api/core", async (orig) => ({ ...(await orig<object>()), invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/window", () => import("./testing").then((m) => m.windowModule));
 vi.mock("@tauri-apps/api/app", () => import("./testing").then((m) => m.appModule));
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
+import { invoke } from "@tauri-apps/api/core";
 import { AppStore } from "./store.svelte";
 import { api, deferred, flush, opened, resetFakes, row, rows } from "./testing";
 import type { OpenedMessage } from "./types";
@@ -54,7 +56,7 @@ describe("moving through the list", () => {
     vi.advanceTimersByTime(300);
     await flush();
     expect(api.syncNow).toHaveBeenCalledTimes(1);
-    expect(api.syncNow).toHaveBeenCalledWith("a", "Archive");
+    expect(api.syncNow).toHaveBeenCalledWith("a", "Archive", true);
   });
 });
 
@@ -72,7 +74,7 @@ describe("syncing a folder on opening it", () => {
     vi.advanceTimersByTime(300);
     await flush();
     expect(api.syncNow).toHaveBeenCalledTimes(1);
-    expect(api.syncNow).toHaveBeenCalledWith("a", "INBOX");
+    expect(api.syncNow).toHaveBeenCalledWith("a", "INBOX", true);
     expect(s.ui.busy).toBe(0);
 
     answer.resolve();
@@ -105,7 +107,7 @@ describe("syncing a folder on opening it", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     vi.advanceTimersByTime(300);
     await flush();
-    expect(api.syncNow).toHaveBeenLastCalledWith("a", "Archive");
+    expect(api.syncNow).toHaveBeenLastCalledWith("a", "Archive", true);
     expect(s.ui.busy).toBe(0);
 
     left.resolve();
@@ -124,6 +126,26 @@ describe("syncing a folder on opening it", () => {
     answer.resolve();
     await p;
     expect(s.ui.busy).toBe(0);
+  });
+});
+
+// A folder that opens by itself is the one quiet sync. A sync the user asks for stays exactly
+// as it was: asked for, waited on, and its errors shown.
+describe("the quiet flag of a sync", () => {
+  it("is off for a sync the user asks for", async () => {
+    const real = await vi.importActual<typeof import("./api")>("./api");
+    await real.api.syncNow("a", "INBOX");
+    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("sync_now", {
+      accountId: "a",
+      folder: "INBOX",
+      quiet: false,
+    });
+    await real.api.syncNow("a", "INBOX", true);
+    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("sync_now", {
+      accountId: "a",
+      folder: "INBOX",
+      quiet: true,
+    });
   });
 });
 

@@ -2980,6 +2980,53 @@ mod tests {
         assert_eq!(compact_flags(&series), [(FlagChange::Seen(true), vec![1])]);
     }
 
+    /// A mailbox paused by an error only the user can fix is not asked again by a folder
+    /// opening by itself, and such a sync does not take the user's place in the queue.
+    #[tokio::test]
+    async fn background_work_leaves_a_paused_mailbox_paused() {
+        let (reads, _reads_rx) = mpsc::channel(8);
+        let (urgent, mut urgent_rx) = mpsc::channel(8);
+        let (quiet, mut quiet_rx) = mpsc::channel(8);
+        let (background, _background_rx) = mpsc::channel(8);
+        let paused = Arc::new(AtomicBool::new(true));
+        let worker = Worker {
+            reads,
+            urgent,
+            quiet,
+            background,
+            queued: Queued::default(),
+            tasks: Arc::new(Vec::new()),
+            paused: paused.clone(),
+        };
+
+        let refused = worker.run_background(Work::SyncAll).await;
+        assert!(
+            matches!(refused, Err(Error::Paused)),
+            "the paused mailbox refuses the work"
+        );
+        assert!(paused.load(Ordering::Relaxed), "and stays paused");
+        assert!(
+            urgent_rx.try_recv().is_err(),
+            "nothing is queued among the user's actions"
+        );
+
+        // A mailbox that is not paused runs it, on the quiet line and not the urgent one.
+        paused.store(false, Ordering::Relaxed);
+        let run = async {
+            let mut call = std::pin::pin!(worker.run_background(Work::Quota));
+            tokio::select! {
+                _ = &mut call => panic!("nothing answers the quiet work here"),
+                item = quiet_rx.recv() => item,
+            }
+        };
+        let got = tokio::time::timeout(Duration::from_secs(1), run).await;
+        assert!(
+            matches!(got, Ok(Some((Work::Quota, _)))),
+            "the work goes to the quiet line"
+        );
+        assert!(urgent_rx.try_recv().is_err(), "no urgent work is queued");
+    }
+
     #[test]
     fn quiet_work_does_not_lift_the_network_pause() {
         let now = SystemTime::now();

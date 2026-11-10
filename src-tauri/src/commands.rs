@@ -2592,17 +2592,29 @@ pub fn offline_pause(state: St<'_>, account_id: String, paused: bool) -> CmdResu
 }
 
 #[tauri::command]
-pub async fn sync_now(state: St<'_>, account_id: Option<String>, folder: Option<String>) -> CmdResult<()> {
+pub async fn sync_now(
+    state: St<'_>,
+    account_id: Option<String>,
+    folder: Option<String>,
+    quiet: Option<bool>,
+) -> CmdResult<()> {
     let ids = match account_id {
         Some(id) => vec![id],
         None => state.accounts().into_iter().map(|a| a.id).collect(),
     };
+    let quiet = quiet.unwrap_or(false);
     for id in ids {
         let work = match &folder {
             Some(f) => Work::SyncFolder(f.clone()),
             None => Work::SyncAll,
         };
-        state.worker(&id)?.run(work).await?;
+        // A folder opening by itself is work nobody waits on: it queues behind the user's
+        // actions and does not lift the network pause, where a sync asked for does both.
+        if quiet {
+            state.worker(&id)?.run_background(work).await?;
+        } else {
+            state.worker(&id)?.run(work).await?;
+        }
     }
     Ok(())
 }

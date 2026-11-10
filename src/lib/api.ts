@@ -147,8 +147,9 @@ export const api = {
   updateInstall: () => call<UpdateStatus>("update_install"),
   updateRestart: () => call<void>("update_restart"),
   loadOlder: (accountId: string, folder: string) => call<number>("load_older", { accountId, folder }),
-  syncNow: (accountId?: string, folder?: string) =>
-    call<void>("sync_now", { accountId: accountId ?? null, folder: folder ?? null }),
+  /** `quiet`: work nobody asked for just now (a folder opening by itself) stays behind the user's actions. */
+  syncNow: (accountId?: string, folder?: string, quiet = false) =>
+    call<void>("sync_now", { accountId: accountId ?? null, folder: folder ?? null, quiet }),
   syncOverview: () => call<AccountSync[]>("sync_overview"),
   folderCreate: (accountId: string, parent: string | null, name: string) =>
     call<void>("folder_create", { accountId, parent, name }),

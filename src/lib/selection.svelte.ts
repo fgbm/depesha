@@ -130,9 +130,10 @@ export class SelectionController {
     this.cancelSync();
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      // Nothing is asked of the user here, so the sync stays off the progress line; a failure
-      // is shown by the tasks of the backend (tasks-changed), not here.
-      void api.syncNow(accountId, folder).catch(() => {});
+      // Nothing is asked of the user here, so the sync stays off the progress line and off the
+      // user's queue: it waits behind their actions and does not lift a network pause. A
+      // failure is shown by the tasks of the backend (tasks-changed), not here.
+      void api.syncNow(accountId, folder, true).catch(() => {});
     }, 300);
   }
 
