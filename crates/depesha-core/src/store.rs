@@ -1233,6 +1233,9 @@ pub struct Store {
     /// Flags changed here and not yet stored on the server: a sync in between
     /// must not bring the old value back.
     pending: Mutex<HashMap<(String, String, u32), PendingFlags>>,
+    /// Folders whose flag refusal the cache could not write down: only the full pass
+    /// `Store::begin_flags_reconcile` starts may take one out.
+    refused: Mutex<HashSet<(String, String)>>,
     /// The longest the connection was held at once, nanoseconds: every other call waits
     /// that long. See `take_longest_lock`.
     longest_lock: AtomicU64,
@@ -1354,12 +1357,22 @@ impl Store {
             conn: Mutex::new(conn),
             read: None,
             pending: Mutex::new(HashMap::new()),
+            refused: Mutex::new(HashSet::new()),
             longest_lock: AtomicU64::new(0),
         })
     }
 
     fn pending(&self) -> MutexGuard<'_, HashMap<(String, String, u32), PendingFlags>> {
         lock(&self.pending)
+    }
+
+    /// Never held while waiting for `conn` or `pending`; both may be held when it is taken.
+    fn refused(&self) -> MutexGuard<'_, HashSet<(String, String)>> {
+        lock(&self.refused)
+    }
+
+    fn is_refused(&self, account_id: &str, folder: &str) -> bool {
+        self.refused().contains(&(account_id.to_owned(), folder.to_owned()))
     }
 
     /// The connection the heavy reads use: a second one when the cache is a file (WAL
@@ -1573,6 +1586,8 @@ impl Store {
             FLAGS_REFUSED | FLAGS_RECONCILING => true,
             _ => false,
         };
+        // A refusal the cache could not write down is no less a refusal.
+        let full = full || self.is_refused(account_id, folder);
         Ok(ModSeqMark {
             modseq: if full { 0 } else { modseq as u64 },
             exists,
@@ -1586,9 +1601,12 @@ impl Store {
         // RFC 7162 keeps mod-sequences below 2^63; a larger one would read back negative.
         let modseq = i64::try_from(mark.modseq).unwrap_or(0);
         let conn = self.conn();
-        // A change written after this pass is not what it read: its folder keeps what it asked for.
+        // A change written after this pass is not what it read, and neither is a refusal it
+        // never saw: its folder keeps what it asked for.
         let pending = self.pending();
-        let reconciled = !pending.keys().any(|(a, f, _)| a == account_id && f == folder);
+        let refused = self.refused();
+        let reconciled = !pending.keys().any(|(a, f, _)| a == account_id && f == folder)
+            && !refused.contains(&(account_id.to_owned(), folder.to_owned()));
         conn.execute(
             "UPDATE folders SET highest_modseq = ?3, modseq_exists = ?4, modseq_uidnext = ?5,
                  flags_state = CASE WHEN ?6 AND flags_state = ?7 THEN ?8 ELSE flags_state END
@@ -1631,11 +1649,15 @@ impl Store {
              WHERE account_id = ?1 AND name = ?2",
             params![account_id, folder, FLAGS_UNCONFIRMED, FLAGS_REFUSED, FLAGS_RECONCILING],
         )?;
+        // The pass that began reads every flag: what this process refused is its work now.
+        self.refused().remove(&(account_id.to_owned(), folder.to_owned()));
         Ok(())
     }
 
     /// The server refused a flag change: only a pass over every flag can undo the local write.
     pub fn fail_flags(&self, account_id: &str, folder: &str) -> Result<()> {
+        // Before the write: a cache that cannot take the refusal still owes a full pass.
+        self.refused().insert((account_id.to_owned(), folder.to_owned()));
         self.conn().execute(
             "UPDATE folders SET flags_state = ?3 WHERE account_id = ?1 AND name = ?2",
             params![account_id, folder, FLAGS_REFUSED],
@@ -1661,13 +1683,16 @@ impl Store {
         clear_folder(&tx, account_id, folder)?;
         tx.commit()?;
         drop(conn);
-        self.forget_pending(account_id, Some(folder));
+        self.forget_flags(account_id, Some(folder));
         Ok(())
     }
 
-    fn forget_pending(&self, account_id: &str, folder: Option<&str>) {
+    /// Forgets what the process holds about the flags of a folder, or of the whole account.
+    fn forget_flags(&self, account_id: &str, folder: Option<&str>) {
         self.pending()
             .retain(|(a, f, _), _| a != account_id || folder.is_some_and(|folder| f != folder));
+        self.refused()
+            .retain(|(a, f)| a != account_id || folder.is_some_and(|folder| f != folder));
     }
 
     /// Lowest UID of the contiguous range synced from the newest end. Messages below it
@@ -1802,12 +1827,9 @@ impl Store {
         let flags = self.with_pending(account_id, folder, cached.into_iter());
         let written = write_flags(&tx, account_id, folder, &flags)?;
         if !uids.is_empty() {
-            // A refusal outranks the write; anything else leaves it unconfirmed, so the pass
-            // that may already have read the flags cannot take this change for read.
             tx.execute(
-                "UPDATE folders SET flags_state = CASE WHEN flags_state = ?4 THEN ?4 ELSE ?3 END
-                 WHERE account_id = ?1 AND name = ?2",
-                params![account_id, folder, FLAGS_UNCONFIRMED, FLAGS_REFUSED],
+                "UPDATE folders SET flags_state = MAX(flags_state, ?3) WHERE account_id = ?1 AND name = ?2",
+                params![account_id, folder, FLAGS_UNCONFIRMED],
             )?;
         }
         tx.commit()?;
@@ -2517,7 +2539,7 @@ impl Store {
         )?;
         tx.commit()?;
         drop(conn);
-        self.forget_pending(account_id, None);
+        self.forget_flags(account_id, None);
         Ok(())
     }
 
@@ -2562,7 +2584,7 @@ impl Store {
         tx.commit()?;
         drop(conn);
         for name in &changed {
-            self.forget_pending(account_id, Some(name));
+            self.forget_flags(account_id, Some(name));
         }
         Ok(changed)
     }
@@ -2608,7 +2630,7 @@ impl Store {
         ews_clear_folder(&tx, account_id, name)?;
         tx.commit()?;
         drop(conn);
-        self.forget_pending(account_id, Some(name));
+        self.forget_flags(account_id, Some(name));
         Ok(())
     }
 
@@ -5695,6 +5717,18 @@ mod tests {
             .unwrap();
     }
 
+    /// `folders.flags_state` of the folder: 0 clean, 1 unconfirmed, 2 refused, 3 reconciling.
+    fn flags_state(store: &Store, account_id: &str, folder: &str) -> i64 {
+        store
+            .conn()
+            .query_row(
+                "SELECT flags_state FROM folders WHERE account_id = ?1 AND name = ?2",
+                params![account_id, folder],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
     fn heal(store: &Store, table: &str) {
         store
             .conn()
@@ -6215,11 +6249,22 @@ mod tests {
         fail_on(&store, "UPDATE", "folders");
         assert!(store.fail_flags("a", "INBOX").is_err());
         heal(&store, "folders");
+        assert_eq!(
+            flags_state(&store, "a", "INBOX"),
+            3,
+            "the cache still says the pass is running"
+        );
+        assert!(store.is_refused("a", "INBOX"), "the refusal it could not write down");
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(
+            flags_state(&store, "a", "INBOX"),
+            3,
+            "a pass that read the flags before the click did not read the click"
+        );
         assert_eq!(
             store.modseq_mark("a", "INBOX").unwrap().modseq,
             0,
-            "a pass that read the flags before the click did not read the click"
+            "the folder is due though the state it kept is the one a pass ends"
         );
 
         // The next pass writes nothing into it: that one ends the folder clean.
@@ -6332,14 +6377,28 @@ mod tests {
         fail_on(&store, "UPDATE", "folders");
         assert!(store.fail_flags("a", "INBOX").is_err());
         heal(&store, "folders");
+        assert_eq!(flags_state(&store, "a", "INBOX"), 1, "the state the write left");
+        assert!(store.is_refused("a", "INBOX"), "the refusal kept by this process");
         assert_eq!(
             store.modseq_mark("a", "INBOX").unwrap().modseq,
             0,
             "nothing waits for the server and nothing confirmed it: the next pass is full"
         );
 
+        // A change the server took afterwards does not undo the refusal either.
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        store.confirm_flags("a", "INBOX").unwrap();
+        assert_eq!(flags_state(&store, "a", "INBOX"), 0, "the cache says nothing waits");
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "and the refusal in memory says it is not so"
+        );
+
         // Healed, the full pass that follows clears it.
         store.begin_flags_reconcile("a", "INBOX").unwrap();
+        assert!(!store.is_refused("a", "INBOX"), "the pass reads every flag now");
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
     }
@@ -6400,19 +6459,19 @@ mod tests {
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
         store.settle_flags("a", "INBOX", &[7]);
-        store.fail_flags("a", "INBOX").unwrap();
+        // A refusal this process kept because the cache could not take it goes too.
+        fail_on(&store, "UPDATE", "folders");
+        assert!(store.fail_flags("a", "INBOX").is_err());
+        heal(&store, "folders");
+        assert!(store.is_refused("a", "INBOX"));
         store.clear_folder("a", "INBOX").unwrap();
         // The messages the flag was set on are gone with it: the next pass is full anyway,
         // and a pass that ends clean leaves the folder clean.
-        let state: i64 = store
-            .conn()
-            .query_row(
-                "SELECT flags_state FROM folders WHERE account_id = 'a' AND name = 'INBOX'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(state, 0);
+        assert_eq!(flags_state(&store, "a", "INBOX"), 0);
+        assert!(
+            !store.is_refused("a", "INBOX"),
+            "the folder is forgotten with its messages"
+        );
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
     }
