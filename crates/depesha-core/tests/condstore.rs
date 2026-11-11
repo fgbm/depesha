@@ -735,6 +735,43 @@ async fn a_refused_flag_is_read_again_without_a_restart() {
 }
 
 #[tokio::test]
+async fn a_cache_from_the_step_before_the_flag_state_reads_its_flags_once() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.sqlite");
+    let mut conn = fx.connect().await;
+    {
+        let store = store_at(&path);
+        assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(20, 0, 0, 0));
+        // A flag written here, on its way to a server that never answers. The build of that
+        // time had no marker to say so.
+        store
+            .change_flags("a", "INBOX", &[5], FlagChange::Flagged(true))
+            .unwrap();
+    }
+    // The cache as that build left it: no marker, its version one below.
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch("ALTER TABLE folders DROP COLUMN flags_state; PRAGMA user_version = 29;")
+        .unwrap();
+    fx.commands();
+
+    // This build reads every folder it finds in full once, and that pass takes the flag back.
+    let store = Store::open(&path).unwrap();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 1, 0, 20));
+    assert_eq!(flag_fetches(&fx.commands()), ["UID FETCH 1:20 (UID FLAGS)"]);
+    assert!(
+        !store.find_by_uid("a", "INBOX", 5).unwrap().unwrap().flags.flagged,
+        "the server's flag, not the one it never stored"
+    );
+
+    // Once, not at every start.
+    fx.commands();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert_eq!(fx.commands(), ["SELECT \"INBOX\" (CONDSTORE)"]);
+}
+
+#[tokio::test]
 async fn a_folder_with_the_same_mod_sequence_counts_and_uidnext_costs_the_select_alone() {
     let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
     let mut conn = fx.connect().await;

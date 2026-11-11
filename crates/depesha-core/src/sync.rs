@@ -118,14 +118,12 @@ async fn sync_flags(
     store: &Store,
     account_id: &str,
     folder: &str,
-    saved: ModSeqMark,
-    mark: ModSeqMark,
+    pass: FlagPass,
     report: &mut FolderSync,
 ) -> Result<bool> {
     let mut expunges_known = true;
     if let Some((min, max)) = store.uid_range(account_id, folder)? {
         let range = format!("{min}:{max}");
-        let pass = flag_pass(saved, mark);
         let changes = match pass {
             FlagPass::Full => None,
             FlagPass::Unchanged => Some(imap::Changes::default()),
@@ -232,13 +230,20 @@ pub async fn sync_folder(
 
     // An unchanged mod-sequence says no flag changed; the same EXISTS and UIDNEXT say no
     // message came or went. Then the SELECT has told all, and the mark saved by the last
-    // pass is the one this pass would write back.
-    if flag_pass(saved, mark) == FlagPass::Unchanged && saved.exists == mark.exists && saved.uid_next == mark.uid_next {
+    // pass is the one this pass would write back. A folder due a full pass never takes it.
+    let pass = flag_pass(saved, mark);
+    if pass == FlagPass::Unchanged && saved.exists == mark.exists && saved.uid_next == mark.uid_next {
         return Ok(report);
     }
 
+    // The pass reads every flag: it says so until its end, so one broken off is done again,
+    // and a refusal that comes meanwhile is not cleared by it.
+    if pass == FlagPass::Full {
+        store.begin_flags_reconcile(account_id, folder)?;
+    }
+
     // Flags of cached messages. \Deleted counts as gone (servers without UIDPLUS keep them).
-    let expunges_known = sync_flags(conn, store, account_id, folder, saved, mark, &mut report).await?;
+    let expunges_known = sync_flags(conn, store, account_id, folder, pass, &mut report).await?;
 
     // New messages: everything above last_uid, or the newest N on the first run. Without
     // VANISHED the same answer tells whether anything the last pass saw was expunged.

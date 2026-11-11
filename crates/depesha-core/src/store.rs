@@ -520,10 +520,14 @@ fn v29_ews_headers(conn: &Connection) -> Result<()> {
 
 /// 30: whether a flag changed here still waits for the server (`folders.flags_state`):
 /// 0 nothing waits, 1 a local write the server has not confirmed, 2 a local write the
-/// server refused. The mod-sequence alone cannot ask for such a folder to be read again,
-/// so a dirty one is reconciled in full (`Store::modseq_mark`).
+/// server refused, 3 a full pass over the flags is running. The mod-sequence alone cannot
+/// ask for such a folder to be read again, so a dirty one is reconciled in full
+/// (`Store::modseq_mark`).
 fn v30_flags_state(conn: &Connection) -> Result<()> {
     add_column(conn, "folders", "flags_state", "INTEGER NOT NULL DEFAULT 0")?;
+    // A cache from before this step may hold a flag written here that the server never
+    // stored: every folder it has is read in full once, and clean folders cost that one pass.
+    conn.execute_batch("UPDATE folders SET flags_state = 1 WHERE flags_state = 0;")?;
     Ok(())
 }
 
@@ -607,11 +611,13 @@ pub struct ModSeqMark {
     pub uid_next: u32,
 }
 
-// `folders.flags_state`: nothing local waits for the server, a flag was written here and
-// the server has not answered yet, or the server refused it and every flag must be read.
+// `folders.flags_state`: nothing local waits for the server (0), a flag was written here and
+// the server has not answered (1), the server refused it (2), or a full pass over the flags
+// of the folder is running (3). Only 3 means the pass now running has read them all.
 const FLAGS_CLEAN: i64 = 0;
 const FLAGS_UNCONFIRMED: i64 = 1;
 const FLAGS_REFUSED: i64 = 2;
+const FLAGS_RECONCILING: i64 = 3;
 
 /// What taking a letter back out of the outbox came to.
 #[derive(Debug)]
@@ -1546,28 +1552,36 @@ impl Store {
 
     /// Where incremental sync of the folder resumes; `modseq == 0` when the next pass is full.
     pub fn modseq_mark(&self, account_id: &str, folder: &str) -> Result<ModSeqMark> {
-        Ok(self
-            .conn()
+        let conn = self.conn();
+        let stored: Option<(i64, u32, u32, i64)> = conn
             .query_row(
                 "SELECT highest_modseq, modseq_exists, modseq_uidnext, flags_state FROM folders
                  WHERE account_id = ?1 AND name = ?2",
                 params![account_id, folder],
-                |r| {
-                    // A refused flag write asks for every flag even when the server's mark did not move.
-                    let refused = r.get::<_, i64>(3)? == FLAGS_REFUSED;
-                    Ok(ModSeqMark {
-                        modseq: if refused { 0 } else { r.get::<_, i64>(0)? as u64 },
-                        exists: r.get(1)?,
-                        uid_next: r.get(2)?,
-                    })
-                },
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
-            .optional()?
-            .unwrap_or_default())
+            .optional()?;
+        let Some((modseq, exists, uid_next, state)) = stored else {
+            return Ok(ModSeqMark::default());
+        };
+        let pending = self.pending();
+        let waiting = pending.keys().any(|(a, f, _)| a == account_id && f == folder);
+        // A waiting write keeps the mark and its optimistic flags. A refused folder, one whose
+        // write nothing confirmed, and one a full pass is reading are all due a full pass.
+        let full = match state {
+            FLAGS_UNCONFIRMED => !waiting,
+            FLAGS_REFUSED | FLAGS_RECONCILING => true,
+            _ => false,
+        };
+        Ok(ModSeqMark {
+            modseq: if full { 0 } else { modseq as u64 },
+            exists,
+            uid_next,
+        })
     }
 
-    /// Saved after a pass has done all it read: an interrupted one is repeated. A folder
-    /// whose flag waited for the server is clean once nothing waits there.
+    /// Saved after a pass has done all it read: an interrupted one is repeated. Only the pass
+    /// that read every flag of the folder clears it, and only while nothing waits in it.
     pub fn set_modseq_mark(&self, account_id: &str, folder: &str, mark: ModSeqMark) -> Result<()> {
         // RFC 7162 keeps mod-sequences below 2^63; a larger one would read back negative.
         let modseq = i64::try_from(mark.modseq).unwrap_or(0);
@@ -1577,7 +1591,7 @@ impl Store {
         let reconciled = !pending.keys().any(|(a, f, _)| a == account_id && f == folder);
         conn.execute(
             "UPDATE folders SET highest_modseq = ?3, modseq_exists = ?4, modseq_uidnext = ?5,
-                 flags_state = CASE WHEN ?6 THEN ?7 ELSE flags_state END
+                 flags_state = CASE WHEN ?6 AND flags_state = ?7 THEN ?8 ELSE flags_state END
              WHERE account_id = ?1 AND name = ?2",
             params![
                 account_id,
@@ -1586,6 +1600,7 @@ impl Store {
                 mark.exists,
                 mark.uid_next,
                 reconciled,
+                FLAGS_RECONCILING,
                 FLAGS_CLEAN
             ],
         )?;
@@ -1603,6 +1618,18 @@ impl Store {
         conn.execute(
             "UPDATE folders SET flags_state = ?3 WHERE account_id = ?1 AND name = ?2 AND flags_state = ?4",
             params![account_id, folder, FLAGS_CLEAN, FLAGS_UNCONFIRMED],
+        )?;
+        Ok(())
+    }
+
+    /// A full pass over the folder's flags is starting: a broken one repeats, and a refusal
+    /// that comes while it runs is not cleared by its end.
+    pub fn begin_flags_reconcile(&self, account_id: &str, folder: &str) -> Result<()> {
+        self.conn().execute(
+            "UPDATE folders SET highest_modseq = 0,
+                 flags_state = CASE WHEN flags_state IN (?3, ?4) THEN ?5 ELSE flags_state END
+             WHERE account_id = ?1 AND name = ?2",
+            params![account_id, folder, FLAGS_UNCONFIRMED, FLAGS_REFUSED, FLAGS_RECONCILING],
         )?;
         Ok(())
     }
@@ -1775,9 +1802,12 @@ impl Store {
         let flags = self.with_pending(account_id, folder, cached.into_iter());
         let written = write_flags(&tx, account_id, folder, &flags)?;
         if !uids.is_empty() {
+            // A refusal outranks the write; anything else leaves it unconfirmed, so the pass
+            // that may already have read the flags cannot take this change for read.
             tx.execute(
-                "UPDATE folders SET flags_state = MAX(flags_state, ?3) WHERE account_id = ?1 AND name = ?2",
-                params![account_id, folder, FLAGS_UNCONFIRMED],
+                "UPDATE folders SET flags_state = CASE WHEN flags_state = ?4 THEN ?4 ELSE ?3 END
+                 WHERE account_id = ?1 AND name = ?2",
+                params![account_id, folder, FLAGS_UNCONFIRMED, FLAGS_REFUSED],
             )?;
         }
         tx.commit()?;
@@ -6076,6 +6106,7 @@ mod tests {
         );
 
         // A clean folder keeps its mark across the same restart.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         drop(store);
         let store = Store::open(&path).unwrap();
@@ -6112,6 +6143,7 @@ mod tests {
         );
 
         // The pass that read every flag ends with nothing waiting: the folder is clean.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
     }
@@ -6149,12 +6181,51 @@ mod tests {
         store.settle_flags("a", "INBOX", &[8]);
         store.confirm_flags("a", "INBOX").unwrap();
         assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0, "still due");
+        // The full pass that begins and ends with nothing waiting clears it.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         assert_eq!(
             store.modseq_mark("a", "INBOX").unwrap(),
             mark,
-            "the clean pass clears it"
+            "the full pass clears it"
         );
+    }
+
+    #[test]
+    fn a_write_during_the_full_pass_is_not_cleared_by_its_end() {
+        let store = mailbox();
+        put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        let mark = ModSeqMark {
+            modseq: 90,
+            exists: 3,
+            uid_next: 4,
+        };
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        // A folder the server refused: the pass that begins is its reconciliation.
+        store
+            .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
+            .unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        store.fail_flags("a", "INBOX").unwrap();
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+
+        // A click lands while that pass runs, and the cache cannot take its refusal.
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        fail_on(&store, "UPDATE", "folders");
+        assert!(store.fail_flags("a", "INBOX").is_err());
+        heal(&store, "folders");
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "a pass that read the flags before the click did not read the click"
+        );
+
+        // The next pass writes nothing into it: that one ends the folder clean.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
     }
 
     #[test]
@@ -6176,6 +6247,145 @@ mod tests {
             "neither the flags nor the mark of the write it could not take"
         );
         assert!(store.pending().is_empty());
+    }
+
+    #[test]
+    fn a_refusal_that_comes_while_a_pass_runs_survives_its_end() {
+        let store = mailbox();
+        put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        let mark = ModSeqMark {
+            modseq: 90,
+            exists: 3,
+            uid_next: 4,
+        };
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        store
+            .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
+            .unwrap();
+        // The incremental pass reads the mark a waiting write keeps.
+        let saved = store.modseq_mark("a", "INBOX").unwrap();
+        assert_eq!(saved, mark);
+
+        // The server answers NO while that pass is in flight, and the pass ends after it.
+        store.settle_flags("a", "INBOX", &[7]);
+        store.fail_flags("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", saved).unwrap();
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "a pass that ended never read the refused flags, so the folder is still due"
+        );
+
+        // The full pass that follows is what clears it.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", saved).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), saved);
+    }
+
+    #[test]
+    fn a_full_pass_that_broke_off_is_read_again() {
+        let store = mailbox();
+        put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        let mark = ModSeqMark {
+            modseq: 90,
+            exists: 3,
+            uid_next: 4,
+        };
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        store
+            .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
+            .unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        store.fail_flags("a", "INBOX").unwrap();
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        // Broken off before its end: the folder still asks for the whole pass.
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0);
+
+        // A refusal that comes while the pass runs is not cleared by its end.
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        store.fail_flags("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "the pass did not read the flags the second refusal is about"
+        );
+    }
+
+    #[test]
+    fn a_refusal_the_cache_could_not_take_still_asks_for_a_full_pass() {
+        let store = mailbox();
+        put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        let mark = ModSeqMark {
+            modseq: 90,
+            exists: 3,
+            uid_next: 4,
+        };
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        store
+            .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
+            .unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+
+        // The cache cannot take the refusal at all: the marker stays what the write left.
+        fail_on(&store, "UPDATE", "folders");
+        assert!(store.fail_flags("a", "INBOX").is_err());
+        heal(&store, "folders");
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "nothing waits for the server and nothing confirmed it: the next pass is full"
+        );
+
+        // Healed, the full pass that follows clears it.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+    }
+
+    #[test]
+    fn a_cache_of_the_step_before_the_flag_state_reads_every_folder_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        let mark = ModSeqMark {
+            modseq: 41,
+            exists: 3,
+            uid_next: 4,
+        };
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            migrate(&mut conn, &MIGRATIONS[..MIGRATIONS.len() - 1]).unwrap();
+            conn.execute_batch(
+                "INSERT INTO folders (account_id, name, display_name, selectable, uidvalidity, last_uid)
+                     VALUES ('a', 'INBOX', 'INBOX', 1, 7, 7);
+                 UPDATE folders SET highest_modseq = 41, modseq_exists = 3, modseq_uidnext = 4;",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "a folder that was there before the marker may hold a flag the server never took"
+        );
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().exists,
+            3,
+            "the rest of the mark stays"
+        );
+
+        // One pass over every flag, and the folder keeps its mark again.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+
+        // A folder made after the upgrade is clean from the start.
+        store
+            .replace_folders("a", &[folder("INBOX", None), folder("Sent", Some(FolderRole::Sent))])
+            .unwrap();
+        store.set_modseq_mark("a", "Sent", mark).unwrap();
+        assert_eq!(store.modseq_mark("a", "Sent").unwrap(), mark);
     }
 
     #[test]
