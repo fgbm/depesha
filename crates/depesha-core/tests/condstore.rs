@@ -643,6 +643,69 @@ async fn after_a_restart_an_unchanged_folder_costs_no_flag_fetch() {
 }
 
 #[tokio::test]
+async fn a_folder_with_the_same_mod_sequence_counts_and_uidnext_costs_the_select_alone() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(20, 0, 0, 0));
+    let mark = store.modseq_mark("a", "INBOX").unwrap();
+    let state = store.folder_state("a", "INBOX").unwrap();
+    fx.commands();
+
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert_eq!(fx.commands(), ["SELECT \"INBOX\" (CONDSTORE)"], "nothing to ask");
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+    assert_eq!(store.folder_state("a", "INBOX").unwrap(), state);
+}
+
+#[tokio::test]
+async fn the_same_mod_sequence_with_a_message_expunged_is_not_taken_for_no_change() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    let saved = store.modseq_mark("a", "INBOX").unwrap();
+
+    // An expunge that left HIGHESTMODSEQ where it was: only EXISTS tells of it.
+    fx.with("INBOX", |m| {
+        m.expunge(9);
+        m.highest = saved.modseq;
+    });
+    fx.commands();
+
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 1, 0));
+    assert!(
+        fx.commands().iter().any(|c| c.starts_with("UID SEARCH UID ")),
+        "EXISTS is the only hint left"
+    );
+    assert!(store.find_by_uid("a", "INBOX", 9).unwrap().is_none());
+    assert_eq!(store.known_uids("a", "INBOX").unwrap().len(), 19);
+}
+
+#[tokio::test]
+async fn the_same_mod_sequence_and_exists_with_new_mail_is_not_taken_for_no_change() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    let saved = store.modseq_mark("a", "INBOX").unwrap();
+
+    // One gone and one come: EXISTS is the same, UIDNEXT is not, and HIGHESTMODSEQ was
+    // left where it was too.
+    fx.with("INBOX", |m| {
+        m.expunge(9);
+        m.add(&[]);
+        m.highest = saved.modseq;
+    });
+    fx.commands();
+
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(1, 0, 1, 0));
+    assert!(store.find_by_uid("a", "INBOX", 9).unwrap().is_none());
+    assert!(store.find_by_uid("a", "INBOX", 21).unwrap().is_some());
+    assert_eq!(store.known_uids("a", "INBOX").unwrap().len(), 20);
+}
+
+#[tokio::test]
 async fn what_another_client_changed_while_closed_comes_incrementally_after_a_restart() {
     let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 25)]).await;
     let dir = tempfile::tempdir().unwrap();

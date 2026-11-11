@@ -230,6 +230,13 @@ pub async fn sync_folder(
         return Ok(report);
     }
 
+    // An unchanged mod-sequence says no flag changed; the same EXISTS and UIDNEXT say no
+    // message came or went. Then the SELECT has told all, and the mark saved by the last
+    // pass is the one this pass would write back.
+    if flag_pass(saved, mark) == FlagPass::Unchanged && saved.exists == mark.exists && saved.uid_next == mark.uid_next {
+        return Ok(report);
+    }
+
     // Flags of cached messages. \Deleted counts as gone (servers without UIDPLUS keep them).
     let expunges_known = sync_flags(conn, store, account_id, folder, saved, mark, &mut report).await?;
 
