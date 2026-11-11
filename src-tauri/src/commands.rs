@@ -2591,6 +2591,41 @@ pub fn offline_pause(state: St<'_>, account_id: String, paused: bool) -> CmdResu
     Ok(())
 }
 
+// The accounts run at once so that a slow mailbox does not hold the others. All of them are
+// waited for even when some fail, and the failure reported is the first in `ids` order, so a
+// mailbox that answers quickly does not decide which error the user sees.
+async fn sync_accounts<F, Fut>(ids: Vec<String>, sync: F) -> CmdResult<()>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = CmdResult<()>> + Send + 'static,
+{
+    let queued = ids.len();
+    let mut set = tokio::task::JoinSet::new();
+    for (i, id) in ids.into_iter().enumerate() {
+        let job = sync(id);
+        set.spawn(async move { (i, job.await) });
+    }
+    let mut failures: Vec<Option<CmdError>> = (0..queued).map(|_| None).collect();
+    let mut cancelled = false;
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok((i, Err(err))) => failures[i] = Some(err),
+            Ok((_, Ok(()))) => {}
+            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+            // Nothing aborts these tasks, so one that went away is a queue that is gone: the
+            // same closed worker the callers have always been told about.
+            Err(_) => cancelled = true,
+        }
+    }
+    if let Some(err) = failures.into_iter().flatten().next() {
+        return Err(err);
+    }
+    if cancelled {
+        return Err(depesha_core::Error::Closed.into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn sync_now(
     state: St<'_>,
@@ -2603,20 +2638,26 @@ pub async fn sync_now(
         None => state.accounts().into_iter().map(|a| a.id).collect(),
     };
     let quiet = quiet.unwrap_or(false);
-    for id in ids {
-        let work = match &folder {
-            Some(f) => Work::SyncFolder(f.clone()),
-            None => Work::SyncAll,
-        };
-        // A folder opening by itself is work nobody waits on: it queues behind the user's
-        // actions and does not lift the network pause, where a sync asked for does both.
-        if quiet {
-            state.worker(&id)?.run_background(work).await?;
-        } else {
-            state.worker(&id)?.run(work).await?;
+    let app = state.inner().clone();
+    sync_accounts(ids, move |id| {
+        let app = app.clone();
+        let folder = folder.clone();
+        async move {
+            let work = match &folder {
+                Some(f) => Work::SyncFolder(f.clone()),
+                None => Work::SyncAll,
+            };
+            // A folder opening by itself is work nobody waits on: it queues behind the user's
+            // actions and does not lift the network pause, where a sync asked for does both.
+            if quiet {
+                app.worker(&id)?.run_background(work).await?;
+            } else {
+                app.worker(&id)?.run(work).await?;
+            }
+            Ok(())
         }
-    }
-    Ok(())
+    })
+    .await
 }
 
 /// The "Server" and "Storage" sections of a mailbox's page, as the cache knows them.
@@ -5946,5 +5987,83 @@ mod tests {
         assert!(err.message.contains("is gone or cannot be reached"), "{}", err.message);
         assert!(err.message.contains("нет такой папки"), "{}", err.message);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// What `sync_now` promises about several accounts: they run at once, each finishes, and the
+/// error is the first account's in the list rather than the first to come back.
+#[cfg(test)]
+mod sync_accounts_tests {
+    use super::*;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::sync::{Barrier, Notify};
+
+    /// How long a broken implementation may block before the test calls it a failure.
+    const BOUND: Duration = Duration::from_secs(5);
+
+    fn ids(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[tokio::test]
+    async fn the_second_account_starts_before_the_first_finishes() {
+        let inside = Arc::new(Barrier::new(3));
+        let running = Arc::new(AtomicUsize::new(0));
+        let (b, r) = (inside.clone(), running.clone());
+        let call = sync_accounts(ids(&["a", "b"]), move |_| {
+            let (b, r) = (b.clone(), r.clone());
+            async move {
+                r.fetch_add(1, Ordering::SeqCst);
+                // Neither account returns until both are inside their work.
+                b.wait().await;
+                Ok(())
+            }
+        });
+        let both = async {
+            let (result, _) = tokio::join!(call, inside.wait());
+            result
+        };
+        tokio::time::timeout(BOUND, both)
+            .await
+            .expect("the second account waits for the first to finish")
+            .unwrap();
+        assert_eq!(running.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn every_account_finishes_and_the_first_failure_is_the_one_reported() {
+        // Held by the account that fails first, so the account that failed earlier in `ids`
+        // fails last.
+        let failed_fast = Arc::new(Notify::new());
+        let finished = Arc::new(Mutex::new(Vec::new()));
+        let (f, done) = (failed_fast.clone(), finished.clone());
+        let call = sync_accounts(ids(&["a", "b", "c"]), move |id| {
+            let (f, done) = (f.clone(), done.clone());
+            async move {
+                let outcome = match id.as_str() {
+                    "a" => {
+                        f.notified().await;
+                        Err(CmdError::new(depesha_core::ErrorKind::Other, "a failed"))
+                    }
+                    "c" => {
+                        f.notify_one();
+                        Err(CmdError::new(depesha_core::ErrorKind::Other, "c failed"))
+                    }
+                    _ => Ok(()),
+                };
+                done.lock().unwrap().push(id);
+                outcome
+            }
+        });
+        let err = tokio::time::timeout(BOUND, call)
+            .await
+            .expect("an account was still running after the call came back")
+            .unwrap_err();
+        assert_eq!(err.message, "a failed");
+        let mut finished = finished.lock().unwrap().clone();
+        finished.sort();
+        assert_eq!(finished, ids(&["a", "b", "c"]));
     }
 }
