@@ -1325,9 +1325,6 @@ impl Store {
         // counted as a migration: `user_version` does not move, so a cache with it opens
         // in 0.8.2, which never reads it.
         snippets::schema(&conn)?;
-        // The first pass over a folder after start is full: a mod-sequence the server or
-        // this client got wrong is not carried from one run to the next.
-        conn.execute("UPDATE folders SET highest_modseq = 0 WHERE highest_modseq != 0", [])?;
         Ok(Self {
             conn: Mutex::new(conn),
             read: None,
@@ -5940,7 +5937,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mod_sequence_is_forgotten_with_the_folder_and_at_the_next_start() {
+    fn a_mod_sequence_survives_a_restart_and_is_forgotten_with_the_folder() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mail.sqlite");
         let store = Store::open(&path).unwrap();
@@ -5964,7 +5961,7 @@ mod tests {
 
         drop(store);
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0, "a new start");
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark, "kept across a restart");
         assert_eq!(store.folder_state("a", "INBOX").unwrap(), (5, 30));
 
         store.set_modseq_mark("a", "INBOX", mark).unwrap();

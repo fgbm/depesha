@@ -277,8 +277,9 @@ pub async fn sync_folder(
 /// How the flags of cached messages are brought up to date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FlagPass {
-    /// All of them: no CONDSTORE, NOMODSEQ, the first pass since start or since
-    /// UIDVALIDITY changed, or the server's HIGHESTMODSEQ went back (a restored mailbox).
+    /// All of them: no CONDSTORE, NOMODSEQ, no mod-sequence saved for this folder yet
+    /// (the first pass in this cache, or after UIDVALIDITY changed), or the server's
+    /// HIGHESTMODSEQ went back (a restored mailbox).
     Full,
     /// HIGHESTMODSEQ is the same: no flag changed.
     Unchanged,

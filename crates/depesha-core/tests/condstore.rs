@@ -333,6 +333,25 @@ async fn sync(conn: &mut Conn, store: &Store, folder: &str) -> FolderSync {
     sync::sync_folder(conn, store, "a", folder, options()).await.unwrap()
 }
 
+/// A cache on disk holding `INBOX`, as the app has between runs.
+fn store_at(path: &std::path::Path) -> Store {
+    let store = Store::open(path).unwrap();
+    store
+        .replace_folders(
+            "a",
+            &[Folder {
+                name: "INBOX".into(),
+                display_name: "INBOX".into(),
+                delimiter: None,
+                role: None,
+                selectable: true,
+                hidden: false,
+            }],
+        )
+        .unwrap();
+    store
+}
+
 fn flag_fetches(commands: &[String]) -> Vec<&String> {
     commands
         .iter()
@@ -598,31 +617,63 @@ async fn a_local_flag_the_server_has_not_stored_survives_an_incremental_pass() {
 }
 
 #[tokio::test]
-async fn the_first_pass_after_start_is_full_and_the_next_incremental() {
+async fn after_a_restart_an_unchanged_folder_costs_no_flag_fetch() {
     let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mail.sqlite");
     let mut conn = fx.connect().await;
     {
-        let store = Store::open(&path).unwrap();
-        store
-            .replace_folders(
-                "a",
-                &[Folder {
-                    name: "INBOX".into(),
-                    display_name: "INBOX".into(),
-                    delimiter: None,
-                    role: None,
-                    selectable: true,
-                    hidden: false,
-                }],
-            )
-            .unwrap();
-        sync(&mut conn, &store, "INBOX").await;
+        let store = store_at(&path);
+        assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(20, 0, 0, 0));
+        assert_ne!(store.modseq_mark("a", "INBOX").unwrap(), ModSeqMark::default());
     }
+    fx.commands();
+
+    // A mod-sequence outlives the process: nothing changed, so nothing is asked.
     let store = Store::open(&path).unwrap();
-    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 20));
     assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    let commands = fx.commands();
+    assert!(
+        !commands.iter().any(|c| c.starts_with("UID FETCH")),
+        "the counts cannot show a full fetch that found no change: {commands:?}"
+    );
+
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert!(!fx.commands().iter().any(|c| c.starts_with("UID FETCH")));
+}
+
+#[tokio::test]
+async fn what_another_client_changed_while_closed_comes_incrementally_after_a_restart() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 25)]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.sqlite");
+    let mut conn = fx.connect().await;
+    let saved = {
+        let store = store_at(&path);
+        assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(25, 0, 0, 0));
+        store.modseq_mark("a", "INBOX").unwrap()
+    };
+
+    // While Depesha is closed: one letter flagged elsewhere, another expunged.
+    fx.with("INBOX", |m| {
+        m.set_flags(7, &["\\Seen"]);
+        m.expunge(9);
+    });
+    fx.commands();
+
+    let store = Store::open(&path).unwrap();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 1, 1, 1));
+    assert_eq!(
+        flag_fetches(&fx.commands()),
+        [&format!(
+            "UID FETCH 1:25 (UID FLAGS) (CHANGEDSINCE {} VANISHED)",
+            saved.modseq
+        )],
+        "from the mark saved before the restart, not a full pass"
+    );
+    assert!(store.find_by_uid("a", "INBOX", 7).unwrap().unwrap().flags.seen);
+    assert!(store.find_by_uid("a", "INBOX", 9).unwrap().is_none());
+    assert_eq!(store.known_uids("a", "INBOX").unwrap().len(), 24);
 }
 
 #[test]
