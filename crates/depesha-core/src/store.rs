@@ -1628,9 +1628,13 @@ impl Store {
     /// The server stored a flag change: the folder is clean once no other change waits in it.
     pub fn confirm_flags(&self, account_id: &str, folder: &str) -> Result<()> {
         let conn = self.conn();
-        // A change written after this look is not the one confirmed: the folder stays dirty.
+        // A change written after this look is not the one confirmed, nor is a refusal this
+        // process could not write down: the folder stays dirty for both.
         let pending = self.pending();
-        if pending.keys().any(|(a, f, _)| a == account_id && f == folder) {
+        let refused = self.refused();
+        if pending.keys().any(|(a, f, _)| a == account_id && f == folder)
+            || refused.contains(&(account_id.to_owned(), folder.to_owned()))
+        {
             return Ok(());
         }
         conn.execute(
@@ -6360,6 +6364,65 @@ mod tests {
 
     #[test]
     fn a_refusal_the_cache_could_not_take_still_asks_for_a_full_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        let mark = ModSeqMark {
+            modseq: 90,
+            exists: 3,
+            uid_next: 4,
+        };
+        {
+            let store = Store::open(&path).unwrap();
+            store
+                .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+                .unwrap();
+            put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+            store.set_modseq_mark("a", "INBOX", mark).unwrap();
+            store
+                .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
+                .unwrap();
+            store.settle_flags("a", "INBOX", &[7]);
+
+            // The cache cannot take the refusal at all: the marker stays what the write left.
+            fail_on(&store, "UPDATE", "folders");
+            assert!(store.fail_flags("a", "INBOX").is_err());
+            heal(&store, "folders");
+            assert_eq!(flags_state(&store, "a", "INBOX"), 1, "the state the write left");
+            assert!(store.is_refused("a", "INBOX"), "the refusal kept by this process");
+
+            // A change the server took afterwards confirms nothing: the folder is not clean.
+            store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+            store.settle_flags("a", "INBOX", &[7]);
+            store.confirm_flags("a", "INBOX").unwrap();
+            assert_eq!(
+                flags_state(&store, "a", "INBOX"),
+                1,
+                "a confirm does not erase the refusal this process keeps"
+            );
+            assert_eq!(
+                store.modseq_mark("a", "INBOX").unwrap().modseq,
+                0,
+                "nothing is confirmed while the refusal is here"
+            );
+        }
+
+        // The marker dies with the process: the state it left must keep the folder due.
+        let store = Store::open(&path).unwrap();
+        assert!(!store.is_refused("a", "INBOX"), "memory is empty after the restart");
+        assert_eq!(
+            store.modseq_mark("a", "INBOX").unwrap().modseq,
+            0,
+            "the reopened cache reads every flag rather than trusting the old mark"
+        );
+
+        // The full pass that follows is what makes the folder clean.
+        store.begin_flags_reconcile("a", "INBOX").unwrap();
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+    }
+
+    #[test]
+    fn a_refusal_recorded_before_the_change_stops_waiting_is_not_confirmed_away() {
         let store = mailbox();
         put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
         let mark = ModSeqMark {
@@ -6371,36 +6434,20 @@ mod tests {
         store
             .change_flags("a", "INBOX", &[7], FlagChange::Flagged(true))
             .unwrap();
-        store.settle_flags("a", "INBOX", &[7]);
 
-        // The cache cannot take the refusal at all: the marker stays what the write left.
-        fail_on(&store, "UPDATE", "folders");
-        assert!(store.fail_flags("a", "INBOX").is_err());
-        heal(&store, "folders");
-        assert_eq!(flags_state(&store, "a", "INBOX"), 1, "the state the write left");
-        assert!(store.is_refused("a", "INBOX"), "the refusal kept by this process");
-        assert_eq!(
-            store.modseq_mark("a", "INBOX").unwrap().modseq,
-            0,
-            "nothing waits for the server and nothing confirmed it: the next pass is full"
-        );
-
-        // A change the server took afterwards does not undo the refusal either.
-        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        // The order `flag_group` keeps on a failure: the refusal is recorded while the change
+        // still waits, so a confirm from another command in between finds the folder refused.
+        store.fail_flags("a", "INBOX").unwrap();
+        store.confirm_flags("a", "INBOX").unwrap();
+        assert_eq!(flags_state(&store, "a", "INBOX"), 2, "a confirm between the two");
         store.settle_flags("a", "INBOX", &[7]);
         store.confirm_flags("a", "INBOX").unwrap();
-        assert_eq!(flags_state(&store, "a", "INBOX"), 0, "the cache says nothing waits");
         assert_eq!(
-            store.modseq_mark("a", "INBOX").unwrap().modseq,
-            0,
-            "and the refusal in memory says it is not so"
+            flags_state(&store, "a", "INBOX"),
+            2,
+            "and after the change stopped waiting"
         );
-
-        // Healed, the full pass that follows clears it.
-        store.begin_flags_reconcile("a", "INBOX").unwrap();
-        assert!(!store.is_refused("a", "INBOX"), "the pass reads every flag now");
-        store.set_modseq_mark("a", "INBOX", mark).unwrap();
-        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0);
     }
 
     #[test]

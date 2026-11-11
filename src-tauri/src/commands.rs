@@ -1801,15 +1801,17 @@ async fn flag_group(
             change,
         })
         .await;
-    state.store.settle_flags(account_id, folder, uids);
     if done.is_ok() {
+        state.store.settle_flags(account_id, folder, uids);
         // The action went through: whatever refusal was remembered here is over (#42).
         best_effort("forget the refusal", state.store.clear_refusal(account_id, folder));
         // Nothing of this folder waits for the server: a pass after a restart may skip its flags.
         best_effort("confirm the flags", state.store.confirm_flags(account_id, folder));
     } else {
-        // The local flag the server refused must not stand: the next pass reads every one.
+        // The refusal first: recorded here, another command of the folder cannot confirm it
+        // away while this change still waits.
         best_effort("ask for a full pass", state.store.fail_flags(account_id, folder));
+        state.store.settle_flags(account_id, folder, uids);
     }
     done.map(|_| ())
 }
