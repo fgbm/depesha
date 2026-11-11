@@ -1435,6 +1435,11 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
                 .store
                 .change_flags(&account_id, &folder, &uids, FlagChange::Seen(value))?;
             state.store.settle_flags(&account_id, &folder, &uids);
+            // The read mark of the folder is the authority here: no pass has anything to undo.
+            best_effort(
+                "confirm the local flags",
+                state.store.confirm_flags(&account_id, &folder),
+            );
             state.emit(
                 "mail-changed",
                 serde_json::json!({ "account_id": account_id, "folder": folder }),
@@ -1800,6 +1805,11 @@ async fn flag_group(
     if done.is_ok() {
         // The action went through: whatever refusal was remembered here is over (#42).
         best_effort("forget the refusal", state.store.clear_refusal(account_id, folder));
+        // Nothing of this folder waits for the server: a pass after a restart may skip its flags.
+        best_effort("confirm the flags", state.store.confirm_flags(account_id, folder));
+    } else {
+        // The local flag the server refused must not stand: the next pass reads every one.
+        best_effort("ask for a full pass", state.store.fail_flags(account_id, folder));
     }
     done.map(|_| ())
 }

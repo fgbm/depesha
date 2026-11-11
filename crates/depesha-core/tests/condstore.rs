@@ -643,6 +643,98 @@ async fn after_a_restart_an_unchanged_folder_costs_no_flag_fetch() {
 }
 
 #[tokio::test]
+async fn a_flag_the_server_never_took_is_taken_back_after_a_restart() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.sqlite");
+    let mut conn = fx.connect().await;
+    let saved = {
+        let store = store_at(&path);
+        assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(20, 0, 0, 0));
+        // Written here, on its way to a server that never answers: the process ends.
+        store
+            .change_flags("a", "INBOX", &[5], FlagChange::Flagged(true))
+            .unwrap();
+        assert!(store.find_by_uid("a", "INBOX", 5).unwrap().unwrap().flags.flagged);
+        store.modseq_mark("a", "INBOX").unwrap()
+    };
+    fx.commands();
+
+    // The server's mark is where it was; the local write it never took must not stand.
+    let store = Store::open(&path).unwrap();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 1, 0, 20));
+    assert_eq!(flag_fetches(&fx.commands()), ["UID FETCH 1:20 (UID FLAGS)"]);
+    assert!(
+        !store.find_by_uid("a", "INBOX", 5).unwrap().unwrap().flags.flagged,
+        "the server's flag, not the one it never stored"
+    );
+
+    // Reconciled: the mark is the server's again, and the next pass is the SELECT alone.
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), saved);
+    fx.commands();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert_eq!(fx.commands(), ["SELECT \"INBOX\" (CONDSTORE)"]);
+}
+
+#[tokio::test]
+async fn a_flag_the_server_stored_before_the_restart_costs_no_flag_fetch() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.sqlite");
+    let mut conn = fx.connect().await;
+    {
+        let store = store_at(&path);
+        sync(&mut conn, &store, "INBOX").await;
+        // Already read on the server: the mark does not move when it is set again here.
+        fx.with("INBOX", |m| m.set_flags(5, &["\\Seen"]));
+        sync(&mut conn, &store, "INBOX").await;
+        store.change_flags("a", "INBOX", &[5], FlagChange::Seen(true)).unwrap();
+        // The server takes it and answers before the process ends.
+        store.settle_flags("a", "INBOX", &[5]);
+        store.confirm_flags("a", "INBOX").unwrap();
+    }
+    fx.commands();
+
+    let store = Store::open(&path).unwrap();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert_eq!(
+        fx.commands(),
+        ["SELECT \"INBOX\" (CONDSTORE)"],
+        "a stored flag asks for nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_flag_is_read_again_without_a_restart() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(20, 0, 0, 0));
+    let mark = store.modseq_mark("a", "INBOX").unwrap();
+
+    // The server said NO and its mod-sequence did not move.
+    store
+        .change_flags("a", "INBOX", &[5], FlagChange::Flagged(true))
+        .unwrap();
+    store.settle_flags("a", "INBOX", &[5]);
+    store.fail_flags("a", "INBOX").unwrap();
+    fx.commands();
+
+    // The sync kicked by the refusal: every flag, not the ones changed since the mark.
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 1, 0, 20));
+    assert_eq!(flag_fetches(&fx.commands()), ["UID FETCH 1:20 (UID FLAGS)"]);
+    assert!(
+        !store.find_by_uid("a", "INBOX", 5).unwrap().unwrap().flags.flagged,
+        "the server's flag, not the one it refused"
+    );
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark, "reconciled");
+
+    fx.commands();
+    assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
+    assert_eq!(fx.commands(), ["SELECT \"INBOX\" (CONDSTORE)"]);
+}
+
+#[tokio::test]
 async fn a_folder_with_the_same_mod_sequence_counts_and_uidnext_costs_the_select_alone() {
     let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 20)]).await;
     let mut conn = fx.connect().await;
