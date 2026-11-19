@@ -6,6 +6,7 @@
 
 use depesha_core::{mailbox_tag, unheard};
 use std::collections::{HashSet, VecDeque};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
@@ -888,6 +889,37 @@ async fn next(
     }
 }
 
+async fn sync_or_read(
+    reads: &mut mpsc::Receiver<(Work, Reply)>,
+    opens: &OpenSeqs,
+    sync: impl std::future::Future<Output = Result<Output>>,
+) -> ControlFlow<(Work, Reply), Result<Output>> {
+    let live_read = async {
+        while let Some((work, reply)) = reads.recv().await {
+            if reply.is_closed() {
+                continue;
+            }
+            if let Work::LoadBody {
+                gate: Some((window, seq)),
+                ..
+            } = &work
+                && !crate::state::open_is_current(opens, window, *seq)
+            {
+                unheard(reply.send(Ok(Output::None)));
+                continue;
+            }
+            return Some((work, reply));
+        }
+        None
+    };
+    // A finished folder may already have committed its sync checkpoint.
+    tokio::select! {
+        biased;
+        result = sync => ControlFlow::Continue(result),
+        Some(read) = live_read => ControlFlow::Break(read),
+    }
+}
+
 /// A full sync under way: the folders left. It ends after the last one, so the task in
 /// the tasks window and `mark_synced` stay one per pass.
 struct Pass {
@@ -921,8 +953,7 @@ struct Ops {
     background: mpsc::Sender<Work>,
     paused: Arc<AtomicBool>,
     queued: Queued,
-    /// User actions taken out of `urgent` while gathering a move batch, in the order they
-    /// were sent: they run before the queue is read again.
+    /// User actions already taken from a receiver. They run before polling the queues again.
     deferred: VecDeque<(Work, Reply)>,
     /// A failed connect puts the mailbox out of touch until this: work gets an error at
     /// once instead of one 20 s connect after another. Wall clock: the pause runs on
@@ -1125,7 +1156,7 @@ impl Ops {
                     .await;
                     unheard(reply.send(result));
                 }
-                Next::Step => self.step().await,
+                Next::Step => self.step(&mut reads).await,
                 Next::Background(work) => {
                     if let Some(k) = sync_key(&work) {
                         release(&self.queued, &k);
@@ -1459,7 +1490,7 @@ impl Ops {
 
     /// Syncs the next folder of the pass. After "server busy" the same folder is
     /// tried again once the pause is over; the folders done are not done again.
-    async fn step(&mut self) {
+    async fn step(&mut self, reads: &mut mpsc::Receiver<(Work, Reply)>) {
         let key = self.sync_task();
         let Some(pass) = &mut self.pass else { return };
         if self.paused.load(Ordering::Relaxed) {
@@ -1482,7 +1513,23 @@ impl Ops {
             pass.done,
             pass.total,
         );
-        match self.attempt(Op::PassFolder(&folder)).await {
+        let result = if self.account.is_ews() {
+            self.attempt(Op::PassFolder(&folder)).await
+        } else {
+            let state = self.state.clone();
+            match sync_or_read(reads, &state.open_seq, self.attempt(Op::PassFolder(&folder))).await {
+                ControlFlow::Continue(result) => result,
+                ControlFlow::Break(read) => {
+                    // The cancelled command can still have unread replies on this connection.
+                    self.conn = None;
+                    self.deferred.push_front(read);
+                    // Cache changes committed before cancellation may not appear in the retry's report.
+                    emit_folder_change(&state, &self.account.id, &folder);
+                    return;
+                }
+            }
+        };
+        match result {
             Ok(_) => {
                 if let Some(pass) = &mut self.pass {
                     pass.folders.pop_front();
@@ -2192,11 +2239,7 @@ pub(crate) async fn sync_one(
     let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
     state.tray.checked();
     if report.changed() {
-        state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
-        // The folder's letters changed: a "waiting for a reply" of one that just arrived in
-        // Sent, or an answer resolved, moves the counters. Cheap, and it also keeps badges
-        // right for plugin-driven lists; the main list reload stays on `mail-changed`.
-        state.emit("counters-changed", json!({}));
+        emit_folder_change(state, id, folder);
     }
     if notify && report.added > 0 && folder.eq_ignore_ascii_case("INBOX") && before > 0 {
         let fresh: Vec<_> = state
@@ -2219,6 +2262,12 @@ pub(crate) async fn sync_one(
         notify_new_mail(state, &fresh);
     }
     Ok(report.added)
+}
+
+fn emit_folder_change(state: &AppState, account_id: &str, folder: &str) {
+    state.emit("mail-changed", json!({ "account_id": account_id, "folder": folder }));
+    // A letter in Sent can resolve a follow-up and change a plugin's counter.
+    state.emit("counters-changed", json!({}));
 }
 
 /// New letters from people (and, with «notify about all», newsletters) are told; letters
@@ -2511,6 +2560,68 @@ mod tests {
             Next::User(Work::LoadBody { id, .. }, _) => Some(id),
             _ => None,
         }
+    }
+
+    #[tokio::test]
+    async fn opening_a_letter_interrupts_an_incomplete_sync() {
+        let (reads, mut waiting) = mpsc::channel(3);
+        let opens = OpenSeqs::default();
+        crate::state::note_open(&opens, "main", 2);
+        let (started, syncing) = oneshot::channel();
+        let (release, finish) = oneshot::channel::<()>();
+        let sync = async move {
+            started.send(()).unwrap();
+            finish.await.unwrap();
+            Ok(Output::None)
+        };
+        let (stale_reply, stale) = oneshot::channel();
+        let (live_reply, _live) = oneshot::channel();
+        let enqueue = async {
+            syncing.await.unwrap();
+            reads.send(load(0)).await.unwrap();
+            reads
+                .send((
+                    Work::LoadBody {
+                        id: 1,
+                        gate: Some(("main".into(), 1)),
+                    },
+                    stale_reply,
+                ))
+                .await
+                .unwrap();
+            reads
+                .send((
+                    Work::LoadBody {
+                        id: 2,
+                        gate: Some(("main".into(), 2)),
+                    },
+                    live_reply,
+                ))
+                .await
+                .unwrap();
+        };
+
+        let (outcome, ()) = tokio::time::timeout(BUDGET, async {
+            tokio::join!(sync_or_read(&mut waiting, &opens, sync), enqueue)
+        })
+        .await
+        .expect("the live open must be served before the folder is released");
+
+        assert!(matches!(outcome, ControlFlow::Break((Work::LoadBody { id: 2, .. }, _))));
+        assert!(release.is_closed(), "the incomplete sync future was dropped");
+        assert!(matches!(stale.await, Ok(Ok(Output::None))));
+    }
+
+    #[tokio::test]
+    async fn a_completed_folder_keeps_its_result_when_a_read_is_ready() {
+        let (reads, mut waiting) = mpsc::channel(1);
+        let (reply, _answer) = oneshot::channel();
+        reads.send((Work::LoadBody { id: 1, gate: None }, reply)).await.unwrap();
+
+        let outcome = sync_or_read(&mut waiting, &OpenSeqs::default(), std::future::ready(Ok(Output::None))).await;
+
+        assert!(matches!(outcome, ControlFlow::Continue(Ok(Output::None))));
+        assert!(matches!(waiting.try_recv(), Ok((Work::LoadBody { id: 1, .. }, _))));
     }
 
     async fn ticker() -> tokio::time::Interval {
@@ -3419,6 +3530,7 @@ mod tests {
     const CHUNK: usize = 8;
     const CHUNK_GAP: Duration = Duration::from_millis(50);
     const LONG_BODY: usize = 160;
+    const BODY_TEST_UIDVALIDITY: u32 = 1;
 
     const A_RAW: &[u8] = b"Subject: A\r\nMessage-ID: <a@x.test>\r\n\r\nletter a\r\n";
     const B_RAW: &[u8] = b"Subject: B\r\nMessage-ID: <b@x.test>\r\n\r\nletter b\r\n";
@@ -3473,6 +3585,9 @@ mod tests {
             let command = parts.next().unwrap_or("").to_ascii_uppercase();
             let reply = match command.as_str() {
                 "CAPABILITY" => format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n"),
+                "EXAMINE" => format!(
+                    "* 2 EXISTS\r\n* OK [UIDVALIDITY {BODY_TEST_UIDVALIDITY}] current\r\n{tag} OK [READ-ONLY] done\r\n"
+                ),
                 "UID" => {
                     // `UID FETCH <set> (UID BODY.PEEK[])`; the set of one letter is its uid.
                     parts.next();
@@ -3566,11 +3681,16 @@ mod tests {
                         return;
                     }
                 }
+                "EXAMINE" => {
+                    let reply = format!(
+                        "* 2 EXISTS\r\n* OK [UIDVALIDITY {BODY_TEST_UIDVALIDITY}] current\r\n{tag} OK [READ-ONLY] done\r\n"
+                    );
+                    if w.write_all(reply.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
                 _ => {
-                    if w.write_all(format!("* 2 EXISTS\r\n{tag} OK done\r\n").as_bytes())
-                        .await
-                        .is_err()
-                    {
+                    if w.write_all(format!("{tag} OK done\r\n").as_bytes()).await.is_err() {
                         return;
                     }
                 }
@@ -3598,6 +3718,7 @@ mod tests {
             hidden: false,
         };
         store.replace_folders("a", &[inbox]).unwrap();
+        store.set_folder_state("a", "INBOX", BODY_TEST_UIDVALIDITY, 2).unwrap();
         fn cached(store: &Store, uid: u32) -> i64 {
             let summary = Summary::default();
             let msg = NewMessage {

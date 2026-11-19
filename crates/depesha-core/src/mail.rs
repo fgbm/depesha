@@ -155,10 +155,24 @@ pub async fn prefetch_bodies(conn: &mut Conn, store: &Store, folder: &str, messa
     let mut saved = 0;
     match conn {
         Conn::Imap(c) => {
-            let uids: Vec<u32> = messages.iter().map(|&(_, uid)| uid).collect();
-            for (uid, raw) in imap::fetch_raw_many(c, folder, &uids).await? {
-                if let Some(&(id, _)) = messages.iter().find(|&&(_, u)| u == uid) {
-                    store.save_body(id, &raw, &message::index_text(&raw))?;
+            let ids: Vec<i64> = messages.iter().map(|&(id, _)| id).collect();
+            let rows = store.get_many_at(&ids)?;
+            let Some((first, validity)) = rows.first() else {
+                return Ok(0);
+            };
+            if rows.iter().any(|(row, epoch)| {
+                row.account_id != first.account_id
+                    || row.folder != folder
+                    || epoch != validity
+                    || !messages.contains(&(row.id, row.uid))
+            }) {
+                return Err(Error::FolderChanged);
+            }
+            let uids: Vec<u32> = rows.iter().map(|(row, _)| row.uid).collect();
+            imap::examine_at(c, folder, *validity).await?;
+            for (uid, raw) in imap::fetch_raw_many_selected(c, &uids).await? {
+                if let Some((row, _)) = rows.iter().find(|(row, _)| row.uid == uid) {
+                    store.save_body(row.id, &raw, &message::index_text(&raw))?;
                     saved += 1;
                 }
             }
@@ -190,7 +204,11 @@ pub async fn read_snippets(
         return Ok(Vec::new());
     }
     match conn {
-        Conn::Imap(c) => imap::fetch_snippets(c, folder, uids).await,
+        Conn::Imap(c) => {
+            let (validity, _) = store.folder_state(account_id, folder)?;
+            imap::examine_at(c, folder, validity).await?;
+            imap::fetch_snippets_selected(c, uids).await
+        }
         Conn::Ews(s) => {
             let pairs = store.ews_item_ids_by_uid(account_id, folder, uids)?;
             let ids: Vec<String> = pairs.iter().map(|(_, id)| id.clone()).collect();

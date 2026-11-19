@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::blocking::off_runtime_thread;
@@ -150,31 +149,17 @@ async fn sync_flags(
                 report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }
             None => {
-                // A cached UID the server no longer returns was expunged.
                 let known = store.known_uids(account_id, folder)?;
-                let fetches: Vec<_> = conn
-                    .session
-                    .uid_fetch(range, "(UID FLAGS)")
-                    .await?
-                    .try_collect()
-                    .await?;
-                report.fetched_flags = fetches.len();
-                let mut alive = HashSet::new();
-                let mut flags = Vec::with_capacity(fetches.len());
-                let mut keywords = Vec::with_capacity(fetches.len());
-                for f in &fetches {
-                    if let Some(uid) = f.uid {
-                        let fl = imap::flags_from_imap(f.flags());
-                        if !fl.deleted {
-                            alive.insert(uid);
-                            flags.push((uid, fl));
-                            keywords.push((uid, imap::keywords_of(f.flags())));
-                        }
-                    }
-                }
-                report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
-                off_runtime_thread(|| store.update_keywords(account_id, folder, &keywords))?;
-                let gone: Vec<u32> = known.iter().copied().filter(|u| !alive.contains(u)).collect();
+                let mut changes = imap::fetch_flags(conn, &range).await?;
+                let by_uid: HashMap<_, _> = changes.flags.iter().map(|(uid, f)| (*uid, !f.deleted)).collect();
+                let missing: Vec<_> = known.iter().copied().filter(|u| !by_uid.contains_key(u)).collect();
+                imap::verify_missing_uids(conn, &missing).await?;
+                report.fetched_flags = changes.flags.len();
+                changes.flags.retain(|(_, f)| !f.deleted);
+                changes.keywords.retain(|(uid, _)| by_uid.get(uid) == Some(&true));
+                report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &changes.flags))?;
+                off_runtime_thread(|| store.update_keywords(account_id, folder, &changes.keywords))?;
+                let gone: Vec<_> = known.into_iter().filter(|u| by_uid.get(u) != Some(&true)).collect();
                 report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }
         }
@@ -199,10 +184,8 @@ pub async fn sync_folder(
     let uidvalidity = mailbox.uid_validity.unwrap_or(0);
     let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
     if known_validity != uidvalidity {
-        // Forgets the mod-sequence too: the next pass is full. A folder whose number was never known
-        // here has nothing under an old one to forget: a read mark or a label it holds names a letter
-        // of the number learned now (#201).
-        if known_validity != 0 {
+        // An unsynced folder without cached UIDs can already hold local marks (#201).
+        if known_validity != 0 || store.uid_range(account_id, folder)?.is_some() {
             store.clear_folder(account_id, folder)?;
         }
         // The new number at once: the cache never has UIDs of one UIDVALIDITY under
@@ -349,10 +332,9 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account_id: &str, folder
     if start <= 1 {
         return Ok(0);
     }
-    conn.session.select(folder).await?;
-    let mut uids: Vec<u32> = conn
-        .session
-        .uid_search(format!("UID 1:{}", start - 1))
+    let (validity, _) = store.folder_state(account_id, folder)?;
+    imap::examine_at(conn, folder, validity).await?;
+    let mut uids: Vec<u32> = imap::uid_search(conn, &format!("UID 1:{}", start - 1))
         .await?
         .into_iter()
         .filter(|u| *u < start)
@@ -374,37 +356,23 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account_id: &str, folder
 async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder: &str, uids: &[u32]) -> Result<usize> {
     let mut added = 0;
     for chunk in uids.chunks(BATCH) {
-        let fetches: Vec<_> = conn
-            .session
-            .uid_fetch(
-                imap::uid_set(chunk),
-                "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
-            )
-            .await?
-            .try_collect()
-            .await?;
-        let headers: Vec<_> = fetches
+        let mut headers = imap::fetch_headers(conn, chunk).await?;
+        let missing: Vec<_> = chunk
             .iter()
-            .filter_map(|f| {
-                let flags = imap::flags_from_imap(f.flags());
-                let uid = f.uid.filter(|_| !flags.deleted)?;
-                Some((
-                    uid,
-                    flags,
-                    f,
-                    message::parse_summary_for(f.header().unwrap_or_default(), &conn.receiver),
-                ))
-            })
+            .copied()
+            .filter(|uid| !headers.iter().any(|f| f.uid == *uid))
             .collect();
+        imap::verify_missing_uids(conn, &missing).await?;
         let msgs: Vec<NewMessage<'_>> = headers
-            .iter()
-            .map(|(uid, flags, f, summary)| NewMessage {
-                uid: *uid,
-                summary,
-                fallback_date: f.internal_date().map(|d| d.timestamp()).unwrap_or(0),
-                size: f.size.unwrap_or(0),
-                flags: *flags,
-                keywords: imap::keywords_of(f.flags()),
+            .iter_mut()
+            .filter(|f| !f.flags.deleted)
+            .map(|f| NewMessage {
+                uid: f.uid,
+                summary: &f.summary,
+                fallback_date: f.fallback_date,
+                size: f.size,
+                flags: f.flags,
+                keywords: std::mem::take(&mut f.keywords),
             })
             .collect();
         // One commit for the batch: either all of it is cached or none, and the
@@ -473,14 +441,21 @@ pub async fn search_server(
     folder: &str,
     text: &str,
 ) -> Result<Vec<i64>> {
+    let (known_validity, _) = store.folder_state(account_id, folder)?;
+    let validity = imap::examine(conn, folder).await?.get();
+    if known_validity != validity && (known_validity != 0 || store.uid_range(account_id, folder)?.is_some()) {
+        return Err(Error::FolderChanged);
+    }
     let q = SearchQuery::parse(text);
     // A label is what the user typed; the server knows it by the mailbox's keyword.
-    let mut uids = imap::search(
+    let mut uids = imap::search_selected(
         conn,
-        folder,
         &query::imap_criteria_with_labels(&q, |name| store.label_keyword(account_id, name).ok().flatten()),
     )
     .await?;
+    if known_validity == 0 {
+        store.set_folder_state(account_id, folder, validity, 0)?;
+    }
     // Old mail first is useless in a result list: keep the newest matches.
     if uids.len() > 300 {
         uids.drain(..uids.len() - 300);
@@ -515,8 +490,9 @@ pub async fn load_body(conn: &mut Conn, store: &Store, id: i64) -> Result<Vec<u8
     if let Some(raw) = store.body(id)? {
         return Ok(raw);
     }
-    let row = store.get(id)?.ok_or(Error::NotFound)?;
-    let raw = imap::fetch_raw(conn, &row.folder, row.uid).await?;
+    let (row, validity) = store.get_at(id)?.ok_or(Error::NotFound)?;
+    imap::examine_at(conn, &row.folder, validity).await?;
+    let raw = imap::fetch_raw_selected(conn, row.uid).await?;
     store.save_body(id, &raw, &message::index_text(&raw))?;
     Ok(raw)
 }

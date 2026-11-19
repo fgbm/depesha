@@ -88,8 +88,9 @@ impl Mailbox {
     }
 }
 
-enum SelectReply {
+enum WireReply {
     Complete(&'static str),
+    Refuse(&'static str),
     Cut(&'static str),
 }
 
@@ -101,7 +102,8 @@ struct Server {
     log: Vec<String>,
     /// Answers NO to the first command starting with this.
     fail_on: Option<&'static str>,
-    select_reply: Option<SelectReply>,
+    select_reply: Option<WireReply>,
+    fetch_reply: Option<(&'static str, WireReply)>,
     /// Sends HIGHESTMODSEQ to a plain SELECT too, as Dovecot does for a mailbox that
     /// keeps mod-sequences.
     modseq_unasked: bool,
@@ -148,43 +150,45 @@ async fn session(stream: tokio::net::TcpStream, server: Shared) {
     let mut qresync = false;
     while let Ok(Some(line)) = lines.next_line().await {
         let (tag, cmd) = line.split_once(' ').unwrap();
-        let (out, cut) = {
+        let (out, status) = {
             let mut server = server.lock().unwrap();
             server.log.push(cmd.to_owned());
-            let select_reply = if cmd.starts_with("SELECT ") {
+            let scripted = if cmd.starts_with("SELECT ") {
                 server.select_reply.take()
+            } else if server
+                .fetch_reply
+                .as_ref()
+                .is_some_and(|(prefix, _)| cmd.starts_with(prefix))
+            {
+                server.fetch_reply.take().map(|(_, reply)| reply)
             } else {
                 None
             };
-            if let Some(reply) = select_reply {
+            if let Some(reply) = scripted {
                 match reply {
-                    SelectReply::Complete(out) => (out.to_owned(), false),
-                    SelectReply::Cut(out) => (out.to_owned(), true),
+                    WireReply::Complete(out) => (out.to_owned(), Some("OK done")),
+                    WireReply::Refuse(out) => (out.to_owned(), Some("NO try again later")),
+                    WireReply::Cut(out) => (out.to_owned(), None),
                 }
             } else if server.fail_on.is_some_and(|p| cmd.starts_with(p)) {
                 server.fail_on = None;
-                (FAILED.to_owned(), false)
+                (String::new(), Some("NO try again later"))
             } else {
-                (
-                    respond(&mut server, cmd, &mut selected, &mut condstore, &mut qresync),
-                    false,
-                )
+                let out = respond(&mut server, cmd, &mut selected, &mut condstore, &mut qresync);
+                if out == REFUSED {
+                    (String::new(), Some("BAD unknown modifier"))
+                } else {
+                    (out, Some("OK done"))
+                }
             }
         };
-        if cut {
+        let Some(status) = status else {
             w.write_all(out.as_bytes()).await.unwrap();
             return;
-        }
-        let done = cmd.starts_with("LOGOUT");
-        let reply = if out == REFUSED {
-            format!("{tag} BAD unknown modifier\r\n")
-        } else if out == FAILED {
-            format!("{tag} NO try again later\r\n")
-        } else {
-            format!("{out}{tag} OK done\r\n")
         };
+        let reply = format!("{out}{tag} {status}\r\n");
         w.write_all(reply.as_bytes()).await.unwrap();
-        if done {
+        if cmd.starts_with("LOGOUT") {
             return;
         }
     }
@@ -293,7 +297,6 @@ fn respond(
 }
 
 const REFUSED: &str = "REFUSED";
-const FAILED: &str = "FAILED";
 
 fn options() -> SyncOptions {
     SyncOptions { initial_limit: 500 }
@@ -511,6 +514,85 @@ async fn without_condstore_every_pass_fetches_all_flags() {
     assert_eq!(flag_fetches(&commands), ["UID FETCH 1:25 (UID FLAGS)"]);
 }
 
+const PARTIAL_FLAGS: &str = "* 1 FETCH (UID 1 FLAGS (\\Seen))\r\n";
+
+async fn incomplete_flag_fetch_keeps_the_cache(reply: WireReply) {
+    let fx = Fixture::new("UIDPLUS", &[("INBOX", 2)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    fx.server.lock().unwrap().fetch_reply = Some(("UID FETCH 1:2 (UID FLAGS)", reply));
+
+    let result = sync::sync_folder(&mut conn, &store, "a", "INBOX", options()).await;
+
+    assert_eq!(store.known_uids("a", "INBOX").unwrap(), [1, 2]);
+    assert_eq!(store.folder_state("a", "INBOX").unwrap(), (7, 2));
+    assert!(!store.find_by_uid("a", "INBOX", 1).unwrap().unwrap().flags.seen);
+    assert!(result.is_err(), "{result:?}");
+}
+
+#[tokio::test]
+async fn a_flag_fetch_that_is_refused_after_partial_data_keeps_cached_mail() {
+    incomplete_flag_fetch_keeps_the_cache(WireReply::Refuse(PARTIAL_FLAGS)).await;
+}
+
+#[tokio::test]
+async fn a_flag_fetch_cut_after_partial_data_keeps_cached_mail() {
+    incomplete_flag_fetch_keeps_the_cache(WireReply::Cut(PARTIAL_FLAGS)).await;
+}
+
+#[tokio::test]
+async fn a_flag_fetch_missing_a_live_uid_keeps_cached_mail() {
+    incomplete_flag_fetch_keeps_the_cache(WireReply::Complete(PARTIAL_FLAGS)).await;
+}
+
+#[tokio::test]
+async fn a_header_fetch_missing_live_data_keeps_the_checkpoint() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 2)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    let before = store.modseq_mark("a", "INBOX").unwrap();
+    fx.with("INBOX", |m| {
+        m.add(&[]);
+        m.add(&[]);
+    });
+    fx.server.lock().unwrap().fetch_reply =
+        Some(("UID FETCH 3:4 ", WireReply::Complete("* 3 FETCH (UID 3 FLAGS ())\r\n")));
+
+    let result = sync::sync_folder(&mut conn, &store, "a", "INBOX", options()).await;
+
+    assert_eq!(store.known_uids("a", "INBOX").unwrap(), [1, 2]);
+    assert_eq!(store.folder_state("a", "INBOX").unwrap(), (7, 2));
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), before);
+    assert!(result.is_err(), "{result:?}");
+    assert_eq!(sync(&mut conn, &store, "INBOX").await.added, 2);
+}
+
+#[tokio::test]
+async fn a_partial_header_literal_keeps_the_checkpoint() {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 1)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    let before = store.modseq_mark("a", "INBOX").unwrap();
+    fx.with("INBOX", |m| {
+        m.add(&[]);
+    });
+    fx.server.lock().unwrap().fetch_reply = Some((
+        "UID FETCH 2 (UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
+        WireReply::Complete("* 2 FETCH (UID 2 FLAGS () BODY[HEADER]<0> {11}\r\nSubject: Pa)\r\n"),
+    ));
+
+    let result = sync::sync_folder(&mut conn, &store, "a", "INBOX", options()).await;
+
+    assert_eq!(store.known_uids("a", "INBOX").unwrap(), [1]);
+    assert_eq!(store.folder_state("a", "INBOX").unwrap(), (7, 1));
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), before);
+    assert!(result.is_err(), "{result:?}");
+    assert_eq!(sync(&mut conn, &store, "INBOX").await.added, 1);
+}
+
 #[tokio::test]
 async fn highestmodseq_from_a_server_without_condstore_is_not_used() {
     let fx = Fixture::new("UIDPLUS", &[("INBOX", 25)]).await;
@@ -596,7 +678,7 @@ async fn a_lower_highestmodseq_or_a_new_uidvalidity_makes_a_full_pass() {
     assert!(!fx.commands().iter().any(|c| c.starts_with("UID FETCH")));
 }
 
-async fn a_select_error_preserves_the_folder(reply: SelectReply) {
+async fn a_select_error_preserves_the_folder(reply: WireReply) {
     let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 2)]).await;
     let mut conn = fx.connect().await;
     let store = store_with(&["INBOX"]);
@@ -617,17 +699,17 @@ async fn a_select_error_preserves_the_folder(reply: SelectReply) {
 
 #[tokio::test]
 async fn a_select_without_uidvalidity_keeps_cached_mail() {
-    a_select_error_preserves_the_folder(SelectReply::Complete("* 0 EXISTS\r\n")).await;
+    a_select_error_preserves_the_folder(WireReply::Complete("* 0 EXISTS\r\n")).await;
 }
 
 #[tokio::test]
 async fn a_select_with_zero_uidvalidity_keeps_cached_mail() {
-    a_select_error_preserves_the_folder(SelectReply::Complete("* 0 EXISTS\r\n* OK [UIDVALIDITY 0] invalid\r\n")).await;
+    a_select_error_preserves_the_folder(WireReply::Complete("* 0 EXISTS\r\n* OK [UIDVALIDITY 0] invalid\r\n")).await;
 }
 
 #[tokio::test]
 async fn a_select_with_conflicting_uidvalidity_keeps_cached_mail() {
-    a_select_error_preserves_the_folder(SelectReply::Complete(
+    a_select_error_preserves_the_folder(WireReply::Complete(
         "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n* OK [UIDVALIDITY 8] ok\r\n",
     ))
     .await;
@@ -635,12 +717,12 @@ async fn a_select_with_conflicting_uidvalidity_keeps_cached_mail() {
 
 #[tokio::test]
 async fn a_select_without_exists_keeps_cached_mail() {
-    a_select_error_preserves_the_folder(SelectReply::Complete("* OK [UIDVALIDITY 7] ok\r\n")).await;
+    a_select_error_preserves_the_folder(WireReply::Complete("* OK [UIDVALIDITY 7] ok\r\n")).await;
 }
 
 #[tokio::test]
 async fn a_select_cut_after_uidvalidity_keeps_cached_mail() {
-    a_select_error_preserves_the_folder(SelectReply::Cut("* 0 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n")).await;
+    a_select_error_preserves_the_folder(WireReply::Cut("* 0 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n")).await;
 }
 
 #[tokio::test]

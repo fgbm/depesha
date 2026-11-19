@@ -1,5 +1,6 @@
 use crate::best_effort;
 use std::fmt::Debug;
+use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1207,6 +1208,10 @@ pub async fn fetch_snippets(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
         return Ok(Vec::new());
     }
     conn.session.examine(folder).await?;
+    fetch_snippets_selected(conn, uids).await
+}
+
+pub(crate) async fn fetch_snippets_selected(conn: &mut Conn, uids: &[u32]) -> Result<Vec<(u32, String)>> {
     let plans = fetch_snippet_plans(conn, uids).await?;
     let read: std::collections::HashMap<u32, String> = fetch_snippet_parts(conn, &plans).await?.into_iter().collect();
     Ok(plans
@@ -1221,6 +1226,10 @@ pub async fn fetch_snippets(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
 /// Full RFC 822 source, without setting \Seen.
 pub async fn fetch_raw(conn: &mut Conn, folder: &str, uid: u32) -> Result<Vec<u8>> {
     conn.session.examine(folder).await?;
+    fetch_raw_selected(conn, uid).await
+}
+
+pub(crate) async fn fetch_raw_selected(conn: &mut Conn, uid: u32) -> Result<Vec<u8>> {
     let fetches: Vec<_> = conn
         .session
         .uid_fetch(uid.to_string(), "(UID BODY.PEEK[])")
@@ -1242,6 +1251,10 @@ pub async fn fetch_raw_many(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
         return Ok(Vec::new());
     }
     conn.session.examine(folder).await?;
+    fetch_raw_many_selected(conn, uids).await
+}
+
+pub(crate) async fn fetch_raw_many_selected(conn: &mut Conn, uids: &[u32]) -> Result<Vec<(u32, Vec<u8>)>> {
     let fetches: Vec<_> = conn
         .session
         .uid_fetch(uid_set(uids), "(UID BODY.PEEK[])")
@@ -1693,51 +1706,130 @@ struct Fetched {
     message_id: Option<String>,
 }
 
-/// A FETCH whose final answer is checked: async-imap ends a fetch at the tagged answer
-/// whatever its status, so a refused read would look like "no such letters", and a copy
-/// looked for that way would be uploaded a second time. A refusal is `Error::Imap` with NO
-/// or BAD.
-async fn checked_fetch(conn: &mut Conn, command: String) -> Result<Vec<Fetched>> {
-    use async_imap::error::Error as E;
+// async-imap drops the tagged completion from its FETCH stream, including refusals.
+async fn read_fetch(session: &mut Session, command: String, mut take: impl FnMut(&Response<'_>)) -> Result<()> {
     use async_imap::imap_proto::Status;
-    let id = conn.session.run_command(command).await?;
-    let mut out = Vec::new();
+    let id = session.run_command(command).await?;
     loop {
-        let resp = next_response!(conn, "fetch answer");
+        let resp = session
+            .read_response()
+            .await
+            .map_err(async_imap::error::Error::Io)?
+            .ok_or(Error::Closed)?;
         match resp.parsed() {
-            Response::Fetch(_, attrs) => {
-                let mut f = Fetched {
-                    uid: 0,
-                    size: None,
-                    deleted: false,
-                    message_id: None,
-                };
-                for a in attrs {
-                    match a {
-                        AttributeValue::Uid(u) => f.uid = *u,
-                        AttributeValue::Rfc822Size(n) => f.size = Some(*n),
-                        AttributeValue::Flags(flags) => {
-                            f.deleted = flags.iter().any(|x| x.eq_ignore_ascii_case("\\Deleted"))
-                        }
-                        AttributeValue::BodySection { data: Some(data), .. } => f.message_id = message_id_of(data),
-                        _ => {}
-                    }
-                }
-                if f.uid != 0 {
-                    out.push(f);
-                }
-            }
             Response::Done { tag, status, outcome } if *tag == id => {
-                let text = outcome.information.as_deref().unwrap_or_default().to_owned();
-                return match status {
-                    Status::Ok => Ok(out),
-                    Status::No => Err(E::No(text).into()),
-                    _ => Err(E::Bad(text).into()),
-                };
+                if *status == Status::Ok {
+                    return Ok(());
+                }
+                return Err(refused_status(
+                    status,
+                    outcome.code.as_ref(),
+                    outcome.information.as_deref(),
+                ));
             }
+            Response::Data {
+                status: Status::Bye,
+                outcome,
+            } => {
+                return Err(Error::Bye(
+                    outcome.information.as_deref().unwrap_or_default().to_owned(),
+                ));
+            }
+            other => take(other),
+        }
+    }
+}
+
+async fn checked_fetch(conn: &mut Conn, command: String) -> Result<Vec<Fetched>> {
+    let mut out = Vec::new();
+    read_fetch(&mut conn.session, command, |resp| {
+        let Response::Fetch(_, attrs) = resp else { return };
+        let mut f = Fetched {
+            uid: 0,
+            size: None,
+            deleted: false,
+            message_id: None,
+        };
+        for a in attrs {
+            match a {
+                AttributeValue::Uid(u) => f.uid = *u,
+                AttributeValue::Rfc822Size(n) => f.size = Some(*n),
+                AttributeValue::Flags(flags) => f.deleted = flags.iter().any(|x| x.eq_ignore_ascii_case("\\Deleted")),
+                AttributeValue::BodySection { data: Some(data), .. } => f.message_id = message_id_of(data),
+                _ => {}
+            }
+        }
+        if f.uid != 0 {
+            out.push(f);
+        }
+    })
+    .await?;
+    Ok(out)
+}
+
+pub(crate) struct FetchedHeader {
+    pub uid: u32,
+    pub flags: Flags,
+    pub keywords: Vec<String>,
+    pub fallback_date: i64,
+    pub size: u32,
+    pub summary: crate::message::Summary,
+}
+
+fn fetched_header(attrs: &[AttributeValue<'_>], uids: &[u32], receiver: &Receiver) -> Option<FetchedHeader> {
+    let mut uid = None;
+    let mut flags = None;
+    let mut size = 0;
+    let mut date = None;
+    let mut header = None;
+    for attr in attrs {
+        match attr {
+            AttributeValue::Uid(value) => uid = Some(*value),
+            AttributeValue::Flags(value) => flags = Some(value),
+            AttributeValue::Rfc822Size(value) => size = *value,
+            AttributeValue::InternalDate(value) => date = Some(value.as_ref()),
+            AttributeValue::BodySection {
+                section: Some(SectionPath::Full(MessageSection::Header)),
+                index: None,
+                data: Some(value),
+            }
+            | AttributeValue::Rfc822Header(Some(value)) => header = Some(value.as_ref()),
             _ => {}
         }
     }
+    let uid = uid.filter(|uid| uids.contains(uid))?;
+    let header = header?;
+    let flags = flags?;
+    let imap_flags = || flags.iter().map(|flag| Flag::from(flag.as_ref()));
+    let fallback_date = date
+        .and_then(|value| chrono::DateTime::parse_from_str(value, "%d-%b-%Y %H:%M:%S %z").ok())
+        .map_or(0, |value| value.timestamp());
+    Some(FetchedHeader {
+        uid,
+        flags: flags_from_imap(imap_flags()),
+        keywords: keywords_of(imap_flags()),
+        fallback_date,
+        size,
+        summary: crate::message::parse_summary_for(header, receiver),
+    })
+}
+
+pub(crate) async fn fetch_headers(conn: &mut Conn, uids: &[u32]) -> Result<Vec<FetchedHeader>> {
+    let command = format!(
+        "UID FETCH {} (UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
+        uid_set(uids)
+    );
+    let mut headers = Vec::new();
+    let receiver = &conn.receiver;
+    read_fetch(&mut conn.session, command, |resp| {
+        if let Response::Fetch(_, attrs) = resp
+            && let Some(header) = fetched_header(attrs, uids, receiver)
+        {
+            headers.push(header);
+        }
+    })
+    .await?;
+    Ok(headers)
 }
 
 /// How many of the newest letters of a folder are read when the server can search it for
@@ -1881,23 +1973,40 @@ pub async fn select_for_sync(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
     let folder = quoted(folder)?;
     enable_qresync(conn).await?;
     if conn.caps.condstore {
-        match checked_select(conn, format!("SELECT {folder} (CONDSTORE)")).await {
-            Ok(mailbox) => return Ok(mailbox),
+        match checked_mailbox(conn, format!("SELECT {folder} (CONDSTORE)")).await {
+            Ok((mailbox, _)) => return Ok(mailbox),
             // A missing folder fails the plain SELECT below as well.
             Err(Error::Imap(E::Bad(_) | E::No(_))) => {}
             Err(e) => return Err(e),
         }
     }
-    checked_select(conn, format!("SELECT {folder}")).await
+    checked_mailbox(conn, format!("SELECT {folder}"))
+        .await
+        .map(|(mailbox, _)| mailbox)
 }
 
-async fn checked_select(conn: &mut Conn, command: String) -> Result<Mailbox> {
+pub(crate) async fn examine(conn: &mut Conn, folder: &str) -> Result<NonZeroU32> {
+    let folder = quoted(folder)?;
+    checked_mailbox(conn, format!("EXAMINE {folder}"))
+        .await
+        .map(|(_, validity)| validity)
+}
+
+pub(crate) async fn examine_at(conn: &mut Conn, folder: &str, validity: u32) -> Result<()> {
+    let expected = NonZeroU32::new(validity).ok_or(Error::FolderChanged)?;
+    if examine(conn, folder).await? != expected {
+        return Err(Error::FolderChanged);
+    }
+    Ok(())
+}
+
+async fn checked_mailbox(conn: &mut Conn, command: String) -> Result<(Mailbox, NonZeroU32)> {
     use async_imap::imap_proto::{MailboxDatum, Status};
     let id = conn.session.run_command(command).await?;
     let mut mailbox = Mailbox::default();
     let mut exists = None;
     loop {
-        let resp = next_response!(conn, "SELECT answer");
+        let resp = next_response!(conn, "mailbox selection");
         match resp.parsed() {
             Response::Done { tag, status, outcome } if *tag == id => {
                 if *status != Status::Ok {
@@ -1908,13 +2017,11 @@ async fn checked_select(conn: &mut Conn, command: String) -> Result<Mailbox> {
                     ));
                 }
                 select_code(&mut mailbox, outcome.code.as_ref());
-                mailbox.exists = exists.ok_or_else(|| Error::Protocol("SELECT omitted EXISTS".into()))?;
-                if mailbox.uid_validity.is_none_or(|value| value == 0) {
-                    return Err(Error::Protocol(
-                        "SELECT requires a consistent nonzero UIDVALIDITY".into(),
-                    ));
-                }
-                return Ok(mailbox);
+                mailbox.exists = exists.ok_or_else(|| Error::Protocol("mailbox selection omitted EXISTS".into()))?;
+                let validity = mailbox.uid_validity.and_then(NonZeroU32::new).ok_or_else(|| {
+                    Error::Protocol("mailbox selection requires a consistent nonzero UIDVALIDITY".into())
+                })?;
+                return Ok((mailbox, validity));
             }
             Response::MailboxData(MailboxDatum::Exists(count)) => exists = Some(*count),
             Response::MailboxData(MailboxDatum::Recent(count)) => mailbox.recent = *count,
@@ -2016,8 +2123,8 @@ impl Changes {
                     match a {
                         AttributeValue::Uid(u) => uid = Some(*u),
                         AttributeValue::Flags(f) => {
-                            flags = Some(flags_from_imap(f.iter().map(|s| Flag::from(s.to_string()))));
-                            keywords = Some(keywords_of(f.iter().map(|s| Flag::from(s.to_string()))));
+                            flags = Some(flags_from_imap(f.iter().map(|s| Flag::from(s.as_ref()))));
+                            keywords = Some(keywords_of(f.iter().map(|s| Flag::from(s.as_ref()))));
                         }
                         _ => {}
                     }
@@ -2037,30 +2144,36 @@ impl Changes {
 /// (`CHANGEDSINCE`, RFC 7162); with QRESYNC enabled, also the UIDs expunged since.
 /// A refusal is `Error::Imap` with NO or BAD.
 pub async fn changed_since(conn: &mut Conn, uids: &str, modseq: u64) -> Result<Changes> {
-    use async_imap::error::Error as E;
-    use async_imap::imap_proto::Status;
     let vanished = if conn.qresync { " VANISHED" } else { "" };
-    let id = conn
-        .session
-        .run_command(format!(
-            "UID FETCH {uids} (UID FLAGS) (CHANGEDSINCE {modseq}{vanished})"
-        ))
-        .await?;
+    fetch_changes(
+        conn,
+        format!("UID FETCH {uids} (UID FLAGS) (CHANGEDSINCE {modseq}{vanished})"),
+    )
+    .await
+}
+
+pub(crate) async fn fetch_flags(conn: &mut Conn, uids: &str) -> Result<Changes> {
+    fetch_changes(conn, format!("UID FETCH {uids} (UID FLAGS)")).await
+}
+
+async fn fetch_changes(conn: &mut Conn, command: String) -> Result<Changes> {
     let mut changes = Changes::default();
-    loop {
-        let resp = next_response!(conn, "changed flags");
-        match resp.parsed() {
-            Response::Done { tag, status, outcome } if *tag == id => {
-                let text = outcome.information.as_deref().unwrap_or_default().to_owned();
-                return match status {
-                    Status::Ok => Ok(changes),
-                    Status::No => Err(E::No(text).into()),
-                    _ => Err(E::Bad(text).into()),
-                };
-            }
-            other => changes.take(other),
+    read_fetch(&mut conn.session, command, |resp| changes.take(resp)).await?;
+    Ok(changes)
+}
+
+// A successful UID FETCH can omit messages that vanished after the previous read (RFC 3501 §6.4.8).
+pub(crate) async fn verify_missing_uids(conn: &mut Conn, uids: &[u32]) -> Result<()> {
+    const UID_VERIFY_BATCH: usize = 80;
+    for batch in uids.chunks(UID_VERIFY_BATCH) {
+        if !uid_search(conn, &format!("UID {} UNDELETED", uid_set(batch)))
+            .await?
+            .is_empty()
+        {
+            return Err(Error::Protocol("UID FETCH omitted data for a live message".into()));
         }
     }
+    Ok(())
 }
 
 /// Server-side search in one folder (IMAP `SEARCH TEXT`): subject, addresses and body,
@@ -2084,10 +2197,14 @@ pub async fn search_text(conn: &mut Conn, folder: &str, text: &str) -> Result<Ve
 /// Non-ASCII values must travel as literals (RFC 3501):
 /// inline with LITERAL+, otherwise each waits for the server's continuation.
 pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Result<Vec<u32>> {
+    conn.session.examine(folder).await?;
+    search_selected(conn, criteria).await
+}
+
+pub(crate) async fn search_selected(conn: &mut Conn, criteria: &[Criterion]) -> Result<Vec<u32>> {
     use async_imap::imap_proto::Response;
     use tokio::io::AsyncWriteExt;
 
-    conn.session.examine(folder).await?;
     if criteria.is_empty() {
         return Ok(Vec::new());
     }
@@ -2174,18 +2291,27 @@ async fn read_search(
     refused: fn(&str) -> Error,
 ) -> Result<Vec<u32>> {
     use async_imap::imap_proto::{MailboxDatum, Response, Status};
-    let mut uids = Vec::new();
+    let mut uids = None::<Vec<u32>>;
     loop {
         let resp = next_response!(conn);
         match resp.parsed() {
-            Response::MailboxData(MailboxDatum::Search(found)) => uids.extend(found),
+            Response::MailboxData(MailboxDatum::Search(found)) => uids.get_or_insert_with(Vec::new).extend(found),
             Response::Done { tag, status, outcome } if *tag == id => {
                 if *status == Status::Ok {
+                    let mut uids = uids.ok_or_else(|| Error::Protocol("UID SEARCH omitted its result".into()))?;
                     uids.sort_unstable();
                     uids.dedup();
                     return Ok(uids);
                 }
                 return Err(refused(outcome.information.as_deref().unwrap_or_default()));
+            }
+            Response::Data {
+                status: Status::Bye,
+                outcome,
+            } => {
+                return Err(Error::Bye(
+                    outcome.information.as_deref().unwrap_or_default().to_owned(),
+                ));
             }
             _ => {}
         }
