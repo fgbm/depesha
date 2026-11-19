@@ -2,7 +2,9 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
-## Unreleased
+## 0.8.20
+
+No plugin API changes.
 
 ## 0.8.18
 
