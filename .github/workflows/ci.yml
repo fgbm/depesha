@@ -30,8 +30,6 @@ env:
   # line-tables-only: debug builds keep file/line in a backtrace but drop the rest of the
   # debug info, so the target directory and the rust-cache entry are much smaller (#185).
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
-  # Анонимные загрузки с Docker Hub ограничены; образы стенда берём через зеркало Google
-  IMAGE_PREFIX: mirror.gcr.io/
 
 jobs:
   # What the heavy platform jobs (Windows, macOS) are run for. main, release/** and a manual run: always.
