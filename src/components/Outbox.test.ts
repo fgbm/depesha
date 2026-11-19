@@ -114,3 +114,11 @@ describe("a letter already on the wire", () => {
     expect(sendNow?.disabled).toBe(false);
   });
 });
+
+it("keeps the delivery status uncertain when the server did not confirm it", () => {
+  const caution = "возможно, ушло — проверьте «Отправленные»";
+  show([item(10, { failed: true, attempts: 1, last_error: caution })]);
+
+  expect(target.textContent).toContain(caution);
+  expect(target.textContent).not.toContain("Не отправлено");
+});

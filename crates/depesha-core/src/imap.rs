@@ -165,7 +165,7 @@ impl Conn {
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
-    let (client, greeting, idling, limits) = open(server).await?;
+    let (client, greeting, idling, limits) = open(server, CONNECT_TIMEOUT).await?;
     let mut session = match creds.xoauth2() {
         Some(initial) => {
             let detail = Arc::new(Mutex::new(None));
@@ -244,7 +244,7 @@ fn greeting_line(resp: &Response<'_>) -> Option<String> {
 
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<()> {
-    let (mut client, ..) = open(server).await?;
+    let (mut client, ..) = open(server, CONNECT_TIMEOUT).await?;
     best_effort("log out", client.run_command_and_check_ok("LOGOUT", None).await);
     Ok(())
 }
@@ -254,6 +254,7 @@ pub async fn probe(server: &ServerConfig) -> Result<()> {
 /// answer windows it arms.
 async fn open(
     server: &ServerConfig,
+    starttls_timeout: Duration,
 ) -> Result<(Client<Box<dyn Io>>, Option<String>, Arc<AtomicBool>, Arc<AnswerLimits>)> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
@@ -268,9 +269,9 @@ async fn open(
         Security::StartTls => {
             let mut client = Client::new(tcp);
             greeting = read_greeting(&mut client).await?;
-            client
-                .run_command_and_check_ok("STARTTLS", None)
+            timeout(starttls_timeout, client.run_command_and_check_ok("STARTTLS", None))
                 .await
+                .map_err(|_| Error::Timeout("IMAP STARTTLS"))?
                 .map_err(|e| match e {
                     async_imap::error::Error::Bad(_) | async_imap::error::Error::No(_) => Error::NoTls,
                     other => other.into(),
@@ -1877,16 +1878,88 @@ fn message_id_of(header: &[u8]) -> Option<String> {
 /// session. A server that refuses either is synced the plain way.
 pub async fn select_for_sync(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
     use async_imap::error::Error as E;
+    let folder = quoted(folder)?;
     enable_qresync(conn).await?;
     if conn.caps.condstore {
-        match conn.session.select_condstore(folder).await {
+        match checked_select(conn, format!("SELECT {folder} (CONDSTORE)")).await {
             Ok(mailbox) => return Ok(mailbox),
             // A missing folder fails the plain SELECT below as well.
-            Err(E::Bad(_) | E::No(_)) => {}
-            Err(e) => return Err(e.into()),
+            Err(Error::Imap(E::Bad(_) | E::No(_))) => {}
+            Err(e) => return Err(e),
         }
     }
-    Ok(conn.session.select(folder).await?)
+    checked_select(conn, format!("SELECT {folder}")).await
+}
+
+async fn checked_select(conn: &mut Conn, command: String) -> Result<Mailbox> {
+    use async_imap::imap_proto::{MailboxDatum, Status};
+    let id = conn.session.run_command(command).await?;
+    let mut mailbox = Mailbox::default();
+    let mut exists = None;
+    loop {
+        let resp = next_response!(conn, "SELECT answer");
+        match resp.parsed() {
+            Response::Done { tag, status, outcome } if *tag == id => {
+                if *status != Status::Ok {
+                    return Err(refused_status(
+                        status,
+                        outcome.code.as_ref(),
+                        outcome.information.as_deref(),
+                    ));
+                }
+                select_code(&mut mailbox, outcome.code.as_ref());
+                mailbox.exists = exists.ok_or_else(|| Error::Protocol("SELECT omitted EXISTS".into()))?;
+                if mailbox.uid_validity.is_none_or(|value| value == 0) {
+                    return Err(Error::Protocol(
+                        "SELECT requires a consistent nonzero UIDVALIDITY".into(),
+                    ));
+                }
+                return Ok(mailbox);
+            }
+            Response::MailboxData(MailboxDatum::Exists(count)) => exists = Some(*count),
+            Response::MailboxData(MailboxDatum::Recent(count)) => mailbox.recent = *count,
+            Response::MailboxData(MailboxDatum::Flags(flags)) => {
+                mailbox
+                    .flags
+                    .extend(flags.iter().map(|flag| Flag::from(flag.to_string())));
+            }
+            Response::Data {
+                status: Status::Ok,
+                outcome,
+            } => select_code(&mut mailbox, outcome.code.as_ref()),
+            Response::Data {
+                status: Status::Bye,
+                outcome,
+            } => {
+                return Err(Error::Bye(
+                    outcome.information.as_deref().unwrap_or_default().to_owned(),
+                ));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn select_code(mailbox: &mut Mailbox, code: Option<&async_imap::imap_proto::ResponseCode<'_>>) {
+    use async_imap::imap_proto::ResponseCode;
+    match code {
+        Some(ResponseCode::UidValidity(value)) => {
+            // Zero preserves a conflict until the command finishes.
+            mailbox.uid_validity = Some(match mailbox.uid_validity {
+                Some(previous) if previous != *value => 0,
+                _ => *value,
+            });
+        }
+        Some(ResponseCode::UidNext(value)) => mailbox.uid_next = Some(*value),
+        Some(ResponseCode::HighestModSeq(value)) => mailbox.highest_modseq = Some(*value),
+        Some(ResponseCode::Unseen(value)) => mailbox.unseen = Some(*value),
+        Some(ResponseCode::PermanentFlags(flags)) => {
+            mailbox
+                .permanent_flags
+                .extend(flags.iter().map(|flag| Flag::from(flag.to_string())));
+        }
+        _ => {}
+    }
 }
 
 /// Enables QRESYNC once per session when the server offers it; a refusal leaves the
@@ -2322,6 +2395,36 @@ pub fn uid_set(uids: &[u32]) -> String {
 mod tests {
     use super::*;
     use async_imap::imap_proto::ContentType;
+
+    #[tokio::test]
+    async fn a_server_that_never_answers_starttls_times_out() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream
+                .write_all(b"* OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready\r\n")
+                .await
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(
+                line.split_once(' ').map(|(_, command)| command.trim_end()),
+                Some("STARTTLS")
+            );
+            line.clear();
+            assert_eq!(reader.read_line(&mut line).await.unwrap(), 0, "{line}");
+        });
+        let server = ServerConfig::new("127.0.0.1", port, Security::StartTls);
+        let result = timeout(Duration::from_secs(1), open(&server, Duration::from_millis(20))).await;
+
+        timeout(Duration::from_secs(1), peer).await.unwrap().unwrap();
+        let result = result.expect("the IMAP STARTTLS command must time out on its own");
+        assert!(matches!(result.map(|_| ()), Err(Error::Timeout("IMAP STARTTLS"))));
+    }
 
     fn folder(name: &str) -> Folder {
         Folder {

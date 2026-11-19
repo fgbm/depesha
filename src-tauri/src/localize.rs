@@ -54,6 +54,7 @@ fn error_ru(err: &Error) -> String {
         Error::SmtpHello { name, code, message } => {
             format!("сервер не принял приветствие клиента (EHLO {name}) ещё до входа: {code} {message}")
         }
+        Error::SmtpUnconfirmed(_) => "сервер не подтвердил приём. Письмо могло уйти".into(),
         Error::TooLarge { size, limit } => format!("письмо {size} байт больше лимита сервера {limit} байт"),
         Error::Compose(m) => format!("письмо не собрано: {m}"),
         Error::Store(e) => format!("локальная база: {e}"),
@@ -119,6 +120,8 @@ fn timeout_ru(what: &str) -> &str {
     match what {
         "connecting" => "подключение",
         "server greeting" => "приветствие сервера",
+        "IMAP STARTTLS" => "ответ на STARTTLS",
+        "TLS handshake" => "согласование TLS",
         "search answer" => "ответ на поиск",
         "SMTP answer" => "ответ SMTP",
         "operation" => "операция",

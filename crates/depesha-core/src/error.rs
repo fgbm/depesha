@@ -40,6 +40,8 @@ pub enum Error {
     /// The SMTP server refused our EHLO: it judges the client by the name it gives.
     #[error("the server did not accept the client's greeting (EHLO {name}), before any login: {code} {message}")]
     SmtpHello { name: String, code: u16, message: String },
+    #[error("the server did not confirm receipt. The message may have been sent")]
+    SmtpUnconfirmed(#[source] Box<Error>),
     #[error("the message is {size} bytes, over the server's limit of {limit} bytes")]
     TooLarge { size: usize, limit: u64 },
     #[error("the message could not be built: {0}")]
@@ -167,6 +169,7 @@ impl Clone for Error {
                 code: *code,
                 message: message.clone(),
             },
+            Self::SmtpUnconfirmed(cause) => Self::SmtpUnconfirmed(cause.clone()),
             Self::TooLarge { size, limit } => Self::TooLarge {
                 size: *size,
                 limit: *limit,
@@ -579,6 +582,7 @@ impl Error {
             },
             Self::Smtp { .. } => "smtp",
             Self::SmtpHello { .. } => "smtp-hello",
+            Self::SmtpUnconfirmed(_) => "smtp-unconfirmed",
             Self::TooLarge { .. } => "too-large",
             Self::Compose(_) => "compose",
             Self::Store(_) => "store",
@@ -618,6 +622,9 @@ impl Error {
 
     /// The error as one journal field: its tag and those codes, never its words.
     pub fn journal(&self) -> String {
+        if let Self::SmtpUnconfirmed(cause) = self {
+            return format!("{} {}", self.tag(), cause.journal());
+        }
         let mut text = self.tag().to_owned();
         if let Some((code, enhanced)) = self.smtp_reply() {
             text.push(' ');

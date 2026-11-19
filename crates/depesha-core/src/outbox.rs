@@ -157,7 +157,7 @@ fn retry_delay(attempts: u32, e: &crate::Error) -> i64 {
 /// Why a letter was not sent.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Hold {
-    /// Marked as sending but not removed: it may have left. Not sent again.
+    /// Automatic attempts stop until the user retries.
     PossiblySent,
     /// Its mailbox was removed.
     NoAccount,
@@ -238,6 +238,10 @@ pub async fn attempt<S: Sender>(
     let settled = async {
         match sender(account).send(&draft).await {
             Ok(raw) => Ok(Attempt::Delivered(delivered(store, item, account, &raw)?)),
+            Err(crate::Error::SmtpUnconfirmed(_)) => {
+                store.outbox_retry_later(item.id, now, &words.possibly_sent(), true)?;
+                Ok(Attempt::Held(Hold::PossiblySent))
+            }
             Err(error) => {
                 let transient = error.is_transient();
                 let delay = retry_delay(item.attempts, &error);

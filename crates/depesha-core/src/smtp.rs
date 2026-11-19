@@ -743,6 +743,7 @@ struct Conn {
 impl Conn {
     async fn reply(&mut self) -> Result<Reply> {
         let mut lines = Vec::new();
+        let mut expected_code = None;
         loop {
             let mut line = String::new();
             let n = timeout(REPLY_TIMEOUT, self.stream.read_line(&mut line))
@@ -751,16 +752,25 @@ impl Conn {
             if n == 0 {
                 return Err(Error::Closed);
             }
-            let line = line.trim_end_matches(['\r', '\n']);
+            let Some(line) = line.strip_suffix("\r\n").filter(|line| !line.contains('\r')) else {
+                return Err(Error::Protocol(line));
+            };
             let code = line
                 .get(..3)
+                .filter(|s| matches!(s.as_bytes(), [b'2'..=b'5', b'0'..=b'5', b'0'..=b'9']))
                 .and_then(|c| c.parse::<u16>().ok())
+                .filter(|c| expected_code.is_none_or(|expected| *c == expected))
                 .ok_or_else(|| Error::Protocol(line.into()))?;
-            let more = line.as_bytes().get(3) == Some(&b'-');
+            let more = match line.as_bytes().get(3) {
+                Some(b'-') => true,
+                Some(b' ') | None => false,
+                _ => return Err(Error::Protocol(line.into())),
+            };
             lines.push(line.get(4..).unwrap_or_default().to_owned());
             if !more {
                 return Ok(Reply { code, lines });
             }
+            expected_code = Some(code);
         }
     }
 
@@ -1104,31 +1114,29 @@ pub async fn send_with_stage(
     conn.expect("DATA", &[354])
         .await
         .inspect_err(|e| log_stage(server, "send", e))?;
-    let reply = match data(&mut conn, &raw).await {
-        Ok(reply) => reply,
-        Err(e) => {
-            log_stage(server, "send", &e);
-            return Err(e);
-        }
-    };
-    if reply.code != 250 {
-        let e = reply.into_error();
-        log_stage(server, "send", &e);
-        return Err(e);
-    }
+    data(&mut conn, &raw)
+        .await
+        .inspect_err(|e| log_stage(server, "send", e))?;
     best_effort("say QUIT", conn.command("QUIT").await);
     Ok(raw)
 }
 
-/// Writes the message body and reads the reply that settles it: one step, so a dropped
-/// connection partway through is one failure of «send», not of «write» or «read» apart.
-async fn data(conn: &mut Conn, raw: &[u8]) -> Result<Reply> {
+async fn data(conn: &mut Conn, raw: &[u8]) -> Result<()> {
     conn.stream.write_all(&dot_stuff(raw)).await?;
     conn.stream.flush().await?;
-    conn.reply().await
+    // Once the terminator may have reached the server, a retry can duplicate the message.
+    let reply = conn
+        .command(".")
+        .await
+        .map_err(|cause| Error::SmtpUnconfirmed(Box::new(cause)))?;
+    match reply.code / 100 {
+        // RFC 5321 §4.2 uses the reply class when the code has no known meaning.
+        2 if !matches!(reply.code, 211 | 214 | 220 | 221 | 235 | 251 | 252 | 253) => Ok(()),
+        4 | 5 => Err(reply.into_error()),
+        _ => Err(Error::SmtpUnconfirmed(Box::new(reply.into_error()))),
+    }
 }
 
-/// Escapes leading dots and appends the end-of-data marker (RFC 5321, 4.5.2).
 fn dot_stuff(raw: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(raw.len() + 64);
     let mut line_start = true;
@@ -1142,7 +1150,6 @@ fn dot_stuff(raw: &[u8]) -> Vec<u8> {
     if !out.ends_with(b"\r\n") {
         out.extend_from_slice(b"\r\n");
     }
-    out.extend_from_slice(b".\r\n");
     out
 }
 
@@ -1781,8 +1788,8 @@ mod tests {
 
     #[test]
     fn stuffs_dots() {
-        assert_eq!(dot_stuff(b".a\r\nb\r\n.\r\n"), b"..a\r\nb\r\n..\r\n.\r\n");
-        assert_eq!(dot_stuff(b"x"), b"x\r\n.\r\n");
+        assert_eq!(dot_stuff(b".a\r\nb\r\n.\r\n"), b"..a\r\nb\r\n..\r\n");
+        assert_eq!(dot_stuff(b"x"), b"x\r\n");
     }
 
     #[test]

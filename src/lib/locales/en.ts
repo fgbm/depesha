@@ -632,7 +632,7 @@ export const en = {
   "outbox.discard": "Delete",
   "outbox.edit": "Edit",
   "outbox.empty": "The queue is empty.",
-  "outbox.failed": "Not sent; needs your attention",
+  "outbox.failed": "Needs your attention",
   "outbox.scheduled": "Scheduled: will be sent {when}",
   "outbox.sendNow": "Send now",
   "outbox.sending": "Sending…",

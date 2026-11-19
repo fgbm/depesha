@@ -224,6 +224,8 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
         match attempt {
             Attempt::Skipped => continue,
             Attempt::Held(Hold::PossiblySent) => {
+                state.task_done(&key);
+                forget_letter(state, item.id);
                 state.emit("outbox-changed", json!({}));
                 continue;
             }

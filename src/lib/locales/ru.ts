@@ -624,7 +624,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "outbox.discard": "Удалить",
   "outbox.edit": "Изменить",
   "outbox.empty": "Очередь пуста.",
-  "outbox.failed": "Не отправлено, нужна ваша проверка",
+  "outbox.failed": "Нужна ваша проверка",
   "outbox.scheduled": "Запланировано: отправится {when}",
   "outbox.sendNow": "Отправить сейчас",
   "outbox.sending": "Отправляется…",

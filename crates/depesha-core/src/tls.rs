@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::timeout;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -10,6 +12,8 @@ use tokio_rustls::rustls::{self, CertificateError, ClientConfig, DigitallySigned
 
 use crate::lock::lock;
 use crate::{Error, Result};
+
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The reasons a certificate is rejected that the program words itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +177,18 @@ pub(crate) async fn wrap<S>(host: &str, pinned: Option<&str>, tcp: S) -> Result<
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    wrap_with_timeout(host, pinned, tcp, HANDSHAKE_TIMEOUT).await
+}
+
+async fn wrap_with_timeout<S>(
+    host: &str,
+    pinned: Option<&str>,
+    tcp: S,
+    handshake_timeout: Duration,
+) -> Result<TlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let name = ServerName::try_from(host.to_owned()).map_err(|_| Error::InvalidHost(host.into()))?;
     let problem = Arc::new(Mutex::new(None));
     let verifier = Verifier {
@@ -185,11 +201,31 @@ where
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(verifier))
         .with_no_client_auth();
-    match TlsConnector::from(Arc::new(config)).connect(name, tcp).await {
+    let handshake = TlsConnector::from(Arc::new(config)).connect(name, tcp);
+    match timeout(handshake_timeout, handshake)
+        .await
+        .map_err(|_| Error::Timeout("TLS handshake"))?
+    {
         Ok(stream) => Ok(stream),
         Err(err) => match lock(&problem).take() {
             Some(p) => Err(Error::Certificate(Box::new(p))),
             None => Err(err.into()),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_silent_peer_times_out_during_the_tls_handshake() {
+        let (client, _silent_peer) = tokio::io::duplex(4096);
+        let handshake = wrap_with_timeout("localhost", None, client, Duration::from_millis(20));
+        let result = timeout(Duration::from_secs(1), handshake)
+            .await
+            .expect("the TLS handshake must time out on its own");
+
+        assert!(matches!(result, Err(Error::Timeout("TLS handshake"))), "{result:?}");
     }
 }

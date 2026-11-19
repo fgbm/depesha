@@ -88,6 +88,11 @@ impl Mailbox {
     }
 }
 
+enum SelectReply {
+    Complete(&'static str),
+    Cut(&'static str),
+}
+
 /// The server's mailboxes and every command it got, without tags.
 #[derive(Default)]
 struct Server {
@@ -96,6 +101,7 @@ struct Server {
     log: Vec<String>,
     /// Answers NO to the first command starting with this.
     fail_on: Option<&'static str>,
+    select_reply: Option<SelectReply>,
     /// Sends HIGHESTMODSEQ to a plain SELECT too, as Dovecot does for a mailbox that
     /// keeps mod-sequences.
     modseq_unasked: bool,
@@ -142,16 +148,33 @@ async fn session(stream: tokio::net::TcpStream, server: Shared) {
     let mut qresync = false;
     while let Ok(Some(line)) = lines.next_line().await {
         let (tag, cmd) = line.split_once(' ').unwrap();
-        let out = {
+        let (out, cut) = {
             let mut server = server.lock().unwrap();
             server.log.push(cmd.to_owned());
-            if server.fail_on.is_some_and(|p| cmd.starts_with(p)) {
-                server.fail_on = None;
-                FAILED.to_owned()
+            let select_reply = if cmd.starts_with("SELECT ") {
+                server.select_reply.take()
             } else {
-                respond(&mut server, cmd, &mut selected, &mut condstore, &mut qresync)
+                None
+            };
+            if let Some(reply) = select_reply {
+                match reply {
+                    SelectReply::Complete(out) => (out.to_owned(), false),
+                    SelectReply::Cut(out) => (out.to_owned(), true),
+                }
+            } else if server.fail_on.is_some_and(|p| cmd.starts_with(p)) {
+                server.fail_on = None;
+                (FAILED.to_owned(), false)
+            } else {
+                (
+                    respond(&mut server, cmd, &mut selected, &mut condstore, &mut qresync),
+                    false,
+                )
             }
         };
+        if cut {
+            w.write_all(out.as_bytes()).await.unwrap();
+            return;
+        }
         let done = cmd.starts_with("LOGOUT");
         let reply = if out == REFUSED {
             format!("{tag} BAD unknown modifier\r\n")
@@ -571,6 +594,53 @@ async fn a_lower_highestmodseq_or_a_new_uidvalidity_makes_a_full_pass() {
     fx.commands();
     assert_eq!(counts(sync(&mut conn, &store, "INBOX").await), report(0, 0, 0, 0));
     assert!(!fx.commands().iter().any(|c| c.starts_with("UID FETCH")));
+}
+
+async fn a_select_error_preserves_the_folder(reply: SelectReply) {
+    let fx = Fixture::new("CONDSTORE QRESYNC", &[("INBOX", 2)]).await;
+    let mut conn = fx.connect().await;
+    let store = store_with(&["INBOX"]);
+    sync(&mut conn, &store, "INBOX").await;
+    let before = store.modseq_mark("a", "INBOX").unwrap();
+    fx.commands();
+    fx.server.lock().unwrap().select_reply = Some(reply);
+
+    let result = sync::sync_folder(&mut conn, &store, "a", "INBOX", options()).await;
+
+    assert_eq!(store.known_uids("a", "INBOX").unwrap(), [1, 2]);
+    assert_eq!(store.folder_state("a", "INBOX").unwrap(), (7, 2));
+    assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), before);
+    assert!(result.is_err(), "{result:?}");
+    let commands = fx.commands();
+    assert_eq!(commands, ["SELECT \"INBOX\" (CONDSTORE)"]);
+}
+
+#[tokio::test]
+async fn a_select_without_uidvalidity_keeps_cached_mail() {
+    a_select_error_preserves_the_folder(SelectReply::Complete("* 0 EXISTS\r\n")).await;
+}
+
+#[tokio::test]
+async fn a_select_with_zero_uidvalidity_keeps_cached_mail() {
+    a_select_error_preserves_the_folder(SelectReply::Complete("* 0 EXISTS\r\n* OK [UIDVALIDITY 0] invalid\r\n")).await;
+}
+
+#[tokio::test]
+async fn a_select_with_conflicting_uidvalidity_keeps_cached_mail() {
+    a_select_error_preserves_the_folder(SelectReply::Complete(
+        "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n* OK [UIDVALIDITY 8] ok\r\n",
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn a_select_without_exists_keeps_cached_mail() {
+    a_select_error_preserves_the_folder(SelectReply::Complete("* OK [UIDVALIDITY 7] ok\r\n")).await;
+}
+
+#[tokio::test]
+async fn a_select_cut_after_uidvalidity_keeps_cached_mail() {
+    a_select_error_preserves_the_folder(SelectReply::Cut("* 0 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n")).await;
 }
 
 #[tokio::test]
