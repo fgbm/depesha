@@ -1,0 +1,65 @@
+# Colour literals allowed in src/**/*.svelte and src/**/*.css (scripts/color-tokens.mjs, #183).
+# A line is `path literal`, or `path literal # reason` for a colour that is not the theme's on purpose.
+# Lines without a reason are old debt: replace them with a token and delete the line. The list may
+# only shrink; a new line needs a reason (scripts/frontend-baseline-guard.sh).
+src/components/account/ColorField.svelte #fff # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #000 # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #c0504d # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #c77d1a # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #4a9a6a # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #2a9d9b # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #3f7cc4 # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #9b59b6 # The colours a user gives a mailbox or a label.
+src/components/account/ColorField.svelte #d0658f # The colours a user gives a mailbox or a label.
+src/components/account/LabelsSection.svelte #6b7480 # The colours a user gives a mailbox or a label.
+src/components/account/LabelsSection.svelte rgb(0 0 0 / 12%)
+src/components/account/SignatureEditor.svelte rgb(0 0 0 / 6%)
+src/components/account/SignaturesField.svelte rgb(0 0 0 / 14%)
+src/components/AddressInput.svelte rgb(0 0 0 / 18%)
+src/components/Avatar.svelte #fff # Initials and a picture's ground on the sender's own colour.
+src/components/Compose.svelte rgb(0 0 0 / 28%)
+src/components/Compose.svelte rgb(0 0 0 / 6%)
+src/components/Compose.svelte rgb(10 14 20 / 45%)
+src/components/Compose.svelte rgb(255 255 255 / 12%)
+src/components/Dock.svelte rgb(0 0 0 / 25%)
+src/components/LabelPicker.svelte #3f7fd0 # The colours a user gives a mailbox or a label.
+src/components/LetterViewSwitch.svelte rgb(0 0 0 / 10%)
+src/components/MailFrame.svelte #d9dde3 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #f0f1f3 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #fff # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #1d232b # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #d5dbe3 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #55606c # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #1f5fa8 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/MailFrame.svelte #b9d7f5 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/people/PeopleView.svelte #fff # Initials and a picture's ground on the sender's own colour.
+src/components/Popover.svelte rgb(0 0 0 / 18%)
+src/components/Popover.svelte rgb(0 0 0 / 32%)
+src/components/prefs/controls/Switch.svelte #fff # The knob of a switch, white on the track in every theme.
+src/components/prefs/controls/Switch.svelte rgb(0 0 0 / 30%)
+src/components/prefs/FolderProps.svelte rgb(0 0 0 / 12%)
+src/components/prefs/FolderProps.svelte rgb(0 0 0 / 18%)
+src/components/prefs/KeysPanel.svelte rgb(0 0 0 / 10%)
+src/components/prefs/KeysPanel.svelte #f2c94c
+src/components/reader/PersonCard.svelte #fff # Initials and a picture's ground on the sender's own colour.
+src/components/reader/QuickReply.svelte rgb(0 0 0 / 6%)
+src/components/reader/ReaderHeader.svelte #fff # Initials and a picture's ground on the sender's own colour.
+src/components/reader/ThreadLetter.svelte #fff # Initials and a picture's ground on the sender's own colour.
+src/components/RichEditor.svelte #fff # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #1d232b # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #b9d7f5 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #6b7480 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #d5dbe3 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #55606c # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte #1f5fa8 # The letter is the sender's white sheet in every theme, as the recipient sees it.
+src/components/RichEditor.svelte rgb(0 0 0 / 14%)
+src/components/SearchBox.svelte rgb(0 0 0 / 18%)
+src/components/sidebar/sidebar.css #fff # Initials and a picture's ground on the sender's own colour.
+src/components/Tasks.svelte #4a9a6a # The colours a user gives a mailbox or a label.
+src/components/viewer/ImageView.svelte rgb(0 0 0 / 15%)
+src/components/viewer/MediaView.svelte #000 # The dark of a film, whatever the theme.
+src/components/viewer/PdfView.svelte #fff # A page of a document, whatever the theme.
+src/components/viewer/PdfView.svelte rgb(0 0 0 / 18%)
+src/components/viewer/PdfView.svelte rgb(0 90 200 / 25%)
+src/components/WindowControls.svelte #c42b1c # Windows' own red of «Close».
+src/components/WindowControls.svelte #fff # Windows' own red of «Close».

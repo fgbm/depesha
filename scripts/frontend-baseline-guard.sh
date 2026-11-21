@@ -5,7 +5,8 @@
 #   scripts/frontend-baseline-guard.sh              против origin/main
 #   scripts/frontend-baseline-guard.sh REF          против REF (ветка, тег, коммит)
 #   scripts/frontend-baseline-guard.sh --from DIR   против файлов из DIR
-#                                                   (frontend-metrics-baseline.txt, app-members.txt, app-nested.txt)
+#                                                   (frontend-metrics-baseline.txt, app-members.txt, app-nested.txt,
+#                                                   color-tokens-exceptions.txt if there is one)
 #
 # На main и на ветке, равной main, роста нет по определению. Исключения —
 # docs/frontend-metrics-exceptions.txt и docs/frontend-invariants/exceptions.txt.
@@ -34,7 +35,12 @@ if [[ -z $from ]]; then
   git show "$ref:docs/frontend-invariants/app-nested.txt" > "$from/app-nested.txt" 2>/dev/null || rm -f "$from/app-nested.txt"
   # Определение app_nested() в main: изменилось в ветке — baseline второго уровня пересобран с ним.
   git show "$ref:scripts/frontend-invariants.sh" > "$from/frontend-invariants.sh"
+  # Colour exceptions (#183) may be missing in main too: the guard starts with the first list there.
+  git show "$ref:docs/color-tokens-exceptions.txt" > "$from/color-tokens-exceptions.txt" 2>/dev/null || rm -f "$from/color-tokens-exceptions.txt"
 fi
 
 scripts/frontend-metrics.sh --diff "$from/frontend-metrics-baseline.txt" docs/frontend-metrics-baseline.txt
 scripts/frontend-invariants.sh --guard "$from"
+if [[ -f $from/color-tokens-exceptions.txt ]]; then
+  node scripts/color-tokens.mjs --guard "$from/color-tokens-exceptions.txt"
+fi
