@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::tr;
 use depesha_core::store::OutboxItem;
 use serde_json::json;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
 use tokio::sync::Notify;
 
 use crate::config::Settings;
@@ -120,6 +120,9 @@ pub struct Background {
     unsaved: Mutex<HashSet<String>>,
     /// A quit is waiting for those windows to close.
     quit_pending: AtomicBool,
+    /// Where the main window stood when it was hidden. X11 forgets the place of a hidden
+    /// window and the window manager shows it again at its default place (#203).
+    hidden_at: Mutex<Option<PhysicalPosition<i32>>>,
 }
 
 impl Background {
@@ -180,16 +183,37 @@ impl Background {
     pub fn set_quit_pending(&self, pending: bool) {
         self.quit_pending.store(pending, Ordering::Release);
     }
+
+    /// The place the main window is hidden at; none for a window that fills the screen or
+    /// is folded, which comes back as it was without one.
+    pub fn keep_place(&self, place: Option<PhysicalPosition<i32>>) {
+        *lock(&self.hidden_at) = place;
+    }
+
+    /// The place to show the main window at, once: a window already on screen stays where
+    /// the user put it.
+    pub fn take_place(&self) -> Option<PhysicalPosition<i32>> {
+        lock(&self.hidden_at).take()
+    }
 }
 
 /// Brings the main window forward: from the tray, a notification, a second launch.
 pub fn show_main(app: &AppHandle) {
+    let state = app.try_state::<Arc<AppState>>();
     if let Some(w) = app.get_webview_window("main") {
+        let place = state.as_ref().and_then(|s| s.background.take_place());
+        if let Some(place) = place {
+            best_effort("put the window back in its place", w.set_position(place));
+        }
         best_effort("show the window", w.show());
         best_effort("unminimize the window", w.unminimize());
+        // The window manager places a window when it is mapped, so the place is set once more.
+        if let Some(place) = place {
+            best_effort("put the window back in its place", w.set_position(place));
+        }
         best_effort("focus the window", w.set_focus());
     }
-    if let Some(state) = app.try_state::<Arc<AppState>>() {
+    if let Some(state) = state {
         crate::tray::refresh_soon(&state);
         // Letters held back while the window was away are told now that it is back.
         report_missed(&state);
@@ -202,14 +226,31 @@ pub fn main_hidden(app: &AppHandle) -> bool {
         .is_none_or(|w| !w.is_visible().unwrap_or(false))
 }
 
-/// Hides the main window; the app works on.
+/// Hides the main window; the app works on. Its place is kept for `show_main`.
 pub fn hide_main(app: &AppHandle) {
+    let state = app.try_state::<Arc<AppState>>();
     if let Some(w) = app.get_webview_window("main") {
+        // A window hidden already keeps the place it was hidden at.
+        if w.is_visible().unwrap_or(false)
+            && let Some(state) = &state
+        {
+            state.background.keep_place(place_of(&w));
+        }
         best_effort("hide the window", w.hide());
     }
-    if let Some(state) = app.try_state::<Arc<AppState>>() {
+    if let Some(state) = state {
         crate::tray::refresh_soon(&state);
     }
+}
+
+/// Where a window stands on screen; none when it fills the screen or is folded.
+fn place_of(w: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
+    let maximized = w.is_maximized().unwrap_or(false);
+    let minimized = w.is_minimized().unwrap_or(false);
+    if maximized || minimized {
+        return None;
+    }
+    w.outer_position().ok()
 }
 
 /// The main window is in front and has the keyboard: the user sees what happens.
@@ -441,6 +482,20 @@ mod tests {
             background_without_tray: without_tray,
             ..Settings::default()
         }
+    }
+
+    #[test]
+    fn the_place_of_a_hidden_window_is_given_back_once() {
+        let background = Background::default();
+        assert_eq!(background.take_place(), None);
+        background.keep_place(Some(PhysicalPosition::new(120, -40)));
+        assert_eq!(background.take_place(), Some(PhysicalPosition::new(120, -40)));
+        // Shown already: a second show leaves the window where the user put it.
+        assert_eq!(background.take_place(), None);
+        // A window that filled the screen comes back without a place.
+        background.keep_place(Some(PhysicalPosition::new(5, 5)));
+        background.keep_place(None);
+        assert_eq!(background.take_place(), None);
     }
 
     #[test]
