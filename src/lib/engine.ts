@@ -10,6 +10,9 @@
 /** Fields and editors: the engine's own menu there is the useful one. */
 export const EDITORS = "input, textarea, [contenteditable], .cm-editor";
 
+/** Pictures of the window whose engine menu offers «Copy image» (#206): the viewer's, not the interface's icons. */
+export const PICTURES = "img.copyable";
+
 /** Text Depesha lets the user select and copy: the letter's header, its body, errors, viewers. */
 export const SELECTABLE = ".selectable";
 
@@ -25,9 +28,9 @@ const within = (target: EventTarget | null, selector: string): boolean => zoneOf
 /** Where the last press landed: a click on text leaves the focus on the page's own body. */
 let pressed: EventTarget | null = null;
 
-/** Whether the engine's menu belongs on this press: a field, an editor, or text chosen to copy. */
+/** Whether the engine's menu belongs on this press: a field, an editor, a picture to copy, or text chosen to copy. */
 export function engineMenuWanted(target: EventTarget | null, chosen: boolean): boolean {
-  return chosen || within(target, EDITORS);
+  return chosen || within(target, EDITORS) || within(target, PICTURES);
 }
 
 /** Whether the text chosen in `doc` is worth a menu: a click leaves an empty selection behind. */

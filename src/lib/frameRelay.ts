@@ -98,11 +98,11 @@ export const FRAME_RELAY = `(function () {
     if (href && href.charAt(0) !== "#") send({ type: "link", href: href });
   });
   // The menu of the right button in a frame offers the engine's own things — reload the page, save
-  // it, inspect it — none of which a letter has. Kept where it is of use: in a field, and over text
-  // chosen to copy.
+  // it, inspect it — none of which a letter has. Kept where it is of use: in a field, over a
+  // picture to copy (#206), and over text chosen to copy.
   document.addEventListener("contextmenu", function (e) {
     var t = e.target;
-    if (t && t.closest && t.closest(${JSON.stringify(EDITORS)})) return;
+    if (t && t.closest && t.closest(${JSON.stringify(`${EDITORS}, img`)})) return;
     var s = window.getSelection();
     if (s && !s.isCollapsed && s.toString().trim() !== "") return;
     e.preventDefault();
@@ -143,7 +143,7 @@ export const FRAME_RELAY = `(function () {
  * The relay's hash, as a policy source. Every byte of FRAME_RELAY must show up here: the frame's
  * `<meta>` policy and the window's (`tauri.conf.json`) both list it, or the relay does not run.
  */
-export const RELAY_HASH = "'sha256-uflZAL03gKNceYBhK4rTMyiSzpwAylbzPGOk/EWgZtY='";
+export const RELAY_HASH = "'sha256-o7JY3LNX05shn9+e8JzRELuPJE16ZCCferpyJRAtt9A='";
 
 /** What the frame sends: a click on a link, a hover, a key pressed in the letter, its height. */
 export type FrameMessage =

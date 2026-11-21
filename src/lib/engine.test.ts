@@ -60,6 +60,12 @@ describe("the menu of the right button", () => {
     }
   });
 
+  it("belongs over the viewer's picture, for «Copy image», and not over a picture of the interface (#206)", () => {
+    chosen(false);
+    expect(menuOn(element("<img class='copyable' alt=''>")).defaultPrevented).toBe(false);
+    expect(menuOn(element("<img class='avatar' alt=''>")).defaultPrevented).toBe(true);
+  });
+
   it("keeps the menu of a row of Depesha's own, which the row itself opens", () => {
     chosen(false);
     const row = element("<div class='row'></div>");
