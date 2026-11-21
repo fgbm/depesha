@@ -170,6 +170,8 @@ jobs:
         run: node scripts/md-onelines.mjs
       - run: scripts/frontend-metrics.sh
       - run: scripts/frontend-invariants.sh
+      - name: Colours through the theme's tokens
+        run: node scripts/color-tokens.mjs
       - name: Plugin API against its snapshot
         run: node scripts/plugin-api-snapshot.mjs
       - name: Every IPC command has a caller

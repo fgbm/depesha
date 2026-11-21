@@ -148,7 +148,7 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
   fi
   pick() { grep -E "$1" <<<"$changed" || true; }
   rust=$(pick '^(crates/|src-tauri/|src/lib/generated/|Cargo\.(toml|lock)$|rustfmt\.toml$)')
-  front=$(pick '^(src/|plugins/|public/|index\.html$|package(-lock)?\.json$|vite\.config|svelte\.config|tsconfig|eslint|docs/(frontend-|plugin-api)|scripts/(frontend-|plugin-api-|check\.sh))')
+  front=$(pick '^(src/|plugins/|public/|index\.html$|package(-lock)?\.json$|vite\.config|svelte\.config|tsconfig|eslint|docs/(frontend-|plugin-api|color-tokens)|scripts/(frontend-|plugin-api-|color-tokens|check\.sh))')
   # Config that changes how every file is linted: the whole tree, not the list of changed files.
   lintconf=$(pick '^(eslint|package(-lock)?\.json$|tsconfig|vite\.config)')
   e2e=$(pick '^e2e/')
@@ -183,6 +183,8 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     scripts/frontend-metrics.sh
     step "инварианты фронтенда"
     scripts/frontend-invariants.sh
+    step "colour tokens"
+    node scripts/color-tokens.mjs
     step "API плагинов против снимка"
     node scripts/plugin-api-snapshot.mjs
     if grep -qE '^scripts/frontend-' <<<"$front"; then
@@ -270,6 +272,8 @@ step "метрики фронтенда"
 scripts/frontend-metrics.sh
 step "инварианты фронтенда"
 scripts/frontend-invariants.sh
+step "colour tokens"
+node scripts/color-tokens.mjs
 step "API плагинов против снимка"
 node scripts/plugin-api-snapshot.mjs
 step "у каждой IPC-команды есть вызов"
