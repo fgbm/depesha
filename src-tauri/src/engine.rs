@@ -9,8 +9,8 @@
 mod menu;
 
 /// Turns off the browser's accelerator keys of a window, and takes the engine's own items out of
-/// its menu of the right button: the edits and the spelling stay, the rest goes. A debug build
-/// keeps both, and a test build too, for the run drives the app by keyboard.
+/// its menu of the right button: the edits, the copy of a picture and the spelling stay, the rest
+/// goes. A debug build keeps both, and a test build too, for the run drives the app by keyboard.
 #[cfg(windows)]
 pub fn quiet(window: &tauri::WebviewWindow) {
     use webview2_com::ContextMenuRequestedEventHandler;

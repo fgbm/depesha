@@ -127,6 +127,17 @@ describe("what the relay of a frame tells the app", () => {
     expect(field.preventDefault).not.toHaveBeenCalled();
   });
 
+  it("keeps the engine's menu over a picture of the letter, for «Copy image» (#206)", () => {
+    const env = frameEnv();
+    const picture = { target: { closest: (sel: string) => (sel.split(", ").includes("img") ? {} : null) }, preventDefault: vi.fn() };
+    env.fire("contextmenu", picture);
+    expect(picture.preventDefault).not.toHaveBeenCalled();
+    // The body around the picture still has no menu.
+    const body = { target: { closest: () => null }, preventDefault: vi.fn() };
+    env.fire("contextmenu", body);
+    expect(body.preventDefault).toHaveBeenCalled();
+  });
+
   it("does nothing at all when it is not in a frame", () => {
     const env = frameEnv({ inFrame: false });
     env.fire("keydown", press({ key: "k", code: "KeyK", ctrlKey: true }));

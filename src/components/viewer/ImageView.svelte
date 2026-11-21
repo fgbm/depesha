@@ -38,7 +38,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="image" class:zoomed={zoom !== null} onwheel={onWheel} ondblclick={() => (zoom = zoom === null ? 1 : null)}>
   {#if url}
-    <img
+    <img class="copyable"
       src={url}
       alt={file.name}
       onload={(e) => {

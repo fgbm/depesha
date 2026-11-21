@@ -1,8 +1,8 @@
-//! The menu of the right button that WebView2 opens in a field of a letter. Next to the edits it
-//! offers the emoji keyboard, the writing direction, an import of passwords and tools of its own —
-//! none of which a letter has. The engine lets its host take items out of that menu before it is
-//! shown; this is that list. A debug build keeps the whole menu, for the inspector and the reload
-//! there are worth more than a short one.
+//! The menu of the right button that WebView2 opens in a field or over a picture of a letter. Next
+//! to the edits and «Copy image» it offers the emoji keyboard, the writing direction, an import of
+//! passwords and tools of its own — none of which a letter has. The engine lets its host take items
+//! out of that menu before it is shown; this is that list. A debug build keeps the whole menu, for
+//! the inspector and the reload there are worth more than a short one.
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
@@ -11,11 +11,13 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use webview2_com::take_pwstr;
 use windows::core::PWSTR;
 
-/// The items a field of a letter is about. A name is the engine's own word for the item, not its
-/// label: the labels are translated into the language of Windows, the names are not.
+/// The items a field of a letter is about, and the copy of a picture in a letter (#206). A name is
+/// the engine's own word for the item, not its label: the labels are translated into the language
+/// of Windows, the names are not.
 const EDITS: &[&str] = &[
     "cut",
     "copy",
+    "copyImage",
     "paste",
     "pasteAndMatchStyle",
     "selectAll",
@@ -56,8 +58,8 @@ fn items_of(items: &ICoreWebView2ContextMenuItemCollection) -> Vec<(COREWEBVIEW2
     (0..count).filter_map(|index| read(items, index)).collect()
 }
 
-/// Takes the engine's own items out of the menu, leaving the edits, the spelling and their
-/// separators.
+/// Takes the engine's own items out of the menu, leaving the edits, the copy of a picture, the
+/// spelling and their separators.
 pub fn edits_only(args: &ICoreWebView2ContextMenuRequestedEventArgs) {
     // SAFETY: the items belong to the arguments of the event, which live while the handler runs.
     let Ok(items) = (unsafe { args.MenuItems() }) else {
