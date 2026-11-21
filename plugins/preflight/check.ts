@@ -9,8 +9,11 @@ const PUBLIC = new Set([
   "proton.me", "protonmail.com", "gmx.com", "gmx.de", "zoho.com", "aol.com",
 ]);
 
-const MENTIONS_FILE = /(во вложени|в приложени|прилага|прикрепл|приложил|приложен|attach|enclosed|see the file)/i;
-const QUOTE = /\n\n[^\n]*(пишет:|wrote:|-------- Пересылаемое сообщение|-------- Forwarded message)/;
+// Russian, English and German. `\b` knows only ASCII letters, so it stands only next to them.
+const MENTIONS_FILE =
+  /(во вложени|в приложени|прилага|прикрепл|приложил|приложен|attach|enclosed|see the file|\banbei\b|\bim anhang|\bin der anlage|\bals anlage|beigefügt|beiliegend|angehängt)/i;
+// A German quote names the writer before the colon: «Am 01.10.2026 um 10:00 schrieb Peter:».
+const QUOTE = /\n\n[^\n]*(пишет:|wrote:|Am [^\n]* schrieb [^\n]*:|-------- Пересылаемое сообщение|-------- Forwarded message|-------- Weitergeleitete Nachricht)/;
 
 /** What the user wrote: without the quote and the signature. */
 export function ownText(text: string): string {
