@@ -14,6 +14,7 @@ import { shortcuts } from "../lib/shortcuts.svelte";
 import { addressesOf, allMailQuery, blankPerson, matchPerson } from "../lib/people";
 import { peopleBook } from "../lib/peopleBook.svelte";
 import { registry } from "./registry.svelte";
+import { guardCommand, guardKey, guardListFilter, guardView } from "./guard";
 
 function fill(s: string, params?: Record<string, string | number>): string {
   return params ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m)) : s;
@@ -64,8 +65,25 @@ export function keybindingRun(id: string): (() => void) | undefined {
   return registry.items("keybindings").find((b) => b.id === id && (!b.when || b.when()))?.run;
 }
 
-function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
+/** What a plugin registers while it is on; once it is off, its context adds nothing more. */
+function liveAdd(live: () => boolean): typeof registry.add {
+  return (kind, owner, item) => {
+    if (live()) registry.add(kind, owner, item);
+  };
+}
+
+/** A backend event for a plugin that is still on: its listener goes when the plugin goes. */
+function subscribe(disposers: (() => void)[], live: () => boolean, event: string, run: (payload: unknown) => void) {
+  if (!live()) return;
+  const off = listen(event, (e) => run(e.payload));
+  disposers.push(() => void off.then((f) => f()));
+}
+
+const fail = (e: unknown) => app.ui.fail(e);
+
+function context(plugin: Plugin, disposers: (() => void)[], live: () => boolean): PluginContext {
   const id = plugin.manifest.id;
+  const add = liveAdd(live);
   const own = (): Record<string, unknown> => (app.settingsCtl.settings.plugin_settings?.[id] as Record<string, unknown>) ?? {};
   return {
     id,
@@ -109,10 +127,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       main: () => app.windowOf === null,
     },
     backend: <T>(command: string, args?: Record<string, unknown>) => (command === "counters" ? sharedCounters<T>() : call<T>(command, args)),
-    onBackend: (event, run) => {
-      const off = listen(event, (e) => run(e.payload));
-      disposers.push(() => void off.then((f) => f()));
-    },
+    onBackend: (event, run) => subscribe(disposers, live, event, run),
     openLink: (url) => app.ui.openLink(url),
     toast: (text, o) => app.ui.toast(text, o?.error ?? false, o?.action, o?.ms),
     fail: (e, prefix) => app.ui.fail(e, prefix),
@@ -123,25 +138,25 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       set: (key, value) => app.settingsCtl.savePluginSettings(id, { ...own(), [key]: value }),
     },
     ui: {
-      command: (c) => registry.add("commands", id, c),
+      command: (c) => add("commands", id, guardCommand(id, c, fail)),
       // A key alone, as before named keys (#46): its command is named by the plugin and the key.
       keybinding: (b: KeyBinding | string, run?: () => void, when?: () => boolean) =>
-        registry.add("keybindings", id, typeof b === "string" ? { id: `${id}.key.${b}`, title: () => pick(plugin.manifest.name), key: b, run: run!, when } : b),
-      readerToolbar: (r) => registry.add("readerToolbar", id, r),
-      bulkToolbar: (r) => registry.add("bulkToolbar", id, r),
-      readerHeader: (r) => registry.add("readerHeader", id, r),
-      messageAction: (a) => registry.add("messageActions", id, a),
-      rowAction: (a) => registry.add("rowActions", id, a),
-      banner: (p) => registry.add("banners", id, p),
-      rowTag: (p) => registry.add("rowTags", id, p),
-      view: (v) => registry.add("views", id, v),
-      listFilter: (f) => registry.add("listFilters", id, f),
-      composeControl: (c) => registry.add("composeControls", id, c),
-      composeReplacements: (t) => registry.add("composeReplacements", id, t),
-      sendCheck: (c) => registry.add("sendChecks", id, c),
-      settingsSection: (s) => registry.add("settingsSections", id, s),
-      overlay: (r) => registry.add("overlays", id, r),
-      fileViewer: (v) => registry.add("fileViewers", id, v),
+        add("keybindings", id, guardKey(id, typeof b === "string" ? { id: `${id}.key.${b}`, title: () => pick(plugin.manifest.name), key: b, run: run!, when } : b, fail)),
+      readerToolbar: (r) => add("readerToolbar", id, r),
+      bulkToolbar: (r) => add("bulkToolbar", id, r),
+      readerHeader: (r) => add("readerHeader", id, r),
+      messageAction: (a) => add("messageActions", id, a),
+      rowAction: (a) => add("rowActions", id, a),
+      banner: (p) => add("banners", id, p),
+      rowTag: (p) => add("rowTags", id, p),
+      view: (v) => add("views", id, guardView(id, v, fail)),
+      listFilter: (f) => add("listFilters", id, guardListFilter(id, f, fail)),
+      composeControl: (c) => add("composeControls", id, c),
+      composeReplacements: (t) => add("composeReplacements", id, t),
+      sendCheck: (c) => add("sendChecks", id, c),
+      settingsSection: (s) => add("settingsSections", id, s),
+      overlay: (r) => add("overlays", id, r),
+      fileViewer: (v) => add("fileViewers", id, v),
     },
   };
 }
@@ -149,6 +164,8 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
 class Host {
   readonly plugins: Plugin[] = BUILTIN;
   private active = new Map<string, (() => void)[]>();
+  /** Plugins whose `activate` threw: not started again until the user switches them off and on. */
+  private failed = new Set<string>();
 
   /** A plugin off until the user switches it on: its id is listed in `enabled_plugins` while on. */
   private defaultOff(id: string): boolean {
@@ -166,7 +183,8 @@ class Host {
     for (const p of this.plugins) {
       const id = p.manifest.id;
       const on = this.enabled(id);
-      if (on && !this.active.has(id)) this.activate(p);
+      if (!on) this.failed.delete(id);
+      if (on && !this.active.has(id) && !this.failed.has(id)) this.activate(p);
       else if (!on && this.active.has(id)) this.deactivate(id);
     }
   }
@@ -174,11 +192,13 @@ class Host {
   private activate(p: Plugin) {
     const disposers: (() => void)[] = [];
     this.active.set(p.manifest.id, disposers);
+    const live = () => this.active.get(p.manifest.id) === disposers;
     try {
-      const done = p.activate(context(p, disposers));
+      const done = p.activate(context(p, disposers, live));
       if (typeof done === "function") disposers.push(done);
     } catch (e) {
       console.error(`plugin ${p.manifest.id} failed to start:`, e);
+      this.failed.add(p.manifest.id);
       this.deactivate(p.manifest.id);
     }
   }

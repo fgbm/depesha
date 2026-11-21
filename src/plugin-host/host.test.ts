@@ -176,9 +176,12 @@ describe("keys of plugins", () => {
     host.setEnabled("always-on", true);
     host.sync();
     const ctx = vi.mocked(alwaysOn.activate).mock.calls.at(-1)![0];
-    const run = () => {};
+    const run = vi.fn();
     ctx.ui.keybinding({ id: "always-on.go", title: () => "Go", key: "g", run });
-    expect(registry.add).toHaveBeenCalledWith("keybindings", "always-on", { id: "always-on.go", title: expect.any(Function), key: "g", run });
+    expect(registry.add).toHaveBeenCalledWith("keybindings", "always-on", { id: "always-on.go", title: expect.any(Function), key: "g", run: expect.any(Function) });
+    // The registry holds the host's guard around the plugin's own `run`.
+    (vi.mocked(registry.add).mock.calls.at(-1)![2] as { run: () => void }).run();
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("without an id, as before, are named by the plugin and the key", () => {
