@@ -45,7 +45,7 @@ env:
   # Версия Vale — одна на CI и на локальный запуск.
   VALE_VERSION: 3.24.0
   # Markdown в охвате styles/DepeshaEN и styles/DepeshaRU (mirror .vale.ini) — одним списком.
-  STYLE_PATHS: README.md README.en.md AGENTS.md CONTRIBUTING.md SECURITY.md plugins/README.md docs e2e/README.md design/mockups/README.md design/references
+  STYLE_PATHS: README.md README.en.md AGENTS.md CONTRIBUTING.md SECURITY.md plugins/README.md plugins/CONTRACT.md docs e2e/README.md design/mockups/README.md design/references
 
 jobs:
   # Text style: Vale (styles/DepeshaEN, styles/DepeshaRU) and ste-lint over the same Markdown.

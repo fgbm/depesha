@@ -2,14 +2,14 @@
 
 Depesha is built like Obsidian: the core does mail — accounts, sync, the list, the reader, compose, search, the outbox, settings. Everything beyond that is a plugin. Snooze, "Waiting for reply", newsletters, templates, the check before sending, send later and the command palette are plugins too. They are switched on and off on the **Plugins** page of the settings. Open it by the gear at the bottom of the sidebar, `Ctrl+,`, or "Plugins" in the palette.
 
-All plugins live in this repository for now. Once the contract settles, they move to repositories of their own.
+All plugins live in this repository for now. Once the contract settles, they move to repositories of their own. Where the contract ends — its version, the manifests, the limits and what an error of a plugin leaves behind — is in [`CONTRACT.md`](CONTRACT.md).
 
 ## Two kinds
 
 | | Built-in | Community |
 | --- | --- | --- |
 | Where | `plugins/<id>/` | `plugins/community/<id>/`, or any folder installed from the Plugins page of the settings |
-| Language | TypeScript and Svelte, bundled with the app | plain JavaScript, `main.js` up to 512 KB |
+| Language | TypeScript and Svelte, bundled with the app | plain JavaScript, one script (`main`, `main.js` by default) up to 512 KB |
 | Runs | in the window, trusted | in a Web Worker inside a sandboxed frame (`ext://`), no access to the app or IPC |
 | Sees | `@depesha/plugin-api` | the `depesha` object and the data its permissions allow |
 | Can add | buttons, menus, banners, list views, list tabs, row labels, compose controls, typography tables, send checks, settings sections, keys, overlays, attachment formats | banners, commands, send warnings, actions on new mail |
@@ -40,7 +40,7 @@ Rules:
 - **Import only `@depesha/plugin-api`**, `svelte`, `@lucide/svelte/icons/*` and files of your own folder. `src/plugin-api/boundary.test.ts` and the eslint rules `no-restricted-imports` and `no-restricted-syntax` (`import()`) fail on anything else, a neighbouring plugin’s files and `../` included. That is what lets a plugin move out of the repository later. (A plugin’s test may also take the core’s test helpers `src/lib/testing`, `i18n.svelte` and `keymap`, because it tests the plugin together with the core.)
 - **The API is a snapshot.** `docs/plugin-api.snapshot.d.ts` lists every export of `@depesha/plugin-api` with its signature and the types it uses. CI fails when the API differs from it; after a deliberate change run `npm run plugin-api:update` and note it in [`CHANGELOG.md`](CHANGELOG.md).
 - **Carry your own strings** as `{ en, ru }` objects and translate them with `ctx.t` and `ctx.plural`. The core's dictionaries are not part of the contract.
-- **Everything goes through `ctx`.** What a plugin registers with `ctx.ui.*`, the backend events it subscribes to with `ctx.onBackend`, and the function `activate` returns are undone when the plugin is switched off. Nothing has to be cleaned up by hand.
+- **Everything goes through `ctx`.** What a plugin registers with `ctx.ui.*`, the backend events it subscribes to with `ctx.onBackend`, and the function `activate` returns are undone when the plugin is switched off. What it registers after that, timers it starts itself and its settings stay (see the [known gaps](CONTRACT.md#known-gaps)).
 - **Settings are per plugin**: `ctx.settings.get(key, fallback)` and `ctx.settings.set(key, value)` keep a JSON object under the plugin's id in the app settings.
 - **Backend services stay in the core.** A plugin calls them with `ctx.backend(command, args)` (the Tauri commands in `src-tauri/src/commands.rs`). Switching a plugin off hides its interface but does not stop the backend: snoozed mail still comes back when the snooze plugin is off.
 

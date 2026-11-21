@@ -47,7 +47,7 @@ ru_docs() {
 # Markdown в охвате Vale (styles/DepeshaEN и styles/DepeshaRU; mirror .vale.ini).
 style_docs() {
   ru_docs
-  printf '%s\n' README.en.md plugins/README.md SECURITY.md CONTRIBUTING.md docs/style/ste-en.md
+  printf '%s\n' README.en.md plugins/README.md plugins/CONTRACT.md SECURITY.md CONTRIBUTING.md docs/style/ste-en.md
 }
 
 # Vale по переданным файлам, только где он установлен; иначе одна строка-напоминание, проверка не падает.
