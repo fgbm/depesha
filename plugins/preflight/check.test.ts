@@ -16,6 +16,18 @@ describe("preflight", () => {
     expect(ownText("Привет\n\n-- \nИван, прилагаю всегда")).toBe("Привет");
   });
 
+  it("catches a forgotten attachment in German, but not in a German quote or in words that only look alike", () => {
+    const d = draft({ to: [{ name: null, email: "a@corp.example" }], subject: "x" });
+    for (const text of ["Anbei die Rechnung.", "Die Rechnung finden Sie im Anhang.", "In der Anlage sende ich Ihnen den Vertrag.", "Als Anlage der Vertrag.", "Den Bericht habe ich beigefügt.", "Beiliegend das Protokoll.", "Ich habe die Datei angehängt."]) {
+      expect(preflight({ ...d, text }, me.email).map((w) => w.kind), text).toEqual(["attachment"]);
+    }
+    expect(preflight({ ...d, text: "Danke!\n\nAm 01.10.2026 um 10:00 schrieb Peter:\n> anbei die Rechnung" }, me.email)).toEqual([]);
+    expect(preflight({ ...d, text: "Siehe unten.\n\n-------- Weitergeleitete Nachricht --------\nAnbei die Rechnung" }, me.email)).toEqual([]);
+    for (const text of ["Der Anhänger ist rot.", "Die Anlage am Hafen ist geschlossen.", "Ich bin dabei.", "Bei Fragen melden Sie sich."]) {
+      expect(preflight({ ...d, text }, me.email), text).toEqual([]);
+    }
+  });
+
   it("warns when colleagues and outsiders share a letter", () => {
     const d = draft({ subject: "x", to: [{ name: null, email: "boss@corp.example" }], cc: [{ name: null, email: "partner@other.example" }] });
     expect(preflight(d, me.email)).toEqual([{ kind: "external", n: 0, domains: "other.example" }]);
