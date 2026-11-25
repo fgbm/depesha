@@ -6,9 +6,10 @@ import commandPalette from "./command-palette";
 import followups from "./followups";
 import newsletters from "./newsletters";
 import preflight from "./preflight";
+import searchHelp from "./search-help";
 import sendLater from "./send-later";
 import snooze from "./snooze";
 import templates from "./templates";
 import typography from "./typography";
 
-export const BUILTIN: Plugin[] = [commandPalette, accountColor, snooze, followups, newsletters, sendLater, templates, typography, preflight];
+export const BUILTIN: Plugin[] = [commandPalette, accountColor, snooze, followups, newsletters, sendLater, templates, typography, preflight, searchHelp];
